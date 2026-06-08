@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("EMPLOYEE") // ADMIN or EMPLOYEE
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  employee   Employee?
+  auditLogs  AuditLog[]
+}
+
+model Employee {
+  id             String @id @default(cuid())
+  employeeNumber String @unique
+  position       String
+  department     String
+  sucursal       String @default("Matriz") // Sucursal o branch: Matriz, Sucursal 1, etc.
+  userId         String @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workSchedules    WorkSchedule[]
+  attendanceRecords AttendanceRecord[]
+}
+
+model WorkSchedule {
+  id               String   @id @default(cuid())
+  employeeId       String
+  dayOfWeek        Int      // 0=Domingo, 1=Lunes, ... 6=Sábado
+  startTime        String   // HH:mm format
+  endTime          String   // HH:mm format
+  toleranceMinutes Int      @default(10)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, dayOfWeek])
+}
+
+model AttendanceRecord {
+  id                String   @id @default(cuid())
+  employeeId        String
+  date              String   // YYYY-MM-DD
+  sucursal          String   @default("Matriz") // Sucursal donde se registró
+  checkInTime       String?  // ISO datetime string
+  checkOutTime      String?  // ISO datetime string
+  checkInLatitude   Float?
+  checkInLongitude  Float?
+  checkOutLatitude  Float?
+  checkOutLongitude Float?
+  checkInMethod     String?  // QR or PASSWORD
+  checkOutMethod    String?  // QR or PASSWORD
+  checkInIpAddress  String?
+  checkOutIpAddress String?
+  // Comida (Meal) - 15 minutes for 8h shifts
+  mealStart         String?  // ISO datetime string - inicio de comida
+  mealEnd           String?  // ISO datetime string - fin de comida
+  mealDuration      Int?     // Duración en minutos de comida
+  exceededMeal      Boolean  @default(false) // Si excedió el tiempo de comida permitido
+  // Descanso (Rest) - 15 minutes for 8h shifts
+  restStart         String?  // ISO datetime string - inicio de descanso
+  restEnd           String?  // ISO datetime string - fin de descanso
+  restDuration      Int?     // Duración en minutos de descanso
+  exceededRest      Boolean  @default(false) // Si excedió el tiempo de descanso permitido
+  // Legacy fields (deprecated - kept for backward compatibility)
+  breakStart        String?  // @deprecated - use mealStart/restStart
+  breakEnd          String?  // @deprecated - use mealEnd/restEnd
+  breakDuration     Int?     // @deprecated - use mealDuration/restDuration
+  exceededBreak     Boolean  @default(false) // @deprecated - use exceededMeal/exceededRest
+  status            String   @default("ABSENT") // PRESENT, ABSENT, LATE, EARLY_LEAVE
+  notes             String?
+  isLocked          Boolean  @default(true) // Registros inalterables
+  createdAt         DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String   // LOGIN, CHECK_IN, CHECK_OUT, CREATE_EMPLOYEE, UPDATE_EMPLOYEE, EXPORT_REPORT, etc.
+  entityType String?  // USER, EMPLOYEE, ATTENDANCE_RECORD
+  entityId   String?
+  ipAddress  String?
+  userAgent  String?
+  details    String?  // JSON string with additional info
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DynamicQR {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Sucursal {
+  id                   String   @id @default(cuid())
+  name                 String   @unique
+  address              String?
+  isActive             Boolean  @default(true)
+  mealToleranceMinutes Int     @default(5) // Minutos de tolerancia para el tiempo de comida
+  restToleranceMinutes Int     @default(5) // Minutos de tolerancia para el tiempo de descanso
+  breakToleranceMinutes Int     @default(5) // @deprecated - use mealToleranceMinutes/restToleranceMinutes
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
