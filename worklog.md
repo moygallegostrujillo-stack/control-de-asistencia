@@ -24,3 +24,29 @@ Stage Summary:
 - Database: SQLite with Prisma ORM, schema includes 6 models
 - The dev server is functional but has intermittent stability issues in the sandbox environment (process gets killed after ~15 seconds)
 - User should use the Preview Panel to view the application
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Create test admin user and seed database
+
+Work Log:
+- Verified database is accessible via Prisma Client
+- Database was empty initially
+- Created admin user: admin@asistencias.com / Admin123!
+- Created employee user: empleado@asistencias.com / Empleado123!
+- Created employee record for Juan Pérez García (EMP-001, Operador, Producción, Matriz)
+- Created work schedules for employee (Mon-Fri, 08:00-17:00, 10min tolerance)
+- Created 2 sucursales: Matriz (Oficina Principal) and Sucursal Norte (Av. Norte 123)
+- Verified login API works for both admin and employee users
+- Server responds correctly with HTTP 200 for page requests
+- Server responds correctly with user data for login API requests
+
+Stage Summary:
+- Database fully seeded with test data
+- 2 users: 1 admin, 1 employee
+- 2 sucursales
+- 5 work schedules (Mon-Fri)
+- Login credentials: admin@asistencias.com / Admin123! and empleado@asistencias.com / Empleado123!
+- App renders correctly with "Control de Asistencia - Sistema de Registro Diario" title
+- Login form shows with "Cargando sistema..." spinner on initial load
