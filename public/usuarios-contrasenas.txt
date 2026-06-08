@@ -1,0 +1,81 @@
+============================================================
+ CONTROL DE ASISTENCIA - USUARIOS Y CONTRASEÑAS
+ Fecha: 9 de junio de 2026
+============================================================
+
+ ⚠️  IMPORTANTE: Cambiar las contraseñas después del primer inicio de sesión
+ ⚠️  Este documento es confidencial - NO compartir
+
+============================================================
+
+ ADMINISTRADOR
+────────────────────────────────────────────────────────────
+ Nombre:    Administrador General
+ Email:     admin@asistencias.com
+ Password:  Admin123!
+ Rol:       ADMIN
+
+============================================================
+
+ EMPLEADOS
+ Contraseña temporal para TODOS: Asistencia2026!
+────────────────────────────────────────────────────────────
+
+ 1.  ALICIA GUADALUPE HERNANDEZ GONZALEZ
+     Email: alicehernandeza219@gmail.com
+
+ 2.  ARREOLA CLEMENTE CLARIVEL
+     Email: arreolaclementeclarivel@gmail.com
+
+ 3.  CARLOS RODRÍGUEZ MARTÍNEZ
+     Email: carlos.rodriguez@empresa.com
+
+ 4.  CARMEN GUADALUPE HERNANDEZ VILLAFUERTE
+     Email: caremy1019@gmail.com
+
+ 5.  CAROLINA CRUZ PEREZ
+     Email: 04caroperez@gmail.com
+
+ 6.  CRISTIAN JOAN VELAZQUEZ MONTOYA
+     Email: cv2664553@gmail.com
+
+ 7.  GABRIELA ESTEFANIA ALVAREZ PASCACIO
+     Email: fannyalvarez078@gmail.com
+
+ 8.  GOMEZ HERNANDEZ JOSE CANDELARIO
+     Email: gomezhernandezjosecandelario@gmail.com
+
+ 9.  GOMEZ SANTIZO CLARA IDALIA
+     Email: claridaliasantizo@gmail.com
+
+10.  GONZALEZ PEREZ SANDRA ISABEL
+     Email: Lae.sandra.gonzalez.um@gmail.com
+
+11.  JONATHAN FRANCISCO SANCHEZ GONZALEZ
+     Email: jonathansanchez11019@gmail.com
+
+12.  LUCIA MARAI GALDAMEZ VILLAREAL
+     Email: galdamezlucia58@gmail.com
+
+13.  MARÍA GARCÍA LÓPEZ
+     Email: maria.garcia@empresa.com
+
+14.  MARTINEZ MENDOZA JUANA
+     Email: Juana040779@gmail.com
+
+15.  ROBLERO GUTIERREZ CAROLINA ELIZABETH
+     Email: carolinaelizzabeth@gmail.com
+
+16.  VELASCO MARROQUIN XIMENA
+     Email: ximenavelasco11@icloud.com
+
+============================================================
+
+ INSTRUCCIONES PARA INICIAR SESIÓN
+────────────────────────────────────────────────────────────
+ 1. Ir a: https://my-project-one-rosy.vercel.app
+ 2. Ingresar el EMAIL del usuario
+ 3. Ingresar la CONTRASEÑA
+ 4. Los empleados también pueden usar su código QR
+
+============================================================
