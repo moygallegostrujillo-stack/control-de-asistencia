@@ -5,10 +5,13 @@ import { useAuthStore } from '@/store/auth-store';
 import { LoginForm } from '@/components/auth/login-form';
 import { AdminLayout } from '@/components/layout/admin-layout';
 import { EmployeeLayout } from '@/components/layout/employee-layout';
+import { Download, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export default function Home() {
   const { user, isAuthenticated, isLoading, checkAuth, logout } = useAuthStore();
   const [authChecked, setAuthChecked] = useState(false);
+  const [showDownloadBanner, setShowDownloadBanner] = useState(true);
 
   useEffect(() => {
     checkAuth().finally(() => setAuthChecked(true));
@@ -53,13 +56,41 @@ export default function Home() {
     );
   }
 
-  if (!isAuthenticated || !user) {
-    return <LoginForm />;
-  }
+  return (
+    <>
+      {/* Download Banner - floating at the top */}
+      {showDownloadBanner && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-primary text-primary-foreground py-2 px-4 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-2 text-sm">
+            <Download className="w-4 h-4" />
+            <span>Descarga el proyecto para deploy en Vercel:</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <a href="/api/download" download="control-de-asistencia.zip">
+              <Button size="sm" variant="secondary" className="h-7 text-xs">
+                <Download className="w-3 h-3 mr-1" />
+                Descargar ZIP
+              </Button>
+            </a>
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="h-7 w-7 p-0 text-primary-foreground hover:bg-primary-foreground/20"
+              onClick={() => setShowDownloadBanner(false)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
-  if (user.role === 'ADMIN') {
-    return <AdminLayout />;
-  }
-
-  return <EmployeeLayout />;
+      {!isAuthenticated || !user ? (
+        <LoginForm />
+      ) : user.role === 'ADMIN' ? (
+        <AdminLayout />
+      ) : (
+        <EmployeeLayout />
+      )}
+    </>
+  );
 }
