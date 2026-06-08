@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type AdminView = 'dashboard' | 'employees' | 'attendance' | 'reports' | 'audit' | 'qr-terminal' | 'manual' | 'sucursales';
+export type AdminView = 'dashboard' | 'employees' | 'attendance' | 'reports' | 'audit' | 'qr-terminal' | 'manual' | 'sucursales' | 'deployment';
 export type EmployeeView = 'dashboard' | 'history' | 'my-qr';
 export type AppView = AdminView | EmployeeView;
 

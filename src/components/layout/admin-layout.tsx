@@ -24,7 +24,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Timer, MapPin,
   ChevronLeft, ChevronRight, RefreshCw, FileSpreadsheet, BookOpen, Building2,
   Pencil, Eye, EyeOff, ArrowRightLeft, Plus, Trash2, PenLine, AlertCircle, Calendar,
-  UtensilsCrossed, Armchair
+  UtensilsCrossed, Armchair, Cloud, Database, ExternalLink, Copy, Check
 } from 'lucide-react';
 import { UserManual } from '@/components/manual/user-manual';
 
@@ -42,6 +42,7 @@ function AdminSidebar() {
     { id: 'audit', label: 'Auditoría', icon: <Shield className="w-5 h-5" /> },
     { id: 'qr-terminal', label: 'Terminal QR', icon: <QrCode className="w-5 h-5" /> },
     { id: 'manual', label: 'Manual', icon: <BookOpen className="w-5 h-5" /> },
+    { id: 'deployment', label: 'Deploy', icon: <Cloud className="w-5 h-5" /> },
   ];
 
   return (
@@ -2572,6 +2573,500 @@ function SucursalEditDialog({ sucursal, open, onClose }: { sucursal: { id: strin
   );
 }
 
+// ==================== DEPLOYMENT VIEW ====================
+function DeploymentView() {
+  const { toast } = useToast();
+  const [supabaseUrl, setSupabaseUrl] = useState('');
+  const [anonKey, setAnonKey] = useState('');
+  const [serviceKey, setServiceKey] = useState('');
+  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
+  const [exportResult, setExportResult] = useState<Record<string, unknown> | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [sqlResult, setSqlResult] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [activeSection, setActiveSection] = useState<'status' | 'connect' | 'sql' | 'guide'>('status');
+
+  // Check current config status
+  const [configStatus, setConfigStatus] = useState<Record<string, unknown> | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/supabase-migration')
+      .then(r => r.json())
+      .then(data => { setConfigStatus(data); setLoadingStatus(false); })
+      .catch(() => setLoadingStatus(false));
+  }, []);
+
+  const handleTest = async () => {
+    if (!supabaseUrl || !serviceKey) {
+      toast({ title: 'Error', description: 'Se requiere URL y Service Role Key', variant: 'destructive' });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/supabase-migration?action=test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supabaseUrl, serviceKey, anonKey }),
+      });
+      const data = await res.json();
+      setTestResult(data);
+      if (data.success) {
+        toast({ title: 'Conexión exitosa', description: 'Las credenciales de Supabase son válidas' });
+      } else {
+        toast({ title: 'Error de conexión', description: data.error || 'No se pudo conectar', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'No se pudo probar la conexión', variant: 'destructive' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!supabaseUrl || !serviceKey) {
+      toast({ title: 'Error', description: 'Se requiere URL y Service Role Key', variant: 'destructive' });
+      return;
+    }
+    setExporting(true);
+    setExportResult(null);
+    try {
+      const res = await fetch('/api/supabase-migration?action=export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supabaseUrl, serviceKey }),
+      });
+      const data = await res.json();
+      setExportResult(data);
+      if (data.success) {
+        toast({ title: 'Exportación exitosa', description: `Se exportaron datos de ${Object.keys(data.summary || {}).length} tablas` });
+      } else {
+        toast({ title: 'Error', description: data.error || 'No se pudo exportar', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'No se pudo exportar los datos', variant: 'destructive' });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleGetSQL = async () => {
+    try {
+      const res = await fetch('/api/supabase-migration?action=export-sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      setSqlResult(data.sql || '');
+    } catch {
+      toast({ title: 'Error', description: 'No se pudo generar el SQL', variant: 'destructive' });
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast({ title: 'Copiado', description: 'Texto copiado al portapapeles' });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Cloud className="w-6 h-6" />
+          Deploy a Vercel
+        </h1>
+        <p className="text-muted-foreground mt-1">Configura la conexión a Supabase y prepara el proyecto para producción</p>
+      </div>
+
+      {/* Section Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {[
+          { id: 'status' as const, label: 'Estado Actual', icon: <Database className="w-4 h-4" /> },
+          { id: 'connect' as const, label: 'Conectar Supabase', icon: <Cloud className="w-4 h-4" /> },
+          { id: 'sql' as const, label: 'SQL Setup', icon: <FileBarChart className="w-4 h-4" /> },
+          { id: 'guide' as const, label: 'Guía de Deploy', icon: <BookOpen className="w-4 h-4" /> },
+        ].map(tab => (
+          <Button
+            key={tab.id}
+            variant={activeSection === tab.id ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setActiveSection(tab.id)}
+            className="flex items-center gap-2"
+          >
+            {tab.icon}
+            {tab.label}
+          </Button>
+        ))}
+      </div>
+
+      {/* Status Section */}
+      {activeSection === 'status' && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Estado de Configuración</CardTitle>
+              <CardDescription>Verifica qué variables de entorno están configuradas</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingStatus ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="h-8 w-8 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+                </div>
+              ) : configStatus ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className={`p-3 rounded-lg border ${configStatus.config?.hasSupabaseUrl ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      <p className="text-sm font-medium">NEXT_PUBLIC_SUPABASE_URL</p>
+                      <p className="text-xs text-muted-foreground">{configStatus.config?.supabaseUrl || 'No configurada'}</p>
+                    </div>
+                    <div className={`p-3 rounded-lg border ${configStatus.config?.hasServiceKey ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      <p className="text-sm font-medium">SUPABASE_SERVICE_ROLE_KEY</p>
+                      <p className="text-xs text-muted-foreground">{configStatus.config?.hasServiceKey ? 'Configurada ✅' : 'No configurada'}</p>
+                    </div>
+                    <div className={`p-3 rounded-lg border ${configStatus.config?.hasAnonKey ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      <p className="text-sm font-medium">NEXT_PUBLIC_SUPABASE_ANON_KEY</p>
+                      <p className="text-xs text-muted-foreground">{configStatus.config?.hasAnonKey ? 'Configurada ✅' : 'No configurada'}</p>
+                    </div>
+                    <div className={`p-3 rounded-lg border ${configStatus.config?.hasDbUrl ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                      <p className="text-sm font-medium">DATABASE_URL (Local)</p>
+                      <p className="text-xs text-muted-foreground">{configStatus.config?.hasDbUrl ? 'Configurada ✅' : 'No necesaria en Vercel'}</p>
+                    </div>
+                  </div>
+                  <div className={`p-3 rounded-lg border ${configStatus.status === 'READY' ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                    <p className="text-sm font-medium">
+                      {configStatus.status === 'READY' ? '✅ Listo para Vercel' : '⚠️ Se necesita configuración'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{configStatus.instructions}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground">No se pudo verificar el estado</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Connect Section */}
+      {activeSection === 'connect' && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Credenciales de Supabase</CardTitle>
+              <CardDescription>
+                Ingresa las credenciales de tu proyecto de Supabase para probar la conexión y exportar datos
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="supabase-url">Project URL</Label>
+                <Input
+                  id="supabase-url"
+                  placeholder="https://xxxxx.supabase.co"
+                  value={supabaseUrl}
+                  onChange={e => setSupabaseUrl(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Encuéntralo en: Supabase Dashboard → Project Settings → API → Project URL
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="anon-key">Anon Key (Public)</Label>
+                <Input
+                  id="anon-key"
+                  type="password"
+                  placeholder="eyJhbGciOiJIUzI1NiIs..."
+                  value={anonKey}
+                  onChange={e => setAnonKey(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Encuéntralo en: Supabase Dashboard → Project Settings → API → anon public
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="service-key">Service Role Key (Secret)</Label>
+                <Input
+                  id="service-key"
+                  type="password"
+                  placeholder="eyJhbGciOiJIUzI1NiIs..."
+                  value={serviceKey}
+                  onChange={e => setServiceKey(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Encuéntralo en: Supabase Dashboard → Project Settings → API → service_role secret ⚠️ Mantener en secreto
+                </p>
+              </div>
+
+              <div className="flex gap-3 flex-wrap">
+                <Button onClick={handleTest} disabled={testing || !supabaseUrl || !serviceKey}>
+                  {testing ? (
+                    <><div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin mr-2" />Probando...</>
+                  ) : (
+                    <><Database className="w-4 h-4 mr-2" />Probar Conexión</>
+                  )}
+                </Button>
+                <Button onClick={handleExport} disabled={exporting || !supabaseUrl || !serviceKey} variant="secondary">
+                  {exporting ? (
+                    <><div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin mr-2" />Exportando...</>
+                  ) : (
+                    <><Download className="w-4 h-4 mr-2" />Exportar Datos</>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Test Results */}
+          {testResult && (
+            <Card className={testResult.success ? 'border-green-200' : 'border-red-200'}>
+              <CardHeader>
+                <CardTitle className="text-lg">{testResult.success ? '✅ Conexión Exitosa' : '❌ Error de Conexión'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {testResult.success && testResult.results?.tables && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Tablas encontradas:</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {Object.entries(testResult.results.tables as Record<string, { exists: boolean; rowCount?: number; error?: string }>).map(([table, info]) => (
+                        <div key={table} className={`p-2 rounded border text-sm ${info.exists ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                          <span className="font-medium">{table}</span>
+                          {info.exists ? (
+                            <span className="text-green-700 ml-2">✅ {info.rowCount} filas</span>
+                          ) : (
+                            <span className="text-red-700 ml-2">❌ {info.error}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!testResult.success && (
+                  <p className="text-sm text-red-700">{String(testResult.error)}</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Export Results */}
+          {exportResult && (
+            <Card className={exportResult.success ? 'border-green-200' : 'border-red-200'}>
+              <CardHeader>
+                <CardTitle className="text-lg">{exportResult.success ? '✅ Exportación Exitosa' : '❌ Error de Exportación'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {exportResult.success && exportResult.summary && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Resumen de datos exportados:</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {Object.entries(exportResult.summary as Record<string, number>).map(([table, count]) => (
+                        <div key={table} className="p-2 rounded border bg-muted text-sm">
+                          <span className="font-medium">{table}</span>
+                          <Badge variant="outline" className="ml-2">{count}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Exportado: {String(exportResult.exportedAt)}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* SQL Section */}
+      {activeSection === 'sql' && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">SQL para Supabase</CardTitle>
+              <CardDescription>
+                Genera el SQL necesario para crear las tablas en Supabase. Ejecútalo en el SQL Editor de Supabase.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button onClick={handleGetSQL} variant="outline">
+                <FileBarChart className="w-4 h-4 mr-2" />
+                Generar SQL
+              </Button>
+              {sqlResult && (
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute top-2 right-2"
+                    onClick={() => copyToClipboard(sqlResult)}
+                  >
+                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </Button>
+                  <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-96 whitespace-pre-wrap">
+                    {sqlResult}
+                  </pre>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Guide Section */}
+      {activeSection === 'guide' && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Guía de Deploy a Vercel</CardTitle>
+              <CardDescription>Paso a paso para desplegar en producción</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Step 1 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground">1</Badge>
+                  <h3 className="font-semibold">Obtener credenciales de Supabase</h3>
+                </div>
+                <div className="pl-8 space-y-2 text-sm">
+                  <p>Ve a <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">supabase.com/dashboard <ExternalLink className="w-3 h-3" /></a></p>
+                  <p>Selecciona tu proyecto → <strong>Project Settings</strong> → <strong>API</strong></p>
+                  <div className="bg-muted p-3 rounded-lg space-y-1">
+                    <p>📋 Necesitas copiar estos 3 valores:</p>
+                    <p>• <strong>Project URL</strong> → <code className="bg-background px-1 rounded">https://xxxxx.supabase.co</code></p>
+                    <p>• <strong>anon public</strong> → <code className="bg-background px-1 rounded">eyJhbGciOi...</code> (clave pública)</p>
+                    <p>• <strong>service_role secret</strong> → <code className="bg-background px-1 rounded">eyJhbGciOi...</code> (clave secreta)</p>
+                  </div>
+                  <p className="text-amber-600 font-medium">⚠️ NO uses el &quot;publishable key&quot; — necesitas las claves API (formato JWT que empiezan con eyJ)</p>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground">2</Badge>
+                  <h3 className="font-semibold">Crear tablas en Supabase</h3>
+                </div>
+                <div className="pl-8 space-y-2 text-sm">
+                  <p>Si es un proyecto nuevo de Supabase, ve a la pestaña <strong>&quot;SQL Setup&quot;</strong> arriba y genera el SQL.</p>
+                  <p>Luego ejecútalo en: <strong>Supabase Dashboard → SQL Editor → New Query</strong></p>
+                  <p className="text-muted-foreground">Si ya tenías las tablas de antes, omite este paso.</p>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground">3</Badge>
+                  <h3 className="font-semibold">Subir código a GitHub</h3>
+                </div>
+                <div className="pl-8 space-y-2 text-sm">
+                  <p>Vercel necesita acceso al código a través de GitHub:</p>
+                  <div className="bg-muted p-3 rounded-lg font-mono text-xs space-y-1">
+                    <p>git init</p>
+                    <p>git add .</p>
+                    <p>git commit -m &quot;Control de Asistencia&quot;</p>
+                    <p>git remote add origin https://github.com/TU-USUARIO/control-de-asistencia.git</p>
+                    <p>git push -u origin main</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground">4</Badge>
+                  <h3 className="font-semibold">Importar proyecto en Vercel</h3>
+                </div>
+                <div className="pl-8 space-y-2 text-sm">
+                  <p>Ve a <a href="https://vercel.com/new" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">vercel.com/new <ExternalLink className="w-3 h-3" /></a></p>
+                  <p>Selecciona tu repositorio de GitHub</p>
+                  <p>Vercel detectará automáticamente Next.js</p>
+                </div>
+              </div>
+
+              {/* Step 5 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground">5</Badge>
+                  <h3 className="font-semibold">Configurar variables de entorno en Vercel</h3>
+                </div>
+                <div className="pl-8 space-y-2 text-sm">
+                  <p>En Vercel Dashboard → Tu Proyecto → <strong>Settings → Environment Variables</strong></p>
+                  <div className="bg-muted p-3 rounded-lg space-y-2">
+                    <div>
+                      <p className="font-medium">NEXT_PUBLIC_SUPABASE_URL</p>
+                      <code className="bg-background px-1 rounded text-xs">https://xxxxx.supabase.co</code>
+                    </div>
+                    <div>
+                      <p className="font-medium">NEXT_PUBLIC_SUPABASE_ANON_KEY</p>
+                      <code className="bg-background px-1 rounded text-xs">eyJhbGciOi...</code>
+                    </div>
+                    <div>
+                      <p className="font-medium">SUPABASE_SERVICE_ROLE_KEY</p>
+                      <code className="bg-background px-1 rounded text-xs">eyJhbGciOi...</code>
+                    </div>
+                  </div>
+                  <p className="text-amber-600">⚠️ Agrega las variables para los 3 ambientes: Production, Preview, Development</p>
+                </div>
+              </div>
+
+              {/* Step 6 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground">6</Badge>
+                  <h3 className="font-semibold">Hacer deploy</h3>
+                </div>
+                <div className="pl-8 space-y-2 text-sm">
+                  <p>Después de agregar las variables de entorno, haz click en <strong>&quot;Redeploy&quot;</strong></p>
+                  <p>Tu aplicación estará disponible en: <code className="bg-muted px-2 py-1 rounded">https://tu-proyecto.vercel.app</code></p>
+                </div>
+              </div>
+
+              {/* Step 7 - Data Migration */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-primary text-primary-foreground">7</Badge>
+                  <h3 className="font-semibold">Migrar datos existentes (si aplica)</h3>
+                </div>
+                <div className="pl-8 space-y-2 text-sm">
+                  <p>Si ya tienes datos en tu proyecto anterior de Supabase, simplemente conecta el nuevo proyecto de Vercel a la misma base de datos de Supabase usando las mismas credenciales.</p>
+                  <p>Los datos se conservan en Supabase — solo necesitas que Vercel apunte al mismo proyecto.</p>
+                </div>
+              </div>
+
+              {/* Troubleshooting */}
+              <div className="border-t pt-4 space-y-2">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-500" />
+                  Solución de problemas
+                </h3>
+                <div className="pl-6 space-y-3 text-sm">
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                    <p className="font-medium text-amber-800">Error: &quot;Invalid API key&quot;</p>
+                    <p className="text-amber-700">Las claves API pueden haber cambiado (si pausaste/restauraste el proyecto). Obtén nuevas claves desde Supabase Dashboard → Settings → API.</p>
+                  </div>
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                    <p className="font-medium text-amber-800">Error: &quot;relation does not exist&quot;</p>
+                    <p className="text-amber-700">Las tablas no existen en Supabase. Ve a la pestaña &quot;SQL Setup&quot; y ejecuta el SQL en el SQL Editor de Supabase.</p>
+                  </div>
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                    <p className="font-medium text-amber-800">El publishable key no funciona</p>
+                    <p className="text-amber-700">El &quot;publishable key&quot; (sb_publishable_...) es para el Management API, no para la aplicación. Necesitas las claves API que empiezan con &quot;eyJ&quot; (JWT).</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ==================== MAIN ADMIN LAYOUT ====================
 export function AdminLayout() {
   const { currentView } = useAppStore();
@@ -2587,6 +3082,7 @@ export function AdminLayout() {
       case 'audit': return <AuditLogView />;
       case 'qr-terminal': return <QRTerminalView />;
       case 'manual': return <UserManual />;
+      case 'deployment': return <DeploymentView />;
       default: return <AdminDashboard />;
     }
   };
