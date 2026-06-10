@@ -140,3 +140,26 @@ Stage Summary:
 - Acceso Rápido quick-login working on login page
 - "Registrar Fin de Jornada" replaces "Registrar Salida" throughout
 - All 12 browser verification checks passed
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix employee name truncation in admin dashboard and login form, then deploy to Vercel
+
+Work Log:
+- Analyzed uploaded screenshots using VLM to identify UI issues
+- Screenshot 1 (admin dashboard): Employee names truncated in attendance table (e.g., "CRISTIAN JOAN VELAZQUE...", "ALICIA GUADALUPE HERNA...")
+- Screenshot 2 (login form): Employee names truncated in quick access section (e.g., "ALICIA GUADALUPE HERNANDEZ GO...")
+- Fixed admin-layout.tsx: Widened Empleado column from min-w-[140px] to min-w-[250px] in all tables
+- Fixed admin-layout.tsx: Added whitespace-normal to override TableCell's default whitespace-nowrap
+- Fixed admin-layout.tsx: Removed truncate class from break summary and absent employee names
+- Fixed admin-layout.tsx: Increased table min-widths to accommodate wider columns
+- Fixed login-form.tsx: Removed truncate class from admin and employee name displays
+- Added break-words class for proper name wrapping in table cells
+- Committed and pushed changes to GitHub
+- Triggered Vercel deployment (dpl_FpLPctmg5dzPRu3AoKK8RcfGQvba) - READY
+- Aliased deployment to production URL: my-project-one-rosy.vercel.app
+
+Stage Summary:
+- All employee names now display fully without truncation
+- Changes deployed to production at https://my-project-one-rosy.vercel.app
+- Key fix: whitespace-normal overrides TableCell default whitespace-nowrap, allowing names to wrap
