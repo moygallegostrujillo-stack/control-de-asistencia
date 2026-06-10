@@ -1,22 +1,59 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
-import { Clock, QrCode, Shield, LogIn } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Clock, QrCode, Shield, LogIn, Users, Building2, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
+interface QuickUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  employee: {
+    id: string;
+    department: string;
+    sucursal: string;
+    position: string;
+  } | null;
+}
+
 export function LoginForm() {
-  const { login } = useAuthStore();
+  const { login, setUser } = useAuthStore();
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('password');
+  const [quickUsers, setQuickUsers] = useState<QuickUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [quickLoading, setQuickLoading] = useState<string | null>(null);
+
+  // Fetch users list on mount for quick login
+  useEffect(() => {
+    const fetchUsers = async () => {
+      setLoadingUsers(true);
+      try {
+        const res = await fetch('/api/auth/users-list');
+        if (res.ok) {
+          const data = await res.json();
+          setQuickUsers(data.users || []);
+        }
+      } catch {
+        // Silently fail - quick login is optional
+      }
+      setLoadingUsers(false);
+    };
+    fetchUsers();
+  }, []);
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,9 +69,37 @@ export function LoginForm() {
     }
   };
 
+  const handleQuickLogin = async (user: QuickUser) => {
+    setQuickLoading(user.id);
+    try {
+      const res = await fetch('/api/auth/quick-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // Set the user in the store directly
+        setUser(data.user);
+        toast({
+          title: `Bienvenido, ${user.name}`,
+          description: 'Acceso rápido exitoso',
+        });
+      } else {
+        toast({ title: 'Error', description: data.error || 'No se pudo iniciar sesión', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
+    }
+    setQuickLoading(null);
+  };
+
+  const admins = quickUsers.filter(u => u.role === 'ADMIN');
+  const employees = quickUsers.filter(u => u.role === 'EMPLOYEE');
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-4xl">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl overflow-hidden mb-4 shadow-lg">
@@ -44,76 +109,169 @@ export function LoginForm() {
           <p className="text-muted-foreground mt-1">Sistema de Registro Diario de Asistencias</p>
         </div>
 
-        <Card className="shadow-lg">
-          <CardHeader className="pb-3">
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="password" className="flex items-center gap-2">
-                  <LogIn className="w-4 h-4" />
-                  Contraseña
-                </TabsTrigger>
-                <TabsTrigger value="qr" className="flex items-center gap-2">
-                  <QrCode className="w-4 h-4" />
-                  Código QR
-                </TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="password" className="mt-4">
-                <CardTitle className="text-lg">Iniciar Sesión</CardTitle>
-                <CardDescription>Ingrese sus credenciales para acceder al sistema</CardDescription>
-              </TabsContent>
-              
-              <TabsContent value="qr" className="mt-4">
-                <CardTitle className="text-lg">Acceso con QR</CardTitle>
-                <CardDescription>Escanee el código QR dinámico del terminal</CardDescription>
-              </TabsContent>
-            </Tabs>
-          </CardHeader>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Left: Login Form */}
+          <Card className="shadow-lg">
+            <CardHeader className="pb-3">
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="password" className="flex items-center gap-2">
+                    <LogIn className="w-4 h-4" />
+                    Contraseña
+                  </TabsTrigger>
+                  <TabsTrigger value="qr" className="flex items-center gap-2">
+                    <QrCode className="w-4 h-4" />
+                    Código QR
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="password" className="mt-4">
+                  <CardTitle className="text-lg">Iniciar Sesión</CardTitle>
+                  <CardDescription>Ingrese sus credenciales para acceder al sistema</CardDescription>
+                </TabsContent>
+                
+                <TabsContent value="qr" className="mt-4">
+                  <CardTitle className="text-lg">Acceso con QR</CardTitle>
+                  <CardDescription>Escanee el código QR dinámico del terminal</CardDescription>
+                </TabsContent>
+              </Tabs>
+            </CardHeader>
 
-          <CardContent>
-            {activeTab === 'password' ? (
-              <form onSubmit={handlePasswordLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Correo electrónico</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="correo@empresa.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                  />
+            <CardContent>
+              {activeTab === 'password' ? (
+                <form onSubmit={handlePasswordLogin} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Correo electrónico</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="correo@empresa.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Contraseña</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+                        Verificando...
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <LogIn className="w-4 h-4" />
+                        Iniciar Sesión
+                      </div>
+                    )}
+                  </Button>
+                </form>
+              ) : (
+                <QRLoginTab />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Right: Quick Access */}
+          <Card className="shadow-lg">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-amber-600" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Contraseña</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading}
-                  />
+                <div>
+                  <CardTitle className="text-lg">Acceso Rápido</CardTitle>
+                  <CardDescription>Haga clic en su nombre para ingresar directamente</CardDescription>
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? (
-                    <div className="flex items-center gap-2">
-                      <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
-                      Verificando...
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <LogIn className="w-4 h-4" />
-                      Iniciar Sesión
-                    </div>
-                  )}
-                </Button>
-              </form>
-            ) : (
-              <QRLoginTab />
-            )}
-          </CardContent>
-        </Card>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingUsers ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="h-6 w-6 rounded-full border-3 border-primary border-t-transparent animate-spin" />
+                </div>
+              ) : quickUsers.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8 text-sm">No hay usuarios disponibles</p>
+              ) : (
+                <ScrollArea className="max-h-[400px]">
+                  <div className="space-y-3 pr-2">
+                    {/* Admin Section */}
+                    {admins.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Administradores</p>
+                        <div className="space-y-2">
+                          {admins.map(user => (
+                            <button
+                              key={user.id}
+                              onClick={() => handleQuickLogin(user)}
+                              disabled={quickLoading !== null}
+                              className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/30 transition-colors text-left disabled:opacity-50"
+                            >
+                              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <Shield className="w-4 h-4 text-primary" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium truncate">{user.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                              </div>
+                              {quickLoading === user.id && (
+                                <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin flex-shrink-0" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {admins.length > 0 && employees.length > 0 && (
+                      <Separator className="my-2" />
+                    )}
+
+                    {/* Employees Section */}
+                    {employees.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Empleados</p>
+                        <div className="space-y-2">
+                          {employees.map(user => (
+                            <button
+                              key={user.id}
+                              onClick={() => handleQuickLogin(user)}
+                              disabled={quickLoading !== null}
+                              className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/30 transition-colors text-left disabled:opacity-50"
+                            >
+                              <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                <span className="text-sm font-semibold text-amber-700">{user.name.charAt(0)}</span>
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium truncate">{user.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {user.employee?.department || ''}{user.employee?.sucursal ? ` · ${user.employee.sucursal}` : ''}
+                                </p>
+                              </div>
+                              {quickLoading === user.id && (
+                                <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin flex-shrink-0" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Footer info */}
         <div className="mt-6 text-center">
@@ -155,8 +313,6 @@ function QRLoginTab() {
       return;
     }
     setLoading(true);
-    // For QR login, we validate the code first, then the user needs to use password login
-    // QR codes are used for check-in/out, not for session login
     try {
       const res = await fetch('/api/auth/qr-login', {
         method: 'POST',

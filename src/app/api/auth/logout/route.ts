@@ -17,6 +17,14 @@ export async function POST(request: NextRequest) {
       maxAge: 0,
       path: '/',
     });
+    // Also clear the auth-token cookie set by quick-login
+    response.cookies.set('auth-token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 0,
+      path: '/',
+    });
 
     return response;
   } catch (error) {

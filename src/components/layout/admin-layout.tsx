@@ -159,17 +159,26 @@ function AdminDashboard() {
   const presentCount = records.filter((r: { status: string }) => r.status === 'PRESENT').length;
   const lateCount = records.filter((r: { status: string }) => r.status === 'LATE').length;
 
-  // Break summary computations
-  const mealRecords = records.filter((r: Record<string, unknown>) => !!(r as Record<string, unknown>).mealStart);
-  const restRecords = records.filter((r: Record<string, unknown>) => !!(r as Record<string, unknown>).restStart);
-  const mealCompleted = mealRecords.filter((r: Record<string, unknown>) => !!(r as Record<string, unknown>).mealEnd);
-  const restCompleted = restRecords.filter((r: Record<string, unknown>) => !!(r as Record<string, unknown>).restEnd);
-  const mealOnGoing = mealRecords.filter((r: Record<string, unknown>) => !(r as Record<string, unknown>).mealEnd);
-  const restOnGoing = restRecords.filter((r: Record<string, unknown>) => !(r as Record<string, unknown>).restEnd);
-  const mealExceeded = mealCompleted.filter((r: Record<string, unknown>) => (r as Record<string, unknown>).exceededMeal);
-  const restExceeded = restCompleted.filter((r: Record<string, unknown>) => (r as Record<string, unknown>).exceededRest);
-  const totalMealMinutes = mealCompleted.reduce((sum: number, r: Record<string, unknown>) => sum + ((r as Record<string, unknown>).mealDuration as number || 0), 0);
-  const totalRestMinutes = restCompleted.reduce((sum: number, r: Record<string, unknown>) => sum + ((r as Record<string, unknown>).restDuration as number || 0), 0);
+  // Break summary computations (unified Descanso = Comida + Descanso)
+  const breakRecords = records.filter((r: Record<string, unknown>) => !!(r as Record<string, unknown>).mealStart || !!(r as Record<string, unknown>).restStart);
+  const breakCompleted = breakRecords.filter((r: Record<string, unknown>) => {
+    const rec = r as Record<string, unknown>;
+    const mealDone = !!rec.mealStart && !!rec.mealEnd;
+    const restDone = !!rec.restStart && !!rec.restEnd;
+    // Completed if all started breaks are ended
+    if (rec.mealStart && !rec.mealEnd) return false;
+    if (rec.restStart && !rec.restEnd) return false;
+    return mealDone || restDone;
+  });
+  const breakOnGoing = breakRecords.filter((r: Record<string, unknown>) => {
+    const rec = r as Record<string, unknown>;
+    return (rec.mealStart && !rec.mealEnd) || (rec.restStart && !rec.restEnd);
+  });
+  const breakExceeded = breakRecords.filter((r: Record<string, unknown>) => (r as Record<string, unknown>).exceededMeal || (r as Record<string, unknown>).exceededRest);
+  const totalBreakMinutes = records.reduce((sum: number, r: Record<string, unknown>) => {
+    const rec = r as Record<string, unknown>;
+    return sum + ((rec.mealDuration as number || 0) + (rec.restDuration as number || 0));
+  }, 0);
 
   const handleRefresh = async () => {
     try {
@@ -283,15 +292,14 @@ function AdminDashboard() {
             <p className="text-center text-muted-foreground py-8">No hay registros de asistencia hoy</p>
           ) : (
             <ScrollArea className="max-h-96">
-              <div className="min-w-[1020px]">
+              <div className="min-w-[900px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[140px]">Empleado</TableHead>
                       <TableHead className="min-w-[90px]">Depto.</TableHead>
                       <TableHead className="min-w-[80px]">Entrada</TableHead>
-                      <TableHead className="min-w-[80px]">Comida</TableHead>
-                      <TableHead className="min-w-[80px]">Descanso</TableHead>
+                      <TableHead className="min-w-[160px]">Descanso (30 min)</TableHead>
                       <TableHead className="min-w-[80px]">Salida</TableHead>
                       <TableHead className="min-w-[100px]">Estado</TableHead>
                       <TableHead className="min-w-[80px]">Método</TableHead>
@@ -303,6 +311,13 @@ function AdminDashboard() {
                     {records.map((record: Record<string, unknown>) => {
                       const r = record as CorrectionRecord;
                       const needsCorrection = !r.checkInTime || !r.checkOutTime;
+                      const hasMeal = !!record.mealStart;
+                      const hasRest = !!record.restStart;
+                      const anyBreak = hasMeal || hasRest;
+                      const allBreakDone = (!hasMeal || !!record.mealEnd) && (!hasRest || !!record.restEnd);
+                      const breakOngoing = (hasMeal && !record.mealEnd) || (hasRest && !record.restEnd);
+                      const breakExceeded = record.exceededMeal || record.exceededRest;
+                      const totalBreakDur = (record.mealDuration as number || 0) + (record.restDuration as number || 0);
                       return (
                         <TableRow key={r.id}>
                           <TableCell className="font-medium">{r.employee?.user?.name || '—'}</TableCell>
@@ -314,26 +329,30 @@ function AdminDashboard() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            {record.mealStart ? (
-                              <div className="text-xs">
-                                <span>{format(new Date(record.mealStart as string), 'HH:mm')}</span>
-                                {' - '}
-                                <span>{record.mealEnd ? format(new Date(record.mealEnd as string), 'HH:mm') : '...'}</span>
-                                {record.mealDuration != null && <span className="text-muted-foreground ml-1">({record.mealDuration}m)</span>}
-                                {record.exceededMeal && <span className="text-red-500 ml-1">⚠️</span>}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {record.restStart ? (
-                              <div className="text-xs">
-                                <span>{format(new Date(record.restStart as string), 'HH:mm')}</span>
-                                {' - '}
-                                <span>{record.restEnd ? format(new Date(record.restEnd as string), 'HH:mm') : '...'}</span>
-                                {record.restDuration != null && <span className="text-muted-foreground ml-1">({record.restDuration}m)</span>}
-                                {record.exceededRest && <span className="text-red-500 ml-1">⚠️</span>}
+                            {anyBreak ? (
+                              <div className="text-xs space-y-0.5">
+                                {hasMeal && (
+                                  <div className="flex items-center gap-1">
+                                    <UtensilsCrossed className="w-3 h-3 text-orange-500 flex-shrink-0" />
+                                    <span>{format(new Date(record.mealStart as string), 'HH:mm')}</span>
+                                    {' - '}
+                                    <span>{record.mealEnd ? format(new Date(record.mealEnd as string), 'HH:mm') : <span className="text-orange-600 font-medium">En curso</span>}</span>
+                                    {record.mealDuration != null && <span className="text-muted-foreground">({record.mealDuration}m)</span>}
+                                  </div>
+                                )}
+                                {hasRest && (
+                                  <div className="flex items-center gap-1">
+                                    <Armchair className="w-3 h-3 text-purple-500 flex-shrink-0" />
+                                    <span>{format(new Date(record.restStart as string), 'HH:mm')}</span>
+                                    {' - '}
+                                    <span>{record.restEnd ? format(new Date(record.restEnd as string), 'HH:mm') : <span className="text-purple-600 font-medium">En curso</span>}</span>
+                                    {record.restDuration != null && <span className="text-muted-foreground">({record.restDuration}m)</span>}
+                                  </div>
+                                )}
+                                {allBreakDone && totalBreakDur > 0 && (
+                                  <div className="text-muted-foreground">Total: {totalBreakDur}m{breakExceeded ? ' ⚠️' : ''}</div>
+                                )}
+                                {breakOngoing && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-amber-300 text-amber-600">Activo</Badge>}
                               </div>
                             ) : (
                               <span className="text-muted-foreground text-xs">—</span>
@@ -388,7 +407,7 @@ function AdminDashboard() {
         </CardContent>
       </Card>
 
-      {/* Break Summary Card - Comida & Descanso */}
+      {/* Break Summary Card - Descanso unificado */}
       {records.length > 0 && (
         <Card>
           <CardHeader>
@@ -396,71 +415,71 @@ function AdminDashboard() {
               <Timer className="w-5 h-5 text-primary" />
               Resumen de Descansos
             </CardTitle>
-            <CardDescription>Horas utilizadas en comida y descanso hoy</CardDescription>
+            <CardDescription>Tiempo utilizado en descansos hoy (30 min: 15 min comida + 15 min descanso)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Summary Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <Card className="border-orange-200 bg-orange-50/50">
+              <Card className="border-amber-200 bg-amber-50/50">
                 <CardContent className="p-3 sm:p-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
-                      <UtensilsCrossed className="w-5 h-5 text-orange-600" />
+                    <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <Timer className="w-5 h-5 text-amber-600" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-2xl font-bold text-orange-800 leading-tight">{mealCompleted.length}<span className="text-sm font-normal text-orange-600">/{mealRecords.length}</span></p>
-                      <p className="text-xs text-orange-600 whitespace-nowrap">Comida completada</p>
+                      <p className="text-2xl font-bold text-amber-800 leading-tight">{breakCompleted.length}<span className="text-sm font-normal text-amber-600">/{breakRecords.length}</span></p>
+                      <p className="text-xs text-amber-600 whitespace-nowrap">Descansos completados</p>
                     </div>
                   </div>
-                  <p className="text-xs text-orange-700 mt-2 font-medium">{totalMealMinutes > 0 ? `Total: ${Math.floor(totalMealMinutes / 60)}h ${totalMealMinutes % 60}m · Prom: ${mealCompleted.length > 0 ? Math.round(totalMealMinutes / mealCompleted.length) : 0}m` : 'Sin registros aún'}</p>
+                  <p className="text-xs text-amber-700 mt-2 font-medium">{totalBreakMinutes > 0 ? `Total: ${Math.floor(totalBreakMinutes / 60)}h ${totalBreakMinutes % 60}m · Prom: ${breakCompleted.length > 0 ? Math.round(totalBreakMinutes / breakCompleted.length) : 0}m` : 'Sin registros aún'}</p>
                 </CardContent>
               </Card>
-              <Card className="border-purple-200 bg-purple-50/50">
+              <Card className="border-blue-200 bg-blue-50/50">
                 <CardContent className="p-3 sm:p-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                      <Armchair className="w-5 h-5 text-purple-600" />
+                    <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <Clock className="w-5 h-5 text-blue-600" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-2xl font-bold text-purple-800 leading-tight">{restCompleted.length}<span className="text-sm font-normal text-purple-600">/{restRecords.length}</span></p>
-                      <p className="text-xs text-purple-600 whitespace-nowrap">Descanso completado</p>
+                      <p className="text-2xl font-bold text-blue-800 leading-tight">{breakOnGoing.length}</p>
+                      <p className="text-xs text-blue-600 whitespace-nowrap">En curso ahora</p>
                     </div>
                   </div>
-                  <p className="text-xs text-purple-700 mt-2 font-medium">{totalRestMinutes > 0 ? `Total: ${Math.floor(totalRestMinutes / 60)}h ${totalRestMinutes % 60}m · Prom: ${restCompleted.length > 0 ? Math.round(totalRestMinutes / restCompleted.length) : 0}m` : 'Sin registros aún'}</p>
+                  <p className="text-xs text-blue-700 mt-2 font-medium">{breakOnGoing.length > 0 ? 'Empleados en descanso' : 'Ninguno activo'}</p>
                 </CardContent>
               </Card>
-              <Card className={mealExceeded.length > 0 ? 'border-red-200 bg-red-50/50' : 'border-green-200 bg-green-50/50'}>
+              <Card className={breakExceeded.length > 0 ? 'border-red-200 bg-red-50/50' : 'border-green-200 bg-green-50/50'}>
                 <CardContent className="p-3 sm:p-4">
                   <div className="flex items-center gap-3">
-                    <div className={mealExceeded.length > 0 ? 'w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0' : 'w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0'}>
-                      {mealExceeded.length > 0 ? <AlertTriangle className="w-5 h-5 text-red-600" /> : <CheckCircle2 className="w-5 h-5 text-green-600" />}
+                    <div className={breakExceeded.length > 0 ? 'w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0' : 'w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0'}>
+                      {breakExceeded.length > 0 ? <AlertTriangle className="w-5 h-5 text-red-600" /> : <CheckCircle2 className="w-5 h-5 text-green-600" />}
                     </div>
                     <div className="min-w-0">
-                      <p className={mealExceeded.length > 0 ? 'text-2xl font-bold text-red-800 leading-tight' : 'text-2xl font-bold text-green-800 leading-tight'}>{mealExceeded.length}</p>
-                      <p className="text-xs whitespace-nowrap text-red-600">Exceso en comida</p>
-                    </div>
-                  </div>
-                  <p className="text-xs mt-2 font-medium">{mealExceeded.length > 0 ? 'Requiere atención' : 'Sin exceso'}</p>
-                </CardContent>
-              </Card>
-              <Card className={restExceeded.length > 0 ? 'border-red-200 bg-red-50/50' : 'border-green-200 bg-green-50/50'}>
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-3">
-                    <div className={restExceeded.length > 0 ? 'w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0' : 'w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0'}>
-                      {restExceeded.length > 0 ? <AlertTriangle className="w-5 h-5 text-red-600" /> : <CheckCircle2 className="w-5 h-5 text-green-600" />}
-                    </div>
-                    <div className="min-w-0">
-                      <p className={restExceeded.length > 0 ? 'text-2xl font-bold text-red-800 leading-tight' : 'text-2xl font-bold text-green-800 leading-tight'}>{restExceeded.length}</p>
+                      <p className={breakExceeded.length > 0 ? 'text-2xl font-bold text-red-800 leading-tight' : 'text-2xl font-bold text-green-800 leading-tight'}>{breakExceeded.length}</p>
                       <p className="text-xs whitespace-nowrap text-red-600">Exceso en descanso</p>
                     </div>
                   </div>
-                  <p className="text-xs mt-2 font-medium">{restExceeded.length > 0 ? 'Requiere atención' : 'Sin exceso'}</p>
+                  <p className="text-xs mt-2 font-medium">{breakExceeded.length > 0 ? 'Requiere atención' : 'Sin exceso'}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-violet-200 bg-violet-50/50">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
+                      <FileBarChart className="w-5 h-5 text-violet-600" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-2xl font-bold text-violet-800 leading-tight">{totalBreakMinutes}</p>
+                      <p className="text-xs text-violet-600 whitespace-nowrap">Minutos totales</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-violet-700 mt-2 font-medium">{totalBreakMinutes > 0 ? `Prom: ${breakCompleted.length > 0 ? Math.round(totalBreakMinutes / breakCompleted.length) : 0}m por empleado` : 'Sin registros aún'}</p>
                 </CardContent>
               </Card>
             </div>
 
             {/* Detailed Break Table */}
-            {(mealRecords.length > 0 || restRecords.length > 0) && (
+            {breakRecords.length > 0 && (
               <ScrollArea className="max-h-[300px]">
                 <div className="min-w-[700px]">
                   <Table>
@@ -470,11 +489,10 @@ function AdminDashboard() {
                         <TableHead className="min-w-[180px]">
                           <div className="flex items-center gap-1"><UtensilsCrossed className="w-3 h-3 text-orange-500" /> Comida</div>
                         </TableHead>
-                        <TableHead className="min-w-[80px]">Duración</TableHead>
                         <TableHead className="min-w-[180px]">
                           <div className="flex items-center gap-1"><Armchair className="w-3 h-3 text-purple-500" /> Descanso</div>
                         </TableHead>
-                        <TableHead className="min-w-[80px]">Duración</TableHead>
+                        <TableHead className="min-w-[100px]">Total</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -485,6 +503,9 @@ function AdminDashboard() {
                         const hasMeal = !!r.mealStart;
                         const hasRest = !!r.restStart;
                         if (!hasMeal && !hasRest) return null;
+                        const totalDur = (r.mealDuration as number || 0) + (r.restDuration as number || 0);
+                        const isExceeded = r.exceededMeal || r.exceededRest;
+                        const isOngoing = (hasMeal && !r.mealEnd) || (hasRest && !r.restEnd);
                         return (
                           <TableRow key={(r.id as string) || (user.name as string)}>
                             <TableCell className="font-medium text-sm">
@@ -498,18 +519,8 @@ function AdminDashboard() {
                                 <div className="text-xs">
                                   <span>{format(new Date(r.mealStart as string), 'HH:mm')}</span>
                                   {' - '}
-                                  <span>{r.mealEnd ? format(new Date(r.mealEnd as string), 'HH:mm') : <span className="text-orange-600 font-medium">En curso...</span>}</span>
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">—</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {hasMeal ? (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-xs font-medium">{r.mealDuration != null ? `${r.mealDuration}m` : '...'}</span>
-                                  {r.exceededMeal && <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4">Exceso</Badge>}
-                                  {!r.mealEnd && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-orange-300 text-orange-600">Activo</Badge>}
+                                  <span>{r.mealEnd ? format(new Date(r.mealEnd as string), 'HH:mm') : <span className="text-orange-600 font-medium">En curso</span>}</span>
+                                  {r.mealDuration != null && <span className="text-muted-foreground ml-1">({r.mealDuration}m)</span>}
                                 </div>
                               ) : (
                                 <span className="text-muted-foreground text-xs">—</span>
@@ -520,22 +531,19 @@ function AdminDashboard() {
                                 <div className="text-xs">
                                   <span>{format(new Date(r.restStart as string), 'HH:mm')}</span>
                                   {' - '}
-                                  <span>{r.restEnd ? format(new Date(r.restEnd as string), 'HH:mm') : <span className="text-purple-600 font-medium">En curso...</span>}</span>
+                                  <span>{r.restEnd ? format(new Date(r.restEnd as string), 'HH:mm') : <span className="text-purple-600 font-medium">En curso</span>}</span>
+                                  {r.restDuration != null && <span className="text-muted-foreground ml-1">({r.restDuration}m)</span>}
                                 </div>
                               ) : (
                                 <span className="text-muted-foreground text-xs">—</span>
                               )}
                             </TableCell>
                             <TableCell>
-                              {hasRest ? (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-xs font-medium">{r.restDuration != null ? `${r.restDuration}m` : '...'}</span>
-                                  {r.exceededRest && <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4">Exceso</Badge>}
-                                  {!r.restEnd && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-purple-300 text-purple-600">Activo</Badge>}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">—</span>
-                              )}
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs font-medium">{isOngoing ? '...' : `${totalDur}m`}</span>
+                                {isExceeded && <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4">Exceso</Badge>}
+                                {isOngoing && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-amber-300 text-amber-600">Activo</Badge>}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -548,7 +556,7 @@ function AdminDashboard() {
             )}
 
             {/* No breaks message */}
-            {mealRecords.length === 0 && restRecords.length === 0 && (
+            {breakRecords.length === 0 && (
               <div className="text-center py-6">
                 <Timer className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">No se han registrado descansos hoy</p>
@@ -1440,7 +1448,7 @@ function ManualCorrectionDialog({
                     className="flex-1"
                   >
                     <Timer className="w-4 h-4 mr-2" />
-                    Registrar Salida
+                    Registrar Fin de Jornada
                   </Button>
                 </div>
               </div>
@@ -1594,7 +1602,7 @@ function AttendanceView() {
         <Card>
           <CardContent className="p-0">
             <ScrollArea className="max-h-[500px]">
-              <div className="min-w-[1100px]">
+              <div className="min-w-[1000px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1602,8 +1610,7 @@ function AttendanceView() {
                       <TableHead className="min-w-[150px]">Empleado</TableHead>
                       {sucursalFilter === 'all' && <TableHead className="min-w-[100px]">Sucursal</TableHead>}
                       <TableHead className="min-w-[80px]">Entrada</TableHead>
-                      <TableHead className="min-w-[100px]">Comida</TableHead>
-                      <TableHead className="min-w-[100px]">Descanso</TableHead>
+                      <TableHead className="min-w-[160px]">Descanso (30 min)</TableHead>
                       <TableHead className="min-w-[80px]">Salida</TableHead>
                       <TableHead className="min-w-[60px]">Horas</TableHead>
                       <TableHead className="min-w-[100px]">Estado</TableHead>
@@ -1632,26 +1639,30 @@ function AttendanceView() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {r.mealStart ? (
-                            <div className="text-xs">
-                              <span>{format(new Date(r.mealStart), 'HH:mm')}</span>
-                              {' - '}
-                              <span>{r.mealEnd ? format(new Date(r.mealEnd), 'HH:mm') : '...'}</span>
-                              {r.mealDuration != null && <span className="text-muted-foreground ml-1">({r.mealDuration}m)</span>}
-                              {r.exceededMeal && <span className="text-red-500 ml-1">⚠️</span>}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {r.restStart ? (
-                            <div className="text-xs">
-                              <span>{format(new Date(r.restStart), 'HH:mm')}</span>
-                              {' - '}
-                              <span>{r.restEnd ? format(new Date(r.restEnd), 'HH:mm') : '...'}</span>
-                              {r.restDuration != null && <span className="text-muted-foreground ml-1">({r.restDuration}m)</span>}
-                              {r.exceededRest && <span className="text-red-500 ml-1">⚠️</span>}
+                          {r.mealStart || r.restStart ? (
+                            <div className="text-xs space-y-0.5">
+                              {r.mealStart && (
+                                <div className="flex items-center gap-1">
+                                  <UtensilsCrossed className="w-3 h-3 text-orange-500 flex-shrink-0" />
+                                  <span>{format(new Date(r.mealStart), 'HH:mm')}</span>
+                                  {' - '}
+                                  <span>{r.mealEnd ? format(new Date(r.mealEnd), 'HH:mm') : <span className="text-orange-600 font-medium">En curso</span>}</span>
+                                  {r.mealDuration != null && <span className="text-muted-foreground">({r.mealDuration}m)</span>}
+                                </div>
+                              )}
+                              {r.restStart && (
+                                <div className="flex items-center gap-1">
+                                  <Armchair className="w-3 h-3 text-purple-500 flex-shrink-0" />
+                                  <span>{format(new Date(r.restStart), 'HH:mm')}</span>
+                                  {' - '}
+                                  <span>{r.restEnd ? format(new Date(r.restEnd), 'HH:mm') : <span className="text-purple-600 font-medium">En curso</span>}</span>
+                                  {r.restDuration != null && <span className="text-muted-foreground">({r.restDuration}m)</span>}
+                                </div>
+                              )}
+                              {(!r.mealStart || !!r.mealEnd) && (!r.restStart || !!r.restEnd) && ((r.mealDuration || 0) + (r.restDuration || 0)) > 0 && (
+                                <div className="text-muted-foreground">Total: {(r.mealDuration || 0) + (r.restDuration || 0)}m{(r.exceededMeal || r.exceededRest) ? ' ⚠️' : ''}</div>
+                              )}
+                              {((r.mealStart && !r.mealEnd) || (r.restStart && !r.restEnd)) && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-amber-300 text-amber-600">Activo</Badge>}
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-xs">—</span>

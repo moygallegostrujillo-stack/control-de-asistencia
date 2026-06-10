@@ -21,6 +21,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  setUser: (user: User) => void;
 }
 
 const SESSION_KEY = 'attendance_session';
@@ -116,5 +117,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     set({ user: null, isAuthenticated: false, isLoading: false });
+  },
+
+  setUser: (user: User) => {
+    saveSession(user);
+    set({ user, isAuthenticated: true });
   },
 }));

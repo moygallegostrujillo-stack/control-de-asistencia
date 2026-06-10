@@ -113,3 +113,30 @@ Stage Summary:
 - Credentials verified and working (both anon and service_role keys)
 - The project just needs to be deployed to Vercel with the correct environment variables
 - No data migration needed - Supabase already has all the production data
+---
+Task ID: 1
+Agent: main
+Task: Fix admin panel views - merge Comida/Descanso into unified Descanso (30 min), add quick-login, fix UI issues
+
+Work Log:
+- Analyzed uploaded screenshot with VLM to identify UI issues in Panel Principal
+- Identified: separate Comida/Descanso columns (mostly empty), confusing Break Summary with contradictory data
+- Merged Comida+Descanso columns in dashboard attendance table into single "Descanso (30 min)" column with sub-rows
+- Replaced 4 separate Comida/Descanso stat cards with 4 unified Descanso cards (completados, en curso, exceso, minutos totales)
+- Simplified detailed Break Summary table to show Comida + Descanso + Total columns per employee
+- Fixed Attendance view (Asistencias) with same merged column
+- Updated employee layout: single "Iniciar Descanso (30 min)" button, auto-starts rest after meal ends
+- Changed "Registrar Salida" → "Registrar Fin de Jornada" in employee layout
+- Updated schedule info text to "Descanso: 30 min (15 min comida + 15 min descanso)"
+- Updated employee history view with unified Descanso display
+- Created /api/auth/users-list and /api/auth/quick-login API endpoints for Acceso Rápido
+- Added Acceso Rápido section to login form with admin/employee quick-login buttons
+- Added setUser method to auth store for quick-login
+- Fixed logout to also clear auth-token cookie
+- Set session_user cookie in quick-login for auth-helper compatibility
+
+Stage Summary:
+- All Comida/Descanso references unified to "Descanso (30 min)" across admin and employee views
+- Acceso Rápido quick-login working on login page
+- "Registrar Fin de Jornada" replaces "Registrar Salida" throughout
+- All 12 browser verification checks passed
