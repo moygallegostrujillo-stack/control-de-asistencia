@@ -99,6 +99,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ya se ha iniciado un descanso hoy. Solo se permite un descanso por día.' }, { status: 409 });
     }
 
+    // Also check old-system meal/rest fields
+    if ((existingRecord as Record<string, unknown>).mealStart || (existingRecord as Record<string, unknown>).restStart) {
+      return NextResponse.json({ error: 'Ya se ha registrado un descanso hoy. Solo se permite un descanso por día.' }, { status: 409 });
+    }
+
     // Validate: only allow break for shifts >= 8 hours
     const mexicoNow = getMexicoNow();
     const dayOfWeek = mexicoNow.getDay();
