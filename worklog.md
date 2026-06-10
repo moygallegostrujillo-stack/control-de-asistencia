@@ -210,3 +210,32 @@ Stage Summary:
 - Descanso is now a single 30-min break with simple start/end
 - No more comida/rest split anywhere in the UI
 - Production deployment live at my-project-one-rosy.vercel.app
+---
+Task ID: 4
+Agent: Main Agent
+Task: Enforce one-break-per-day restriction - disable break button after break is completed
+
+Work Log:
+- Analyzed current break logic in employee-layout.tsx and break-start/break-end API routes
+- Backend (break-start/route.ts) already checks existingRecord.breakStart and returns 409 if break already started
+- Frontend (employee-layout.tsx) was hiding the break button after completion instead of showing it disabled
+- Changed employee-layout.tsx break button area from conditional hiding to three-state rendering:
+  1. noBreaksStarted → Show active "Iniciar Descanso (30 min)" button
+  2. allBreaksCompleted → Show DISABLED "Descanso ya utilizado" button + "Solo se permite un descanso por día" text
+  3. In between states → null (break in progress handled by separate view)
+- Fixed "Terminar Descanso" click handler: changed onClick from `isOnBreak ? handleBreakEnd : undefined` to always `handleBreakEnd` for old system compatibility
+- Added backend validation in break-start/route.ts for old mealStart/restStart fields
+- Committed and pushed to GitHub (commit 4ec668f)
+- Verified all 6 states via Agent Browser:
+  - Not checked in → No break button
+  - Checked in, no break → "Iniciar Descanso (30 min)" button
+  - On break → "En Descanso" with timer and "Terminar Descanso" button
+  - Early break end attempt → Server rejects with 400
+  - Break completed → DISABLED "Descanso ya utilizado" button + "Solo se permite un descanso por día"
+  - Second break attempt → API returns 409
+
+Stage Summary:
+- One-break-per-day restriction fully enforced both frontend and backend
+- After break is used, button shows as disabled with clear message "Solo se permite un descanso por día"
+- Backend validates both new (breakStart) and old (mealStart/restStart) system fields
+- Code pushed to GitHub, should auto-deploy to Vercel via Git integration
