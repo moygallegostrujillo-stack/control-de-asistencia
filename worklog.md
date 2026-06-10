@@ -163,3 +163,21 @@ Stage Summary:
 - All employee names now display fully without truncation
 - Changes deployed to production at https://my-project-one-rosy.vercel.app
 - Key fix: whitespace-normal overrides TableCell default whitespace-nowrap, allowing names to wrap
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix 'No hay usuarios disponibles' and remaining name truncation issues on production
+
+Work Log:
+- Analyzed new screenshots using VLM: Login shows "No hay usuarios disponibles", admin dashboard still has truncated names
+- Root cause 1: Supabase buildSelect bug - when processing nested `select` in relations, it passed `v` (full object) instead of `v.select` as the select parameter, generating invalid Supabase queries
+- Root cause 2: Previous deployment was preview only, not promoted to production
+- Fixed db-supabase.ts line 74: Changed `v as Record<string, unknown>` to `(v as Record<string, unknown>).select` in the select branch of buildSelect
+- Created proper production deployment (target: production) on Vercel
+- Verified production site: 17 users showing in quick access, all names displaying fully
+
+Stage Summary:
+- Supabase buildSelect bug fixed - nested selects in relations now generate correct query strings
+- Production deployment dpl_82jmX41uAFZ17eLhbB7uEVuCGYeo is live at my-project-one-rosy.vercel.app
+- All 17 users visible in Acceso Rápido login section
+- All employee names showing completely without truncation in admin dashboard tables
