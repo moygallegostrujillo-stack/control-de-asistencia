@@ -239,3 +239,39 @@ Stage Summary:
 - After break is used, button shows as disabled with clear message "Solo se permite un descanso por día"
 - Backend validates both new (breakStart) and old (mealStart/restStart) system fields
 - Code pushed to GitHub, should auto-deploy to Vercel via Git integration
+---
+Task ID: 5
+Agent: Main Agent
+Task: Add break cancel functionality - employee can cancel an in-progress break
+
+Work Log:
+- User reported "El descanso no se puede cancelar" - break cannot be cancelled
+- Analyzed issue: only "Terminar Descanso" button existed, which requires 30-min minimum via break-end API
+- Created new API endpoint /api/attendance/break-cancel/route.ts:
+  - Clears breakStart field (sets to null) so the break is fully cancelled
+  - Validates: must have breakStart, must NOT have breakEnd, must NOT be checked out
+  - Creates BREAK_CANCEL audit log entry with elapsed time
+  - Returns success message with elapsed minutes info
+- Added handleBreakCancel to employee-layout.tsx:
+  - New state: cancellingBreak
+  - Calls /api/attendance/break-cancel API
+  - On success: shows toast "Descanso cancelado" and refreshes data
+  - After cancel, noBreaksStarted becomes true again → "Iniciar Descanso" button reappears
+- Added "Cancelar Descanso" button in "En Descanso" view:
+  - Red outline style (border-red-300, text-red-600)
+  - XCircle icon
+  - Disabled while another operation is in progress
+  - Helper text: "Si inició el descanso por error, puede cancelarlo."
+- Verified with Agent Browser:
+  - Cancel button appears during break with correct styling
+  - Clicking cancel clears breakStart and returns to "En Jornada" view
+  - After cancel, "Iniciar Descanso (30 min)" button is available again
+  - Cancel does NOT consume the one-break-per-day allowance
+- Committed and pushed (07b3d10)
+
+Stage Summary:
+- Break cancel functionality fully working
+- Employee can cancel an accidentally started break
+- Cancel clears breakStart so the break can be restarted later
+- Both "Terminar Descanso" and "Cancelar Descanso" buttons visible during break
+- Code pushed to GitHub for Vercel auto-deploy
