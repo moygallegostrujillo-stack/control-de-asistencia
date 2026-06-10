@@ -221,8 +221,8 @@ export function LoginForm() {
                                 <Shield className="w-4 h-4 text-primary" />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium truncate">{user.name}</p>
-                                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                                <p className="text-sm font-medium">{user.name}</p>
+                                <p className="text-xs text-muted-foreground">{user.email}</p>
                               </div>
                               {quickLoading === user.id && (
                                 <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin flex-shrink-0" />
@@ -253,8 +253,8 @@ export function LoginForm() {
                                 <span className="text-sm font-semibold text-amber-700">{user.name.charAt(0)}</span>
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium truncate">{user.name}</p>
-                                <p className="text-xs text-muted-foreground truncate">
+                                <p className="text-sm font-medium">{user.name}</p>
+                                <p className="text-xs text-muted-foreground">
                                   {user.employee?.department || ''}{user.employee?.sucursal ? ` · ${user.employee.sucursal}` : ''}
                                 </p>
                               </div>

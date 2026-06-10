@@ -292,11 +292,11 @@ function AdminDashboard() {
             <p className="text-center text-muted-foreground py-8">No hay registros de asistencia hoy</p>
           ) : (
             <ScrollArea className="max-h-96">
-              <div className="min-w-[900px]">
+              <div className="min-w-[1100px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[140px]">Empleado</TableHead>
+                      <TableHead className="min-w-[250px]">Empleado</TableHead>
                       <TableHead className="min-w-[90px]">Depto.</TableHead>
                       <TableHead className="min-w-[80px]">Entrada</TableHead>
                       <TableHead className="min-w-[160px]">Descanso (30 min)</TableHead>
@@ -320,7 +320,7 @@ function AdminDashboard() {
                       const totalBreakDur = (record.mealDuration as number || 0) + (record.restDuration as number || 0);
                       return (
                         <TableRow key={r.id}>
-                          <TableCell className="font-medium">{r.employee?.user?.name || '—'}</TableCell>
+                          <TableCell className="font-medium whitespace-normal"><span className="break-words">{r.employee?.user?.name || '—'}</span></TableCell>
                           <TableCell>{(r.employee as Record<string, unknown>)?.department as string || '—'}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
@@ -481,11 +481,11 @@ function AdminDashboard() {
             {/* Detailed Break Table */}
             {breakRecords.length > 0 && (
               <ScrollArea className="max-h-[300px]">
-                <div className="min-w-[700px]">
+                <div className="min-w-[800px]">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="min-w-[160px]">Empleado</TableHead>
+                        <TableHead className="min-w-[250px]">Empleado</TableHead>
                         <TableHead className="min-w-[180px]">
                           <div className="flex items-center gap-1"><UtensilsCrossed className="w-3 h-3 text-orange-500" /> Comida</div>
                         </TableHead>
@@ -508,9 +508,9 @@ function AdminDashboard() {
                         const isOngoing = (hasMeal && !r.mealEnd) || (hasRest && !r.restEnd);
                         return (
                           <TableRow key={(r.id as string) || (user.name as string)}>
-                            <TableCell className="font-medium text-sm">
+                            <TableCell className="font-medium text-sm whitespace-normal">
                               <div>
-                                <p className="truncate">{(user.name as string) || '—'}</p>
+                                <p className="break-words">{(user.name as string) || '—'}</p>
                                 <p className="text-xs text-muted-foreground">{(emp.employeeNumber as string) || ''}</p>
                               </div>
                             </TableCell>
@@ -578,8 +578,8 @@ function AdminDashboard() {
                 <div key={emp.id} className="flex items-center gap-3 p-3 rounded-lg bg-destructive/5">
                   <XCircle className="w-4 h-4 text-destructive flex-shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{emp.user.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{emp.department}</p>
+                    <p className="text-sm font-medium">{emp.user.name}</p>
+                    <p className="text-xs text-muted-foreground">{emp.department}</p>
                   </div>
                 </div>
               ))}
@@ -1602,12 +1602,12 @@ function AttendanceView() {
         <Card>
           <CardContent className="p-0">
             <ScrollArea className="max-h-[500px]">
-              <div className="min-w-[1000px]">
+              <div className="min-w-[1200px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[100px]">Fecha</TableHead>
-                      <TableHead className="min-w-[150px]">Empleado</TableHead>
+                      <TableHead className="min-w-[250px]">Empleado</TableHead>
                       {sucursalFilter === 'all' && <TableHead className="min-w-[100px]">Sucursal</TableHead>}
                       <TableHead className="min-w-[80px]">Entrada</TableHead>
                       <TableHead className="min-w-[160px]">Descanso (30 min)</TableHead>
@@ -1630,7 +1630,7 @@ function AttendanceView() {
                     return (
                       <TableRow key={r.id || idx}>
                         <TableCell>{String(r.date).slice(0, 10)}</TableCell>
-                        <TableCell><div><p className="font-medium">{r.employee?.user?.name || '—'}</p><p className="text-xs text-muted-foreground">{r.employee?.employeeNumber}</p></div></TableCell>
+                        <TableCell className="whitespace-normal"><div><p className="font-medium">{r.employee?.user?.name || '—'}</p><p className="text-xs text-muted-foreground">{r.employee?.employeeNumber}</p></div></TableCell>
                         {sucursalFilter === 'all' && <TableCell><Badge variant="outline" className="text-xs"><Building2 className="w-3 h-3 mr-1" />{r.sucursal || r.employee?.sucursal || 'Matriz'}</Badge></TableCell>}
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -1921,15 +1921,15 @@ function ReportsView() {
         {records.length > 0 ? (
           <Card><CardHeader className="pb-2"><CardTitle className="text-base">Detalle de Asistencias</CardTitle><CardDescription>{records.length} registro(s) en el período</CardDescription></CardHeader>
           <CardContent className="p-0"><ScrollArea className="max-h-[400px]">
-            <div className="min-w-[800px]">
+            <div className="min-w-[1000px]">
             <Table>
-              <TableHeader><TableRow><TableHead className="min-w-[150px]">Empleado</TableHead>{sucursalFilter === 'all' && <TableHead className="min-w-[100px]">Sucursal</TableHead>}<TableHead className="min-w-[100px]">Fecha</TableHead><TableHead className="min-w-[80px]">Entrada</TableHead><TableHead className="min-w-[80px]">Salida</TableHead><TableHead className="min-w-[80px]">Hrs Trab.</TableHead><TableHead className="min-w-[80px]">Hrs Extra</TableHead><TableHead className="min-w-[100px]">Estado</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead className="min-w-[250px]">Empleado</TableHead>{sucursalFilter === 'all' && <TableHead className="min-w-[100px]">Sucursal</TableHead>}<TableHead className="min-w-[100px]">Fecha</TableHead><TableHead className="min-w-[80px]">Entrada</TableHead><TableHead className="min-w-[80px]">Salida</TableHead><TableHead className="min-w-[80px]">Hrs Trab.</TableHead><TableHead className="min-w-[80px]">Hrs Extra</TableHead><TableHead className="min-w-[100px]">Estado</TableHead></TableRow></TableHeader>
               <TableBody>
                 {records.map((record: Record<string, unknown>, idx: number) => {
                   const r = record as { id: string; date: string; sucursal: string; checkInTime: string | null; checkOutTime: string | null; status: string; workedHours: number; overtimeHours: number; employee: { user: { name: string }; employeeNumber: string; sucursal: string } };
                   return (
                     <TableRow key={r.id || idx}>
-                      <TableCell><div><p className="font-medium">{r.employee?.user?.name}</p><p className="text-xs text-muted-foreground">{r.employee?.employeeNumber}</p></div></TableCell>
+                      <TableCell className="whitespace-normal"><div><p className="font-medium break-words">{r.employee?.user?.name}</p><p className="text-xs text-muted-foreground">{r.employee?.employeeNumber}</p></div></TableCell>
                       {sucursalFilter === 'all' && <TableCell><Badge variant="outline" className="text-xs"><Building2 className="w-3 h-3 mr-1" />{r.sucursal || r.employee?.sucursal || 'Matriz'}</Badge></TableCell>}
                       <TableCell>{String(r.date).slice(0, 10)}</TableCell>
                       <TableCell>{r.checkInTime ? format(new Date(r.checkInTime), 'HH:mm:ss') : '—'}</TableCell>
@@ -1968,15 +1968,15 @@ function ReportsView() {
         {records.length > 0 ? (
           <Card><CardHeader className="pb-2"><CardTitle className="text-base">Detalle de Horas Extra</CardTitle><CardDescription>Las horas extra se pagan al doble según la ley laboral mexicana</CardDescription></CardHeader>
           <CardContent className="p-0"><ScrollArea className="max-h-[400px]">
-            <div className="min-w-[800px]">
+            <div className="min-w-[1000px]">
             <Table>
-              <TableHeader><TableRow><TableHead className="min-w-[150px]">Empleado</TableHead>{sucursalFilter === 'all' && <TableHead className="min-w-[100px]">Sucursal</TableHead>}<TableHead className="min-w-[100px]">Fecha</TableHead><TableHead className="min-w-[80px]">Entrada</TableHead><TableHead className="min-w-[80px]">Salida</TableHead><TableHead className="min-w-[80px]">Hrs Trab.</TableHead><TableHead className="min-w-[80px]">Hrs Extra</TableHead><TableHead className="min-w-[100px]">Estado</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead className="min-w-[250px]">Empleado</TableHead>{sucursalFilter === 'all' && <TableHead className="min-w-[100px]">Sucursal</TableHead>}<TableHead className="min-w-[100px]">Fecha</TableHead><TableHead className="min-w-[80px]">Entrada</TableHead><TableHead className="min-w-[80px]">Salida</TableHead><TableHead className="min-w-[80px]">Hrs Trab.</TableHead><TableHead className="min-w-[80px]">Hrs Extra</TableHead><TableHead className="min-w-[100px]">Estado</TableHead></TableRow></TableHeader>
               <TableBody>
                 {records.map((record: Record<string, unknown>, idx: number) => {
                   const r = record as { id: string; date: string; sucursal: string; checkInTime: string | null; checkOutTime: string | null; status: string; workedHours: number; overtimeHours: number; overtimeMinutes: number; employee: { user: { name: string }; employeeNumber: string; sucursal: string } };
                   return (
                     <TableRow key={r.id || idx}>
-                      <TableCell><div><p className="font-medium">{r.employee?.user?.name}</p><p className="text-xs text-muted-foreground">{r.employee?.employeeNumber}</p></div></TableCell>
+                      <TableCell className="whitespace-normal"><div><p className="font-medium break-words">{r.employee?.user?.name}</p><p className="text-xs text-muted-foreground">{r.employee?.employeeNumber}</p></div></TableCell>
                       {sucursalFilter === 'all' && <TableCell><Badge variant="outline" className="text-xs"><Building2 className="w-3 h-3 mr-1" />{r.sucursal || r.employee?.sucursal || 'Matriz'}</Badge></TableCell>}
                       <TableCell>{String(r.date).slice(0, 10)}</TableCell>
                       <TableCell>{r.checkInTime ? format(new Date(r.checkInTime), 'HH:mm:ss') : '—'}</TableCell>
