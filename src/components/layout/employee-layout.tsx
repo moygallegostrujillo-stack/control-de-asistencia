@@ -138,6 +138,7 @@ function EmployeeDashboard() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [startingBreak, setStartingBreak] = useState(false);
   const [endingBreak, setEndingBreak] = useState(false);
+  const [cancellingBreak, setCancellingBreak] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [showQRInput, setShowQRInput] = useState(false);
@@ -282,6 +283,30 @@ function EmployeeDashboard() {
       toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
     }
     setStartingBreak(false);
+  };
+
+  const handleBreakCancel = async () => {
+    setCancellingBreak(true);
+    try {
+      const res = await authFetch('/api/attendance/break-cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeId: user?.employee?.id || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast({
+          title: 'Descanso cancelado',
+          description: data.message || 'Se ha cancelado el descanso. Puede iniciarlo nuevamente cuando lo desee.',
+        });
+        setRefreshKey(k => k + 1);
+      } else {
+        toast({ title: 'Error', description: data.error, variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
+    }
+    setCancellingBreak(false);
   };
 
   const handleBreakEnd = async () => {
@@ -487,7 +512,7 @@ function EmployeeDashboard() {
                   className="w-full bg-amber-600 hover:bg-amber-700"
                   size="lg"
                   onClick={handleBreakEnd}
-                  disabled={endingBreak}
+                  disabled={endingBreak || cancellingBreak}
                 >
                   {endingBreak ? (
                     <div className="flex items-center gap-2">
@@ -498,8 +523,27 @@ function EmployeeDashboard() {
                     <><Timer className="w-5 h-5 mr-2" />Terminar Descanso</>
                   )}
                 </Button>
+                <Button
+                  variant="outline"
+                  className="w-full border-red-300 text-red-600 hover:bg-red-50"
+                  size="lg"
+                  onClick={handleBreakCancel}
+                  disabled={endingBreak || cancellingBreak}
+                >
+                  {cancellingBreak ? (
+                    <div className="flex items-center gap-2">
+                      <div className="h-4 w-4 rounded-full border-2 border-red-600 border-t-transparent animate-spin" />
+                      Cancelando...
+                    </div>
+                  ) : (
+                    <><XCircle className="w-5 h-5 mr-2" />Cancelar Descanso</>
+                  )}
+                </Button>
                 <p className="text-xs text-muted-foreground">
                   Tiempo mínimo de descanso: 30 minutos
+                </p>
+                <p className="text-xs text-red-500">
+                  Si inició el descanso por error, puede cancelarlo.
                 </p>
               </div>
             </div>
