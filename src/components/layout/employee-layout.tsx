@@ -18,8 +18,7 @@ import { es } from 'date-fns/locale';
 import {
   LogOut, Clock, LogIn, QrCode, History, MapPin,
   CheckCircle2, XCircle, AlertTriangle, Timer, RefreshCw,
-  Navigation, Fingerprint, Building2, Coffee, UtensilsCrossed,
-  AlertOctagon, Armchair
+  Navigation, Fingerprint, Building2, AlertOctagon
 } from 'lucide-react';
 
 // ==================== STATUS BADGE ====================
@@ -44,7 +43,7 @@ function CurrentTime() {
   return <h2 className="text-4xl font-mono font-bold tabular-nums">{format(time, 'HH:mm:ss')}</h2>;
 }
 
-// ==================== BREAK TIMER (reusable for meal/rest) ====================
+// ==================== BREAK TIMER ====================
 function BreakTimer({ startTime, minMinutes }: { startTime: string; minMinutes: number }) {
   const [elapsed, setElapsed] = useState(0);
   const [canEnd, setCanEnd] = useState(false);
@@ -137,10 +136,8 @@ function EmployeeDashboard() {
   const { toast } = useToast();
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [startingMeal, setStartingMeal] = useState(false);
-  const [endingMeal, setEndingMeal] = useState(false);
-  const [startingRest, setStartingRest] = useState(false);
-  const [endingRest, setEndingRest] = useState(false);
+  const [startingBreak, setStartingBreak] = useState(false);
+  const [endingBreak, setEndingBreak] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [showQRInput, setShowQRInput] = useState(false);
@@ -262,61 +259,11 @@ function EmployeeDashboard() {
     setCheckingOut(false);
   };
 
-  // ---- Meal (Comida) handlers ----
-  const handleMealStart = async () => {
-    setStartingMeal(true);
+  // ---- Break handlers ----
+  const handleBreakStart = async () => {
+    setStartingBreak(true);
     try {
-      const res = await authFetch('/api/attendance/meal-start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId: user?.employee?.id || undefined }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast({
-          title: 'Comida iniciada',
-          description: data.message || 'Se ha registrado el inicio de su comida. Mínimo 15 minutos.',
-        });
-        setRefreshKey(k => k + 1);
-      } else {
-        toast({ title: 'Error', description: data.error, variant: 'destructive' });
-      }
-    } catch {
-      toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
-    }
-    setStartingMeal(false);
-  };
-
-  const handleMealEnd = async () => {
-    setEndingMeal(true);
-    try {
-      const res = await authFetch('/api/attendance/meal-end', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId: user?.employee?.id || undefined }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast({
-          title: data.exceededMeal ? '⚠️ Comida terminada con exceso' : 'Comida terminada',
-          description: data.message || `Duración: ${data.mealDuration} min`,
-          variant: data.exceededMeal ? 'destructive' : 'default',
-        });
-        setRefreshKey(k => k + 1);
-      } else {
-        toast({ title: 'No se puede terminar la comida', description: data.error, variant: 'destructive' });
-      }
-    } catch {
-      toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
-    }
-    setEndingMeal(false);
-  };
-
-  // ---- Rest (Descanso) handlers ----
-  const handleRestStart = async () => {
-    setStartingRest(true);
-    try {
-      const res = await authFetch('/api/attendance/rest-start', {
+      const res = await authFetch('/api/attendance/break-start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeId: user?.employee?.id || undefined }),
@@ -325,7 +272,7 @@ function EmployeeDashboard() {
       if (res.ok) {
         toast({
           title: 'Descanso iniciado',
-          description: data.message || 'Se ha registrado el inicio de su descanso. Mínimo 15 minutos.',
+          description: data.message || 'Se ha registrado el inicio de su descanso. Mínimo 30 minutos.',
         });
         setRefreshKey(k => k + 1);
       } else {
@@ -334,13 +281,13 @@ function EmployeeDashboard() {
     } catch {
       toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
     }
-    setStartingRest(false);
+    setStartingBreak(false);
   };
 
-  const handleRestEnd = async () => {
-    setEndingRest(true);
+  const handleBreakEnd = async () => {
+    setEndingBreak(true);
     try {
-      const res = await authFetch('/api/attendance/rest-end', {
+      const res = await authFetch('/api/attendance/break-end', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeId: user?.employee?.id || undefined }),
@@ -348,9 +295,9 @@ function EmployeeDashboard() {
       const data = await res.json();
       if (res.ok) {
         toast({
-          title: data.exceededRest ? '⚠️ Descanso terminado con exceso' : 'Descanso terminado',
-          description: data.message || `Duración: ${data.restDuration} min`,
-          variant: data.exceededRest ? 'destructive' : 'default',
+          title: data.exceededBreak ? '⚠️ Descanso terminado con exceso' : 'Descanso terminado',
+          description: data.message || `Duración: ${data.breakDuration} min`,
+          variant: data.exceededBreak ? 'destructive' : 'default',
         });
         setRefreshKey(k => k + 1);
       } else {
@@ -359,53 +306,7 @@ function EmployeeDashboard() {
     } catch {
       toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
     }
-    setEndingRest(false);
-  };
-
-  // ---- Combined handler: end meal and auto-start rest ----
-  const handleMealEndAndAutoRest = async () => {
-    setEndingMeal(true);
-    try {
-      const res = await authFetch('/api/attendance/meal-end', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId: user?.employee?.id || undefined }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast({
-          title: data.exceededMeal ? '⚠️ Comida terminada con exceso' : 'Comida terminada',
-          description: 'Iniciando descanso automáticamente...',
-          variant: data.exceededMeal ? 'destructive' : 'default',
-        });
-        // Auto-start rest after meal ends
-        setEndingMeal(false);
-        setStartingRest(true);
-        try {
-          const restRes = await authFetch('/api/attendance/rest-start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ employeeId: user?.employee?.id || undefined }),
-          });
-          const restData = await restRes.json();
-          if (restRes.ok) {
-            toast({ title: 'Descanso iniciado', description: restData.message || 'Descanso de 15 minutos iniciado.' });
-          } else {
-            toast({ title: 'Error al iniciar descanso', description: restData.error, variant: 'destructive' });
-          }
-        } catch {
-          toast({ title: 'Error', description: 'Error al iniciar descanso', variant: 'destructive' });
-        }
-        setStartingRest(false);
-        setRefreshKey(k => k + 1);
-      } else {
-        toast({ title: 'No se puede terminar la comida', description: data.error, variant: 'destructive' });
-        setEndingMeal(false);
-      }
-    } catch {
-      toast({ title: 'Error', description: 'Error de conexión', variant: 'destructive' });
-      setEndingMeal(false);
-    }
+    setEndingBreak(false);
   };
 
   // ---- State derivations ----
@@ -413,6 +314,8 @@ function EmployeeDashboard() {
     checkInTime: string | null; checkOutTime: string | null;
     status: string; checkInLatitude: number | null; checkInLongitude: number | null;
     checkInMethod: string | null;
+    breakStart: string | null; breakEnd: string | null;
+    breakDuration: number | null; exceededBreak: boolean;
     mealStart: string | null; mealEnd: string | null;
     mealDuration: number | null; exceededMeal: boolean;
     restStart: string | null; restEnd: string | null;
@@ -426,20 +329,34 @@ function EmployeeDashboard() {
   const isCheckedIn = !!record?.checkInTime;
   const isCheckedOut = !!record?.checkOutTime;
 
-  // Meal states
-  const isOnMeal = !!record?.mealStart && !record?.mealEnd;
-  const mealCompleted = !!record?.mealStart && !!record?.mealEnd;
+  // New system: breakStart/breakEnd
+  const isOnBreak = !!(record?.breakStart && !record?.breakEnd);
+  const breakCompleted = !!(record?.breakStart && record?.breakEnd);
 
-  // Rest states
-  const isOnRest = !!record?.restStart && !record?.restEnd;
-  const restCompleted = !!record?.restStart && !!record?.restEnd;
+  // Old system backward compat: mealStart/restStart
+  const isOnOldMeal = !record?.breakStart && !!record?.mealStart && !record?.mealEnd;
+  const isOnOldRest = !record?.breakStart && !!record?.restStart && !record?.restEnd;
+  const oldMealCompleted = !record?.breakStart && !!record?.mealStart && !!record?.mealEnd;
+  const oldRestCompleted = !record?.breakStart && !!record?.restStart && !!record?.restEnd;
+  const oldBreakCompleted = oldMealCompleted && oldRestCompleted;
 
-  // Currently in any break (meal or rest)
-  const isOnAnyBreak = isOnMeal || isOnRest;
-  // All breaks completed (descanso done)
-  const breakCompleted = mealCompleted && restCompleted;
+  // Currently in any break (new or old system)
+  const isOnAnyBreak = isOnBreak || isOnOldMeal || isOnOldRest;
+  // All breaks completed
+  const allBreaksCompleted = breakCompleted || oldBreakCompleted;
   // No breaks started yet
-  const noBreaksStarted = !record?.mealStart && !record?.restStart;
+  const noBreaksStarted = !record?.breakStart && !record?.mealStart && !record?.restStart;
+
+  // Determine the effective break start time for the timer
+  const effectiveBreakStart = record?.breakStart || record?.mealStart || record?.restStart || null;
+
+  // Determine break duration for display
+  const effectiveBreakDuration = record?.breakDuration
+    || ((record?.mealDuration || 0) + (record?.restDuration || 0))
+    || null;
+
+  // Determine if break was exceeded
+  const effectiveExceededBreak = record?.exceededBreak || record?.exceededMeal || record?.exceededRest || false;
 
   const now = new Date();
 
@@ -451,6 +368,21 @@ function EmployeeDashboard() {
     const shiftMinutes = (endH * 60 + endM) - (startH * 60 + startM);
     isEligibleForBreak = shiftMinutes >= 480; // 8 hours
   }
+
+  // Helper to get break time range string for display
+  const getBreakTimeRange = () => {
+    if (record?.breakStart) {
+      const start = format(new Date(record.breakStart), 'HH:mm');
+      const end = record.breakEnd ? format(new Date(record.breakEnd), 'HH:mm') : '—';
+      return `${start} - ${end}`;
+    }
+    // Old system: combine meal + rest
+    const mealStart = record?.mealStart ? format(new Date(record.mealStart), 'HH:mm') : null;
+    const restEnd = record?.restEnd ? format(new Date(record.restEnd), 'HH:mm') : null;
+    if (mealStart && restEnd) return `${mealStart} - ${restEnd}`;
+    if (mealStart) return `${mealStart} - —`;
+    return '—';
+  };
 
   return (
     <div className="space-y-6 max-w-lg mx-auto">
@@ -487,7 +419,7 @@ function EmployeeDashboard() {
               <div className="flex flex-col gap-1 mt-2">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Timer className="w-3 h-3" />
-                  <span>Descanso: 30 min (15 min comida + 15 min descanso)</span>
+                  <span>Descanso: 30 min</span>
                 </div>
               </div>
             )}
@@ -509,8 +441,7 @@ function EmployeeDashboard() {
 
       {/* Main status card */}
       <Card className={
-        isOnMeal ? 'border-orange-200 bg-orange-50' :
-        isOnRest ? 'border-purple-200 bg-purple-50' :
+        isOnAnyBreak ? 'border-orange-200 bg-orange-50' :
         isCheckedOut ? 'border-green-200 bg-green-50' :
         isCheckedIn ? 'border-blue-200 bg-blue-50' : ''
       }>
@@ -524,111 +455,56 @@ function EmployeeDashboard() {
               <h2 className="text-xl font-bold text-green-800">Jornada Completada</h2>
               <div className="space-y-1 text-sm text-green-700">
                 <p>Entrada: {record?.checkInTime ? format(new Date(record.checkInTime), 'HH:mm:ss') : '—'}</p>
-                {record?.mealStart && (
+                {(record?.breakStart || record?.mealStart || record?.restStart) && (
                   <p className="flex items-center justify-center gap-1">
-                    <UtensilsCrossed className="w-3 h-3" />
-                    Comida: {format(new Date(record.mealStart), 'HH:mm')} - {record.mealEnd ? format(new Date(record.mealEnd), 'HH:mm') : '—'}
-                    {record.mealDuration ? ` (${record.mealDuration} min)` : ''}
-                    {record.exceededMeal && <span className="text-red-600 ml-1">⚠️ Exceso</span>}
-                  </p>
-                )}
-                {record?.restStart && (
-                  <p className="flex items-center justify-center gap-1">
-                    <Armchair className="w-3 h-3" />
-                    Descanso: {format(new Date(record.restStart), 'HH:mm')} - {record.restEnd ? format(new Date(record.restEnd), 'HH:mm') : '—'}
-                    {record.restDuration ? ` (${record.restDuration} min)` : ''}
-                    {record.exceededRest && <span className="text-red-600 ml-1">⚠️ Exceso</span>}
+                    <Timer className="w-3 h-3" />
+                    Descanso: {getBreakTimeRange()}
+                    {effectiveBreakDuration ? ` (${effectiveBreakDuration} min)` : ''}
+                    {effectiveExceededBreak && <span className="text-red-600 ml-1">⚠️ Exceso</span>}
                   </p>
                 )}
                 <p>Salida: {record?.checkOutTime ? format(new Date(record.checkOutTime), 'HH:mm:ss') : '—'}</p>
                 {record?.checkInLatitude && <p className="text-xs flex items-center justify-center gap-1"><MapPin className="w-3 h-3" />{record.checkInLatitude.toFixed(4)}, {record.checkInLongitude?.toFixed(4)}</p>}
               </div>
             </div>
-          ) : isOnMeal ? (
-            /* ===== ON MEAL (COMIDA) - Part of unified Descanso ===== */
+          ) : isOnAnyBreak ? (
+            /* ===== ON BREAK ===== */
             <div className="text-center space-y-4">
               <div className="space-y-2">
                 <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
                   <Timer className="w-8 h-8 text-amber-600" />
                 </div>
                 <h2 className="text-xl font-bold text-amber-800">En Descanso</h2>
-                <Badge variant="outline" className="border-orange-300 text-orange-700 bg-orange-50">
-                  <UtensilsCrossed className="w-3 h-3 mr-1" /> Comida (1/2)
-                </Badge>
                 <p className="text-sm text-amber-600">Entrada: {record?.checkInTime ? format(new Date(record.checkInTime), 'HH:mm:ss') : '—'}</p>
-                <p className="text-sm text-amber-500">Inicio: {record?.mealStart ? format(new Date(record.mealStart), 'HH:mm:ss') : '—'}</p>
+                <p className="text-sm text-amber-500">Inicio: {effectiveBreakStart ? format(new Date(effectiveBreakStart), 'HH:mm:ss') : '—'}</p>
               </div>
 
-              {record?.mealStart && <BreakTimer startTime={record.mealStart} minMinutes={15} />}
+              {effectiveBreakStart && <BreakTimer startTime={effectiveBreakStart} minMinutes={30} />}
 
               <div className="border-t my-3" />
               <div className="space-y-3">
                 <Button
                   className="w-full bg-amber-600 hover:bg-amber-700"
                   size="lg"
-                  onClick={handleMealEndAndAutoRest}
-                  disabled={endingMeal || startingRest}
+                  onClick={isOnBreak ? handleBreakEnd : undefined}
+                  disabled={endingBreak}
                 >
-                  {endingMeal || startingRest ? (
-                    <div className="flex items-center gap-2">
-                      <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
-                      {endingMeal ? 'Terminando comida...' : 'Iniciando descanso...'}
-                    </div>
-                  ) : (
-                    <><UtensilsCrossed className="w-5 h-5 mr-2" />Terminar Comida → Iniciar Descanso</>
-                  )}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  Al terminar la comida, se iniciará el descanso automáticamente
-                </p>
-              </div>
-            </div>
-          ) : isOnRest ? (
-            /* ===== ON REST (DESCANSO) - Part of unified Descanso ===== */
-            <div className="text-center space-y-4">
-              <div className="space-y-2">
-                <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
-                  <Timer className="w-8 h-8 text-amber-600" />
-                </div>
-                <h2 className="text-xl font-bold text-amber-800">En Descanso</h2>
-                <Badge variant="outline" className="border-purple-300 text-purple-700 bg-purple-50">
-                  <Armchair className="w-3 h-3 mr-1" /> Descanso (2/2)
-                </Badge>
-                <p className="text-sm text-amber-600">Entrada: {record?.checkInTime ? format(new Date(record.checkInTime), 'HH:mm:ss') : '—'}</p>
-                <p className="text-sm text-amber-500">Inicio: {record?.restStart ? format(new Date(record.restStart), 'HH:mm:ss') : '—'}</p>
-                {mealCompleted && record?.mealStart && (
-                  <p className="text-xs text-orange-600 flex items-center justify-center gap-1">
-                    <UtensilsCrossed className="w-3 h-3" /> Comida: {format(new Date(record.mealStart), 'HH:mm')} - {record.mealEnd ? format(new Date(record.mealEnd), 'HH:mm') : '—'} ({record.mealDuration || 0}m)
-                  </p>
-                )}
-              </div>
-
-              {record?.restStart && <BreakTimer startTime={record.restStart} minMinutes={15} />}
-
-              <div className="border-t my-3" />
-              <div className="space-y-3">
-                <Button
-                  className="w-full bg-amber-600 hover:bg-amber-700"
-                  size="lg"
-                  onClick={handleRestEnd}
-                  disabled={endingRest}
-                >
-                  {endingRest ? (
+                  {endingBreak ? (
                     <div className="flex items-center gap-2">
                       <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
                       Registrando...
                     </div>
                   ) : (
-                    <><Armchair className="w-5 h-5 mr-2" />Fin de Descanso</>
+                    <><Timer className="w-5 h-5 mr-2" />Terminar Descanso</>
                   )}
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  Tiempo mínimo de descanso: 15 minutos
+                  Tiempo mínimo de descanso: 30 minutos
                 </p>
               </div>
             </div>
           ) : isCheckedIn ? (
-            /* ===== CHECKED IN STATE (not on any break) ===== */
+            /* ===== CHECKED IN STATE (not on break) ===== */
             <div className="text-center space-y-4">
               <div className="space-y-2">
                 <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mx-auto"><LogIn className="w-8 h-8 text-blue-600" /></div>
@@ -637,35 +513,19 @@ function EmployeeDashboard() {
                 {record?.checkInLatitude && <p className="text-xs text-blue-500 flex items-center justify-center gap-1"><MapPin className="w-3 h-3" />{record.checkInLatitude.toFixed(4)}, {record.checkInLongitude?.toFixed(4)}</p>}
               </div>
 
-              {/* Completed breaks info */}
-              {(mealCompleted || restCompleted) && (
+              {/* Completed break info */}
+              {allBreaksCompleted && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm space-y-1">
                   <p className="font-medium text-amber-800 flex items-center justify-center gap-1">
                     <Timer className="w-4 h-4" />
-                    Descanso ({(record?.mealDuration || 0) + (record?.restDuration || 0)} min total)
+                    Descanso completado ({effectiveBreakDuration || 0} min)
                   </p>
-                  {mealCompleted && record?.mealStart && (
-                    <p className="flex items-center justify-center gap-1 text-orange-700">
-                      <UtensilsCrossed className="w-4 h-4" />
-                      Comida: {format(new Date(record.mealStart), 'HH:mm')} - {record.mealEnd ? format(new Date(record.mealEnd), 'HH:mm') : '—'}
-                      {record.mealDuration ? ` (${record.mealDuration} min)` : ''}
-                      {record.exceededMeal && <span className="text-red-600 ml-1">⚠️ Exceso</span>}
-                    </p>
-                  )}
-                  {restCompleted && record?.restStart && (
-                    <p className="flex items-center justify-center gap-1 text-purple-700">
-                      <Armchair className="w-4 h-4" />
-                      Descanso: {format(new Date(record.restStart), 'HH:mm')} - {record.restEnd ? format(new Date(record.restEnd), 'HH:mm') : '—'}
-                      {record.restDuration ? ` (${record.restDuration} min)` : ''}
-                      {record.exceededRest && <span className="text-red-600 ml-1">⚠️ Exceso</span>}
-                    </p>
-                  )}
                 </div>
               )}
 
               <div className="border-t my-3" />
               <div className="space-y-3">
-                {/* Break buttons - only if eligible for 8h shifts */}
+                {/* Break button - only if eligible for 8h shifts */}
                 {isEligibleForBreak && (
                   <div className="space-y-2">
                     {noBreaksStarted && (
@@ -673,10 +533,10 @@ function EmployeeDashboard() {
                         variant="outline"
                         className="w-full border-amber-400 text-amber-700 hover:bg-amber-50"
                         size="lg"
-                        onClick={handleMealStart}
-                        disabled={startingMeal}
+                        onClick={handleBreakStart}
+                        disabled={startingBreak}
                       >
-                        {startingMeal ? (
+                        {startingBreak ? (
                           <div className="flex items-center gap-2">
                             <div className="h-4 w-4 rounded-full border-2 border-amber-600 border-t-transparent animate-spin" />
                             Registrando...
@@ -686,36 +546,12 @@ function EmployeeDashboard() {
                         )}
                       </Button>
                     )}
-                    {breakCompleted && (
-                      <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-green-500" />
-                        Descanso completado ({(record?.mealDuration || 0) + (record?.restDuration || 0)} min)
-                      </p>
-                    )}
-                    {mealCompleted && !restCompleted && (
-                      <Button
-                        variant="outline"
-                        className="w-full border-purple-300 text-purple-700 hover:bg-purple-50"
-                        size="lg"
-                        onClick={handleRestStart}
-                        disabled={startingRest}
-                      >
-                        {startingRest ? (
-                          <div className="flex items-center gap-2">
-                            <div className="h-4 w-4 rounded-full border-2 border-purple-600 border-t-transparent animate-spin" />
-                            Registrando...
-                          </div>
-                        ) : (
-                          <><Armchair className="w-5 h-5 mr-2" />Iniciar Descanso (15 min)</>
-                        )}
-                      </Button>
-                    )}
                   </div>
                 )}
 
                 {!isEligibleForBreak && sched && (
                   <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                    <Coffee className="w-3 h-3" />
+                    <Timer className="w-3 h-3" />
                     Turno menor a 8h — Sin derecho a descanso
                   </p>
                 )}
@@ -811,6 +647,8 @@ function EmployeeHistory() {
               id: string; date: string; checkInTime: string | null; checkOutTime: string | null;
               status: string; checkInLatitude: number | null; checkInLongitude: number | null;
               checkInMethod: string | null;
+              breakStart: string | null; breakEnd: string | null;
+              breakDuration: number | null; exceededBreak: boolean;
               mealStart: string | null; mealEnd: string | null;
               mealDuration: number | null; exceededMeal: boolean;
               restStart: string | null; restEnd: string | null;
@@ -821,6 +659,24 @@ function EmployeeHistory() {
               const diff = (new Date(r.checkOutTime).getTime() - new Date(r.checkInTime).getTime()) / 3600000;
               workedHours = diff.toFixed(2) + 'h';
             }
+
+            // Determine break info for this record
+            const hasBreak = !!(r.breakStart || r.mealStart || r.restStart);
+            const breakDur = r.breakDuration || ((r.mealDuration || 0) + (r.restDuration || 0)) || 0;
+            const breakExceeded = r.exceededBreak || r.exceededMeal || r.exceededRest || false;
+
+            // Get break time range
+            let breakTimeRange = '';
+            if (r.breakStart) {
+              const start = format(new Date(r.breakStart), 'HH:mm');
+              const end = r.breakEnd ? format(new Date(r.breakEnd), 'HH:mm') : '—';
+              breakTimeRange = `${start} - ${end}`;
+            } else if (r.mealStart) {
+              const start = format(new Date(r.mealStart), 'HH:mm');
+              const end = r.restEnd ? format(new Date(r.restEnd), 'HH:mm') : (r.mealEnd ? format(new Date(r.mealEnd), 'HH:mm') : '—');
+              breakTimeRange = `${start} - ${end}`;
+            }
+
             return (
               <Card key={r.id || idx}>
                 <CardContent className="p-4">
@@ -832,28 +688,13 @@ function EmployeeHistory() {
                         <span>🔴 {r.checkOutTime ? format(new Date(r.checkOutTime), 'HH:mm') : '—'}</span>
                         <span>⏱️ {workedHours}</span>
                       </div>
-                      {(r.mealStart || r.restStart) && (
-                        <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                      {hasBreak && (
+                        <div className="mt-1 text-xs text-muted-foreground">
                           <p className="font-medium text-amber-700 flex items-center gap-1">
                             <Timer className="w-3 h-3" />
-                            Descanso ({(r.mealDuration || 0) + (r.restDuration || 0)} min)
+                            Descanso: {breakTimeRange}{breakDur ? ` (${breakDur} min)` : ''}
+                            {breakExceeded && <span className="text-red-500 ml-1">⚠️</span>}
                           </p>
-                          {r.mealStart && (
-                            <div className="flex items-center gap-1">
-                              <UtensilsCrossed className="w-3 h-3 text-orange-500" />
-                              <span>Comida: {format(new Date(r.mealStart), 'HH:mm')} - {r.mealEnd ? format(new Date(r.mealEnd), 'HH:mm') : '—'}</span>
-                              {r.mealDuration && <span>({r.mealDuration} min)</span>}
-                              {r.exceededMeal && <span className="text-red-500">⚠️</span>}
-                            </div>
-                          )}
-                          {r.restStart && (
-                            <div className="flex items-center gap-1">
-                              <Armchair className="w-3 h-3 text-purple-500" />
-                              <span>Descanso: {format(new Date(r.restStart), 'HH:mm')} - {r.restEnd ? format(new Date(r.restEnd), 'HH:mm') : '—'}</span>
-                              {r.restDuration && <span>({r.restDuration} min)</span>}
-                              {r.exceededRest && <span className="text-red-500">⚠️</span>}
-                            </div>
-                          )}
                         </div>
                       )}
                       {r.checkInLatitude && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" />{r.checkInLatitude.toFixed(4)}, {r.checkInLongitude?.toFixed(4)}</p>}

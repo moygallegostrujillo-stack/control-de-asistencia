@@ -24,7 +24,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Timer, MapPin,
   ChevronLeft, ChevronRight, RefreshCw, FileSpreadsheet, BookOpen, Building2,
   Pencil, Eye, EyeOff, ArrowRightLeft, Plus, Trash2, PenLine, AlertCircle, Calendar,
-  UtensilsCrossed, Armchair, Cloud, Database, ExternalLink, Copy, Check
+  Cloud, Database, ExternalLink, Copy, Check
 } from 'lucide-react';
 import { UserManual } from '@/components/manual/user-manual';
 
@@ -159,25 +159,30 @@ function AdminDashboard() {
   const presentCount = records.filter((r: { status: string }) => r.status === 'PRESENT').length;
   const lateCount = records.filter((r: { status: string }) => r.status === 'LATE').length;
 
-  // Break summary computations (unified Descanso = Comida + Descanso)
-  const breakRecords = records.filter((r: Record<string, unknown>) => !!(r as Record<string, unknown>).mealStart || !!(r as Record<string, unknown>).restStart);
+  // Break summary computations (unified Descanso 30 min)
+  const breakRecords = records.filter((r: Record<string, unknown>) => {
+    const rec = r as Record<string, unknown>;
+    return !!rec.breakStart || !!rec.mealStart || !!rec.restStart;
+  });
   const breakCompleted = breakRecords.filter((r: Record<string, unknown>) => {
     const rec = r as Record<string, unknown>;
-    const mealDone = !!rec.mealStart && !!rec.mealEnd;
-    const restDone = !!rec.restStart && !!rec.restEnd;
-    // Completed if all started breaks are ended
-    if (rec.mealStart && !rec.mealEnd) return false;
-    if (rec.restStart && !rec.restEnd) return false;
-    return mealDone || restDone;
+    const bStart = rec.breakStart || rec.mealStart || rec.restStart;
+    const bEnd = rec.breakEnd || (rec.mealEnd && rec.restEnd ? rec.restEnd : null);
+    return bStart && bEnd;
   });
   const breakOnGoing = breakRecords.filter((r: Record<string, unknown>) => {
     const rec = r as Record<string, unknown>;
-    return (rec.mealStart && !rec.mealEnd) || (rec.restStart && !rec.restEnd);
+    const bStart = rec.breakStart || rec.mealStart || rec.restStart;
+    const bEnd = rec.breakEnd || (rec.mealEnd && rec.restEnd ? rec.restEnd : null);
+    return bStart && !bEnd;
   });
-  const breakExceeded = breakRecords.filter((r: Record<string, unknown>) => (r as Record<string, unknown>).exceededMeal || (r as Record<string, unknown>).exceededRest);
+  const breakExceeded = breakRecords.filter((r: Record<string, unknown>) => {
+    const rec = r as Record<string, unknown>;
+    return rec.exceededBreak || rec.exceededMeal || rec.exceededRest;
+  });
   const totalBreakMinutes = records.reduce((sum: number, r: Record<string, unknown>) => {
     const rec = r as Record<string, unknown>;
-    return sum + ((rec.mealDuration as number || 0) + (rec.restDuration as number || 0));
+    return sum + ((rec.breakDuration as number || 0) || ((rec.mealDuration as number || 0) + (rec.restDuration as number || 0)));
   }, 0);
 
   const handleRefresh = async () => {
@@ -311,13 +316,13 @@ function AdminDashboard() {
                     {records.map((record: Record<string, unknown>) => {
                       const r = record as CorrectionRecord;
                       const needsCorrection = !r.checkInTime || !r.checkOutTime;
-                      const hasMeal = !!record.mealStart;
-                      const hasRest = !!record.restStart;
-                      const anyBreak = hasMeal || hasRest;
-                      const allBreakDone = (!hasMeal || !!record.mealEnd) && (!hasRest || !!record.restEnd);
-                      const breakOngoing = (hasMeal && !record.mealEnd) || (hasRest && !record.restEnd);
-                      const breakExceeded = record.exceededMeal || record.exceededRest;
-                      const totalBreakDur = (record.mealDuration as number || 0) + (record.restDuration as number || 0);
+                      // Unified break: use breakStart/breakEnd (new) or fall back to meal/rest (old)
+                      const hasBreak = !!record.breakStart || !!record.mealStart || !!record.restStart;
+                      const breakStartTime = record.breakStart as string || record.mealStart as string || record.restStart as string;
+                      const breakEndTime = record.breakEnd as string || (record.mealEnd as string && record.restEnd as string ? record.restEnd as string : null);
+                      const breakOngoing = hasBreak && !breakEndTime;
+                      const breakExceeded = record.exceededBreak || record.exceededMeal || record.exceededRest;
+                      const totalBreakDur = (record.breakDuration as number || 0) || ((record.mealDuration as number || 0) + (record.restDuration as number || 0));
                       return (
                         <TableRow key={r.id}>
                           <TableCell className="font-medium whitespace-normal"><span className="break-words">{r.employee?.user?.name || '—'}</span></TableCell>
@@ -329,29 +334,16 @@ function AdminDashboard() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            {anyBreak ? (
+                            {hasBreak ? (
                               <div className="text-xs space-y-0.5">
-                                {hasMeal && (
-                                  <div className="flex items-center gap-1">
-                                    <UtensilsCrossed className="w-3 h-3 text-orange-500 flex-shrink-0" />
-                                    <span>{format(new Date(record.mealStart as string), 'HH:mm')}</span>
-                                    {' - '}
-                                    <span>{record.mealEnd ? format(new Date(record.mealEnd as string), 'HH:mm') : <span className="text-orange-600 font-medium">En curso</span>}</span>
-                                    {record.mealDuration != null && <span className="text-muted-foreground">({record.mealDuration}m)</span>}
-                                  </div>
-                                )}
-                                {hasRest && (
-                                  <div className="flex items-center gap-1">
-                                    <Armchair className="w-3 h-3 text-purple-500 flex-shrink-0" />
-                                    <span>{format(new Date(record.restStart as string), 'HH:mm')}</span>
-                                    {' - '}
-                                    <span>{record.restEnd ? format(new Date(record.restEnd as string), 'HH:mm') : <span className="text-purple-600 font-medium">En curso</span>}</span>
-                                    {record.restDuration != null && <span className="text-muted-foreground">({record.restDuration}m)</span>}
-                                  </div>
-                                )}
-                                {allBreakDone && totalBreakDur > 0 && (
-                                  <div className="text-muted-foreground">Total: {totalBreakDur}m{breakExceeded ? ' ⚠️' : ''}</div>
-                                )}
+                                <div className="flex items-center gap-1">
+                                  <Timer className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                  <span>{format(new Date(breakStartTime), 'HH:mm')}</span>
+                                  {' - '}
+                                  <span>{breakEndTime ? format(new Date(breakEndTime), 'HH:mm') : <span className="text-amber-600 font-medium">En curso</span>}</span>
+                                  {totalBreakDur > 0 && <span className="text-muted-foreground">({totalBreakDur}m)</span>}
+                                </div>
+                                {breakExceeded && <span className="text-red-600 text-[10px]">⚠️ Exceso</span>}
                                 {breakOngoing && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-amber-300 text-amber-600">Activo</Badge>}
                               </div>
                             ) : (
@@ -415,7 +407,7 @@ function AdminDashboard() {
               <Timer className="w-5 h-5 text-primary" />
               Resumen de Descansos
             </CardTitle>
-            <CardDescription>Tiempo utilizado en descansos hoy (30 min: 15 min comida + 15 min descanso)</CardDescription>
+            <CardDescription>Tiempo utilizado en descansos hoy (30 min)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Summary Stats */}
@@ -481,18 +473,15 @@ function AdminDashboard() {
             {/* Detailed Break Table */}
             {breakRecords.length > 0 && (
               <ScrollArea className="max-h-[300px]">
-                <div className="min-w-[800px]">
+                <div className="min-w-[600px]">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead className="min-w-[250px]">Empleado</TableHead>
-                        <TableHead className="min-w-[180px]">
-                          <div className="flex items-center gap-1"><UtensilsCrossed className="w-3 h-3 text-orange-500" /> Comida</div>
+                        <TableHead className="min-w-[200px]">
+                          <div className="flex items-center gap-1"><Timer className="w-3 h-3 text-amber-500" /> Descanso</div>
                         </TableHead>
-                        <TableHead className="min-w-[180px]">
-                          <div className="flex items-center gap-1"><Armchair className="w-3 h-3 text-purple-500" /> Descanso</div>
-                        </TableHead>
-                        <TableHead className="min-w-[100px]">Total</TableHead>
+                        <TableHead className="min-w-[100px]">Duración</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -500,12 +489,13 @@ function AdminDashboard() {
                         const r = record as Record<string, unknown>;
                         const emp = (r.employee as Record<string, unknown>) || {};
                         const user = (emp.user as Record<string, unknown>) || {};
-                        const hasMeal = !!r.mealStart;
-                        const hasRest = !!r.restStart;
-                        if (!hasMeal && !hasRest) return null;
-                        const totalDur = (r.mealDuration as number || 0) + (r.restDuration as number || 0);
-                        const isExceeded = r.exceededMeal || r.exceededRest;
-                        const isOngoing = (hasMeal && !r.mealEnd) || (hasRest && !r.restEnd);
+                        // Unified break
+                        const bStart = (r.breakStart as string) || (r.mealStart as string) || (r.restStart as string);
+                        const bEnd = (r.breakEnd as string) || ((r.mealEnd as string) && (r.restEnd as string) ? (r.restEnd as string) : null);
+                        if (!bStart) return null;
+                        const totalDur = (r.breakDuration as number || 0) || ((r.mealDuration as number || 0) + (r.restDuration as number || 0));
+                        const isExceeded = r.exceededBreak || r.exceededMeal || r.exceededRest;
+                        const isOngoing = !bEnd;
                         return (
                           <TableRow key={(r.id as string) || (user.name as string)}>
                             <TableCell className="font-medium text-sm whitespace-normal">
@@ -515,28 +505,11 @@ function AdminDashboard() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {hasMeal ? (
-                                <div className="text-xs">
-                                  <span>{format(new Date(r.mealStart as string), 'HH:mm')}</span>
-                                  {' - '}
-                                  <span>{r.mealEnd ? format(new Date(r.mealEnd as string), 'HH:mm') : <span className="text-orange-600 font-medium">En curso</span>}</span>
-                                  {r.mealDuration != null && <span className="text-muted-foreground ml-1">({r.mealDuration}m)</span>}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">—</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {hasRest ? (
-                                <div className="text-xs">
-                                  <span>{format(new Date(r.restStart as string), 'HH:mm')}</span>
-                                  {' - '}
-                                  <span>{r.restEnd ? format(new Date(r.restEnd as string), 'HH:mm') : <span className="text-purple-600 font-medium">En curso</span>}</span>
-                                  {r.restDuration != null && <span className="text-muted-foreground ml-1">({r.restDuration}m)</span>}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">—</span>
-                              )}
+                              <div className="text-xs">
+                                <span>{format(new Date(bStart), 'HH:mm')}</span>
+                                {' - '}
+                                <span>{bEnd ? format(new Date(bEnd), 'HH:mm') : <span className="text-amber-600 font-medium">En curso</span>}</span>
+                              </div>
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1">
@@ -1639,34 +1612,27 @@ function AttendanceView() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {r.mealStart || r.restStart ? (
-                            <div className="text-xs space-y-0.5">
-                              {r.mealStart && (
+                          {(() => {
+                            const bStart = r.breakStart || r.mealStart || r.restStart;
+                            const bEnd = r.breakEnd || ((r.mealEnd && r.restEnd) ? r.restEnd : null);
+                            const bDur = r.breakDuration || ((r.mealDuration || 0) + (r.restDuration || 0));
+                            const bExceeded = r.exceededBreak || r.exceededMeal || r.exceededRest;
+                            return bStart ? (
+                              <div className="text-xs space-y-0.5">
                                 <div className="flex items-center gap-1">
-                                  <UtensilsCrossed className="w-3 h-3 text-orange-500 flex-shrink-0" />
-                                  <span>{format(new Date(r.mealStart), 'HH:mm')}</span>
+                                  <Timer className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                  <span>{format(new Date(bStart), 'HH:mm')}</span>
                                   {' - '}
-                                  <span>{r.mealEnd ? format(new Date(r.mealEnd), 'HH:mm') : <span className="text-orange-600 font-medium">En curso</span>}</span>
-                                  {r.mealDuration != null && <span className="text-muted-foreground">({r.mealDuration}m)</span>}
+                                  <span>{bEnd ? format(new Date(bEnd), 'HH:mm') : <span className="text-amber-600 font-medium">En curso</span>}</span>
+                                  {bDur > 0 && <span className="text-muted-foreground">({bDur}m)</span>}
                                 </div>
-                              )}
-                              {r.restStart && (
-                                <div className="flex items-center gap-1">
-                                  <Armchair className="w-3 h-3 text-purple-500 flex-shrink-0" />
-                                  <span>{format(new Date(r.restStart), 'HH:mm')}</span>
-                                  {' - '}
-                                  <span>{r.restEnd ? format(new Date(r.restEnd), 'HH:mm') : <span className="text-purple-600 font-medium">En curso</span>}</span>
-                                  {r.restDuration != null && <span className="text-muted-foreground">({r.restDuration}m)</span>}
-                                </div>
-                              )}
-                              {(!r.mealStart || !!r.mealEnd) && (!r.restStart || !!r.restEnd) && ((r.mealDuration || 0) + (r.restDuration || 0)) > 0 && (
-                                <div className="text-muted-foreground">Total: {(r.mealDuration || 0) + (r.restDuration || 0)}m{(r.exceededMeal || r.exceededRest) ? ' ⚠️' : ''}</div>
-                              )}
-                              {((r.mealStart && !r.mealEnd) || (r.restStart && !r.restEnd)) && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-amber-300 text-amber-600">Activo</Badge>}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
+                                {bExceeded && <span className="text-red-600 text-[10px]">⚠️ Exceso</span>}
+                                {!bEnd && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-amber-300 text-amber-600">Activo</Badge>}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -2342,7 +2308,7 @@ function QRTerminalView() {
 function SucursalesView() {
   const { toast } = useToast();
   const [showForm, setShowForm] = useState(false);
-  const [editingSucursal, setEditingSucursal] = useState<{ id: string; name: string; address: string; isActive: boolean; mealToleranceMinutes?: number; restToleranceMinutes?: number; breakToleranceMinutes?: number } | null>(null);
+  const [editingSucursal, setEditingSucursal] = useState<{ id: string; name: string; address: string; isActive: boolean; breakToleranceMinutes?: number } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const { data: sucData, loading } = useAsyncData(async () => {
@@ -2399,7 +2365,7 @@ function SucursalesView() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sucursales.map((sucursal: { id: string; name: string; address: string; isActive: boolean; employeeCount: number; createdAt: string; mealToleranceMinutes?: number; restToleranceMinutes?: number; breakToleranceMinutes?: number }) => (
+          {sucursales.map((sucursal: { id: string; name: string; address: string; isActive: boolean; employeeCount: number; createdAt: string; breakToleranceMinutes?: number }) => (
             <Card key={sucursal.id} className={!sucursal.isActive ? 'opacity-60' : ''}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between mb-3">
@@ -2422,12 +2388,8 @@ function SucursalesView() {
                     <span className="text-sm text-muted-foreground">{sucursal.employeeCount || 0} empleados</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <UtensilsCrossed className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Tolerancia comida: {sucursal.mealToleranceMinutes ?? sucursal.breakToleranceMinutes ?? 5} min</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Armchair className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Tolerancia descanso: {sucursal.restToleranceMinutes ?? sucursal.breakToleranceMinutes ?? 5} min</span>
+                    <Timer className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Tolerancia descanso: {sucursal.breakToleranceMinutes ?? 5} min</span>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -2517,10 +2479,10 @@ function SucursalFormDialog({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 // ==================== SUCURSAL EDIT DIALOG ====================
-function SucursalEditDialog({ sucursal, open, onClose }: { sucursal: { id: string; name: string; address: string; isActive: boolean; mealToleranceMinutes?: number; restToleranceMinutes?: number; breakToleranceMinutes?: number }; open: boolean; onClose: () => void }) {
+function SucursalEditDialog({ sucursal, open, onClose }: { sucursal: { id: string; name: string; address: string; isActive: boolean; breakToleranceMinutes?: number }; open: boolean; onClose: () => void }) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ name: sucursal.name, address: sucursal.address || '', mealToleranceMinutes: sucursal.mealToleranceMinutes ?? sucursal.breakToleranceMinutes ?? 5, restToleranceMinutes: sucursal.restToleranceMinutes ?? sucursal.breakToleranceMinutes ?? 5 });
+  const [form, setForm] = useState({ name: sucursal.name, address: sucursal.address || '', breakToleranceMinutes: sucursal.breakToleranceMinutes ?? 5 });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2533,7 +2495,7 @@ function SucursalEditDialog({ sucursal, open, onClose }: { sucursal: { id: strin
       const res = await authFetch(`/api/sucursales/${sucursal.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, address: form.address, mealToleranceMinutes: form.mealToleranceMinutes, restToleranceMinutes: form.restToleranceMinutes }),
+        body: JSON.stringify({ name: form.name, address: form.address, breakToleranceMinutes: form.breakToleranceMinutes }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -2565,14 +2527,9 @@ function SucursalEditDialog({ sucursal, open, onClose }: { sucursal: { id: strin
             <Input value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
           </div>
           <div className="space-y-2">
-            <Label>Tolerancia de Comida (minutos)</Label>
-            <Input type="number" value={form.mealToleranceMinutes} onChange={e => setForm({...form, mealToleranceMinutes: parseInt(e.target.value) || 5})} min={0} max={30} />
-            <p className="text-xs text-muted-foreground">Minutos extra permitidos después de los 15 min de comida antes de marcar como exceso</p>
-          </div>
-          <div className="space-y-2">
             <Label>Tolerancia de Descanso (minutos)</Label>
-            <Input type="number" value={form.restToleranceMinutes} onChange={e => setForm({...form, restToleranceMinutes: parseInt(e.target.value) || 5})} min={0} max={30} />
-            <p className="text-xs text-muted-foreground">Minutos extra permitidos después de los 15 min de descanso antes de marcar como exceso</p>
+            <Input type="number" value={form.breakToleranceMinutes} onChange={e => setForm({...form, breakToleranceMinutes: parseInt(e.target.value) || 5})} min={0} max={30} />
+            <p className="text-xs text-muted-foreground">Minutos extra permitidos después de los 30 min de descanso antes de marcar como exceso</p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
