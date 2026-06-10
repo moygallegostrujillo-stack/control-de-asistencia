@@ -65,4 +65,4 @@ server.log
 /.zscripts/
 /examples/
 /mini-services/
-/Caddyfile
+/Caddyfile.env.local
