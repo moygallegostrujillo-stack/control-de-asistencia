@@ -181,3 +181,32 @@ Stage Summary:
 - Production deployment dpl_82jmX41uAFZ17eLhbB7uEVuCGYeo is live at my-project-one-rosy.vercel.app
 - All 17 users visible in Acceso Rápido login section
 - All employee names showing completely without truncation in admin dashboard tables
+---
+Task ID: 3
+Agent: Main Agent
+Task: Simplify descanso to single 30-min break, remove comida/rest split, deploy to production
+
+Work Log:
+- Analyzed screenshot showing "Comida (1/2)" with 15-min timer and "Terminar Comida → Iniciar Descanso" button
+- User wants: single descanso of 30 min, one click to start, one click to end, NO comida references
+- Discovered existing /api/attendance/break-start and break-end APIs already have 30 min minimum
+- Rewrote employee-layout.tsx:
+  - Single "Iniciar Descanso (30 min)" button → /api/attendance/break-start
+  - Single "Terminar Descanso" button → /api/attendance/break-end
+  - BreakTimer with 30 min minimum
+  - Removed all meal/rest handlers and state variables
+  - Removed UtensilsCrossed, Armchair, Coffee imports
+- Updated admin-layout.tsx:
+  - Unified "Descanso (30 min)" column in attendance table
+  - Simplified break summary: "30 min" (not "15 min comida + 15 min descanso")
+  - Simplified break detail table: Empleado, Descanso, Duración columns
+  - Updated sucursal tolerance: single "Tolerancia de Descanso" field (30 min)
+  - Removed UtensilsCrossed and Armchair imports
+- Both files maintain backward compatibility with old mealStart/restStart records
+- Verified locally in browser: no "Comida" text, no UtensilsCrossed/Armchair icons
+- Deployed to Vercel production: dpl_BJWZpg1q5ccS1BeFGjWcWKu6ewR6
+
+Stage Summary:
+- Descanso is now a single 30-min break with simple start/end
+- No more comida/rest split anywhere in the UI
+- Production deployment live at my-project-one-rosy.vercel.app
