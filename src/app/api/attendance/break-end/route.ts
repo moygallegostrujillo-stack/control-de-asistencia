@@ -70,11 +70,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No se ha registrado la entrada hoy' }, { status: 404 });
     }
 
-    if (!existingRecord.breakStart) {
+    // Determine break system: new (breakStart) or old (mealStart/restStart)
+    const rec = existingRecord as Record<string, unknown>;
+    const isNewBreakSystem = !!rec.breakStart;
+    const isOldBreakSystem = !rec.breakStart && (!!rec.mealStart || !!rec.restStart);
+
+    if (!isNewBreakSystem && !isOldBreakSystem) {
       return NextResponse.json({ error: 'No se ha iniciado un descanso hoy' }, { status: 400 });
     }
 
-    if (existingRecord.breakEnd) {
+    // Check if break already ended
+    if (isNewBreakSystem && rec.breakEnd) {
+      return NextResponse.json({ error: 'Ya se ha terminado el descanso hoy' }, { status: 409 });
+    }
+    if (isOldBreakSystem && rec.mealEnd && rec.restEnd) {
       return NextResponse.json({ error: 'Ya se ha terminado el descanso hoy' }, { status: 409 });
     }
 
@@ -82,11 +91,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ya se ha registrado la salida hoy' }, { status: 400 });
     }
 
-    // Enforce minimum 30-minute break
-    const breakStartDate = new Date(existingRecord.breakStart as string);
+    // Determine effective break start time
+    const effectiveBreakStart = (isNewBreakSystem ? rec.breakStart : (rec.mealStart || rec.restStart)) as string;
+    const breakStartDate = new Date(effectiveBreakStart);
     const breakDurationMs = now.getTime() - breakStartDate.getTime();
     const breakDurationMinutes = Math.floor(breakDurationMs / 60000);
 
+    // Enforce minimum 30-minute break
     if (breakDurationMinutes < MIN_BREAK_MINUTES) {
       const remainingMinutes = MIN_BREAK_MINUTES - breakDurationMinutes;
       return NextResponse.json({
@@ -110,7 +121,6 @@ export async function POST(request: NextRequest) {
       }
     } catch (sucErr) {
       console.warn('[break-end] Could not fetch sucursal tolerance, using default:', String(sucErr));
-      // Use default tolerance
     }
 
     // Calculate if break was exceeded
@@ -118,21 +128,54 @@ export async function POST(request: NextRequest) {
     const exceededBreak = breakDurationMinutes > maxAllowedMinutes;
     const excessMinutes = exceededBreak ? breakDurationMinutes - maxAllowedMinutes : 0;
 
-    // Record break end
+    // Build update data depending on which system the break was started with
+    let updateData: Record<string, unknown>;
     let record;
+
+    if (isNewBreakSystem) {
+      // New system: set breakEnd, breakDuration, exceededBreak
+      updateData = {
+        breakEnd: breakEndTime,
+        breakDuration: breakDurationMinutes,
+        exceededBreak,
+        ...(exceededBreak ? {
+          notes: existingRecord.notes
+            ? `${existingRecord.notes} | Excedió descanso por ${excessMinutes} min (tolerancia: ${toleranceMinutes} min)`
+            : `Excedió descanso por ${excessMinutes} min (tolerancia: ${toleranceMinutes} min)`
+        } : {}),
+      };
+    } else {
+      // Old system: set both mealEnd and restEnd to the same time, calculate durations
+      const mealStart = rec.mealStart as string | null;
+      const restStart = rec.restStart as string | null;
+
+      // If meal was started but not ended, end it now
+      const mealDuration = mealStart ? Math.floor((now.getTime() - new Date(mealStart).getTime()) / 60000) : 0;
+      // If rest was started but not ended, end it now
+      const restDuration = restStart ? Math.floor((now.getTime() - new Date(restStart).getTime()) / 60000) : 0;
+
+      // Also set new-system fields for consistency
+      updateData = {
+        // End old-system fields
+        ...(mealStart && !rec.mealEnd ? { mealEnd: breakEndTime, mealDuration, exceededMeal: mealDuration > maxAllowedMinutes } : {}),
+        ...(restStart && !rec.restEnd ? { restEnd: breakEndTime, restDuration, exceededRest: restDuration > maxAllowedMinutes } : {}),
+        // Set new-system fields for consistency (so future calls use new system)
+        breakStart: mealStart || restStart,
+        breakEnd: breakEndTime,
+        breakDuration: breakDurationMinutes,
+        exceededBreak,
+        ...(exceededBreak ? {
+          notes: existingRecord.notes
+            ? `${existingRecord.notes} | Excedió descanso por ${excessMinutes} min (tolerancia: ${toleranceMinutes} min)`
+            : `Excedió descanso por ${excessMinutes} min (tolerancia: ${toleranceMinutes} min)`
+        } : {}),
+      };
+    }
+
     try {
       record = await db.attendanceRecord.update({
         where: { id: existingRecord.id as string },
-        data: {
-          breakEnd: breakEndTime,
-          breakDuration: breakDurationMinutes,
-          exceededBreak,
-          ...(exceededBreak ? {
-            notes: existingRecord.notes
-              ? `${existingRecord.notes} | Excedió descanso por ${excessMinutes} min (tolerancia: ${toleranceMinutes} min)`
-              : `Excedió descanso por ${excessMinutes} min (tolerancia: ${toleranceMinutes} min)`
-          } : {}),
-        }
+        data: updateData,
       });
     } catch (updateErr) {
       const errMsg = String(updateErr);
@@ -170,6 +213,7 @@ export async function POST(request: NextRequest) {
         exceededBreak,
         excessMinutes,
         toleranceMinutes,
+        breakSystem: isNewBreakSystem ? 'new' : 'old',
       });
     } catch (auditErr) {
       console.warn('[break-end] Audit log failed (non-critical):', String(auditErr));

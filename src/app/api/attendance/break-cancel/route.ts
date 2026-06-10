@@ -62,30 +62,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No se ha registrado la entrada hoy' }, { status: 404 });
     }
 
-    if (!existingRecord.breakStart) {
-      return NextResponse.json({ error: 'No se ha iniciado un descanso hoy para cancelar' }, { status: 400 });
-    }
+    const rec = existingRecord as Record<string, unknown>;
+    const isNewBreakSystem = !!rec.breakStart && !rec.breakEnd;
+    const isOldBreakSystem = !rec.breakStart && (!!rec.mealStart || !!rec.restStart) && !((!!rec.mealStart && !!rec.mealEnd) && (!!rec.restStart && !!rec.restEnd));
 
-    if (existingRecord.breakEnd) {
-      return NextResponse.json({ error: 'El descanso ya fue terminado, no se puede cancelar' }, { status: 409 });
+    if (!isNewBreakSystem && !isOldBreakSystem) {
+      return NextResponse.json({ error: 'No hay un descanso activo para cancelar' }, { status: 400 });
     }
 
     if (existingRecord.checkOutTime) {
       return NextResponse.json({ error: 'Ya se ha registrado la salida hoy' }, { status: 400 });
     }
 
-    // Calculate how long the break was active (for audit purposes)
-    const breakStartDate = new Date(existingRecord.breakStart as string);
+    // Determine effective break start for elapsed time calculation
+    const effectiveBreakStart = (rec.breakStart || rec.mealStart || rec.restStart) as string;
+    const breakStartDate = new Date(effectiveBreakStart);
     const elapsedMinutes = Math.floor((Date.now() - breakStartDate.getTime()) / 60000);
 
-    // Cancel the break by clearing breakStart
+    // Build update data to cancel the break
+    let updateData: Record<string, unknown>;
+
+    if (isNewBreakSystem) {
+      // New system: clear breakStart
+      updateData = {
+        breakStart: null,
+      };
+    } else {
+      // Old system: clear mealStart/restStart and their end/duration fields
+      updateData = {
+        ...(rec.mealStart && !rec.mealEnd ? { mealStart: null } : {}),
+        ...(rec.restStart && !rec.restEnd ? { restStart: null } : {}),
+      };
+    }
+
     let record;
     try {
       record = await db.attendanceRecord.update({
         where: { id: existingRecord.id as string },
-        data: {
-          breakStart: null,
-        }
+        data: updateData,
       });
     } catch (updateErr) {
       const errMsg = String(updateErr);
@@ -118,8 +132,9 @@ export async function POST(request: NextRequest) {
       await createAuditLog(currentUser.id, 'BREAK_CANCEL', request, 'ATTENDANCE_RECORD', (record as Record<string, unknown>).id as string, {
         employeeId,
         employeeName: empName,
-        cancelledBreakStart: existingRecord.breakStart,
+        cancelledBreakStart: effectiveBreakStart,
         elapsedMinutes,
+        breakSystem: isNewBreakSystem ? 'new' : 'old',
         reason: 'Cancelado por el empleado',
       });
     } catch (auditErr) {
