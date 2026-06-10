@@ -71,7 +71,7 @@ function buildSelect(model: string, include?: Record<string, unknown>, select?: 
       if (!v) continue;
       if (rels[k]) {
         const rel = rels[k];
-        const inner = typeof v === 'object' && v !== true ? buildSelect(rel.model, (v as Record<string, unknown>).include, v as Record<string, unknown>) : '*';
+        const inner = typeof v === 'object' && v !== true ? buildSelect(rel.model, (v as Record<string, unknown>).include, (v as Record<string, unknown>).select) : '*';
         parts.push(`${k}:${rel.table}!${rel.fk}(${inner})`);
       } else {
         parts.push(mapField(model, k));
