@@ -1,0 +1,7 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "prisma generate && prisma db push --accept-data-loss && bun run prisma/seed.ts && next build",
+  "installCommand": "bun install",
+  "devCommand": "next dev",
+  "regions": ["iad1"]
+}
