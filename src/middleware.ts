@@ -113,10 +113,15 @@ export function middleware(req: NextRequest) {
     return NextResponse.json({ error: 'Prohibido' }, { status: 403 });
   }
 
-  // /api/attendance/justify y /api/attendance/[id] PUT → SUCURSAL_ADMIN+
+  // /api/attendance/justify → SUCURSAL_ADMIN+
+  // /api/attendance/[id] (cuid de 20+ chars) → SUCURSAL_ADMIN+
+  // Las rutas con nombre (today, history, check-in, meal-start, check-out, etc.)
+  // NO se bloquean aquí — cada handler valida permisos internamente.
+  const attendanceMatch = path.match(/^\/api\/attendance\/([^/]+)$/);
+  const isCuid = attendanceMatch && attendanceMatch[1].length >= 20 && /^[a-z0-9]+$/i.test(attendanceMatch[1]);
   if (
     path.startsWith('/api/attendance/justify') ||
-    path.match(/^\/api\/attendance\/[^/]+$/)
+    (attendanceMatch && isCuid)
   ) {
     if (!isGeneralAdmin && !isSucursalAdmin) {
       return NextResponse.json({ error: 'Prohibido' }, { status: 403 });
