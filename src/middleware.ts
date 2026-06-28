@@ -43,6 +43,7 @@ const PUBLIC_PATHS = [
   '/api/seed',
   '/api/download',
   '/api/download-env',
+  '/api/diagrama/download',
   '/api/route',
 ];
 
