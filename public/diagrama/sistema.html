@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Diagrama del Sistema - Control de Asistencia NOM-037</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: #F8FAFC;
+    color: #243447;
+    -webkit-font-smoothing: antialiased;
+  }
+  #mindmap {
+    position: relative;
+    width: fit-content;
+    min-width: 1800px;
+    padding: 40px 60px;
+    background: #F8FAFC;
+  }
+
+  /* ===== Title block ===== */
+  .title-block {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .title-block .eyebrow {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #64748B;
+    background: #E2E8F0;
+    padding: 4px 12px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+  }
+  .title-block h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: #0F172A;
+    letter-spacing: -0.5px;
+  }
+  .title-block .subtitle {
+    font-size: 14px;
+    color: #64748B;
+    margin-top: 6px;
+  }
+
+  /* ===== Tree layout ===== */
+  .tree-layout {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    position: relative;
+  }
+  .left-side, .right-side {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    flex: 1;
+    min-width: 0;
+    padding-top: 24px;
+  }
+  .center-root {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 28px;
+    min-width: 240px;
+    position: relative;
+    z-index: 3;
+    align-self: center;
+  }
+
+  /* ===== Root node ===== */
+  .root-node {
+    background: #0F172A;
+    color: #FFFFFF;
+    border-radius: 16px;
+    padding: 28px 26px 30px;
+    text-align: center;
+    box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.45);
+    width: 230px;
+    position: relative;
+    z-index: 3;
+  }
+  .root-node .root-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+    line-height: 1;
+  }
+  .root-node .root-title {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .root-node .root-sub {
+    font-size: 11px;
+    color: #94A3B8;
+    margin-top: 8px;
+    letter-spacing: 1.5px;
+  }
+  .root-node .root-version {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 10px;
+    background: #1E293B;
+    color: #94A3B8;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid #334155;
+  }
+
+  /* ===== L1 Branch ===== */
+  .branch {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .left-side .branch { align-items: flex-end; }
+  .right-side .branch { align-items: flex-start; }
+
+  .branch-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #FFFFFF;
+    box-shadow: 0 4px 14px -6px rgba(15, 23, 42, 0.25);
+    white-space: nowrap;
+    position: relative;
+    z-index: 2;
+  }
+  .branch-node .b-icon {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .branch-node .b-sub {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.85;
+    margin-left: 4px;
+  }
+
+  /* Branch color variants (muted, not pure saturated) */
+  .c-slate   .branch-node { background: #475569; }
+  .c-emerald .branch-node { background: #047857; }
+  .c-amber   .branch-node { background: #B45309; }
+  .c-teal    .branch-node { background: #0F766E; }
+  .c-violet  .branch-node { background: #6D28D9; }
+  .c-rose    .branch-node { background: #BE123C; }
+
+  /* ===== L2 children container ===== */
+  .children {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .left-side .children  { align-items: flex-end; padding-right: 18px; }
+  .right-side .children { align-items: flex-start; padding-left: 18px; }
+
+  .child-wrap { display: flex; flex-direction: column; }
+
+  .sub-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #FFFFFF;
+    border: 1.5px solid #CBD5E1;
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #1E293B;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+    position: relative;
+    z-index: 2;
+  }
+  .sub-node .s-icon { font-size: 13px; line-height: 1; }
+  .c-slate   .sub-node { border-left: 3px solid #475569; }
+  .c-emerald .sub-node { border-left: 3px solid #047857; }
+  .c-amber   .sub-node { border-left: 3px solid #B45309; }
+  .c-teal    .sub-node { border-left: 3px solid #0F766E; }
+  .c-violet  .sub-node { border-left: 3px solid #6D28D9; }
+  .c-rose    .sub-node { border-left: 3px solid #BE123C; }
+  .right-side .c-slate   .sub-node { border-left: none; border-right: 3px solid #475569; }
+  .right-side .c-emerald .sub-node { border-left: none; border-right: 3px solid #047857; }
+  .right-side .c-amber   .sub-node { border-left: none; border-right: 3px solid #B45309; }
+  .right-side .c-teal    .sub-node { border-left: none; border-right: 3px solid #0F766E; }
+  .right-side .c-violet  .sub-node { border-left: none; border-right: 3px solid #6D28D9; }
+  .right-side .c-rose    .sub-node { border-left: none; border-right: 3px solid #BE123C; }
+
+  /* ===== L3 leaves ===== */
+  .leaf-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 6px;
+  }
+  .left-side .leaf-group  { align-items: flex-end; padding-right: 14px; }
+  .right-side .leaf-group { align-items: flex-start; padding-left: 14px; }
+
+  .leaf {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #F1F5F9;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid #E2E8F0;
+    white-space: nowrap;
+    line-height: 1.3;
+    position: relative;
+    z-index: 2;
+  }
+  .leaf .l-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .c-slate   .leaf .l-dot { background: #475569; }
+  .c-emerald .leaf .l-dot { background: #047857; }
+  .c-amber   .leaf .l-dot { background: #B45309; }
+  .c-teal    .leaf .l-dot { background: #0F766E; }
+  .c-violet  .leaf .l-dot { background: #6D28D9; }
+  .c-rose    .leaf .l-dot { background: #BE123C; }
+
+  /* leaf with description (wider) */
+  .leaf.desc {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    padding: 7px 12px;
+    border-radius: 8px;
+    max-width: 260px;
+  }
+  .leaf.desc .l-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #334155;
+  }
+  .leaf.desc .l-text {
+    font-size: 11px;
+    color: #64748B;
+    line-height: 1.35;
+  }
+
+  /* ===== Footer legend ===== */
+  .legend {
+    margin-top: 36px;
+    padding: 18px 24px;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 28px;
+    justify-content: center;
+    align-items: center;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #475569;
+  }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .legend-divider {
+    width: 1px;
+    height: 18px;
+    background: #E2E8F0;
+  }
+  .legend-note {
+    font-size: 11px;
+    color: #94A3B8;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div id="mindmap">
+
+  <div class="title-block">
+    <span class="eyebrow">Diagrama del Sistema</span>
+    <h1>Control de Asistencia NOM-037</h1>
+    <div class="subtitle">Sistema de Registro Diario de Asistencia · Cumplimiento de Ley Federal del Trabajo (México)</div>
+  </div>
+
+  <div class="tree-layout">
+
+    <!-- ================= LEFT SIDE ================= -->
+    <div class="left-side">
+
+      <!-- Branch 1: Roles de Usuario -->
+      <div class="branch c-slate">
+        <div class="branch-node">
+          <span class="b-icon">👥</span>
+          <span>Roles de Usuario</span>
+          <span class="b-sub">3 niveles</span>
+        </div>
+        <div class="children">
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">👔</span>Administrador General</div>
+            <div class="leaf-group">
+              <div class="leaf desc">
+                <div class="l-title">Acceso total multi-sucursal</div>
+                <div class="l-text">Reportes comparativos, todas las sucursales, configuración global</div>
+              </div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🏪</span>Administrador de Sucursal</div>
+            <div class="leaf-group">
+              <div class="leaf desc">
+                <div class="l-title">Gestión de su sucursal</div>
+                <div class="l-text">Empleados, asistencias, vacaciones y horarios de su local</div>
+              </div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">👤</span>Empleado</div>
+            <div class="leaf-group">
+              <div class="leaf desc">
+                <div class="l-title">Auto-servicio de asistencia</div>
+                <div class="l-text">Check-in/out, historial, vacaciones y QR personal</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Branch 2: Portal del Empleado -->
+      <div class="branch c-emerald">
+        <div class="branch-node">
+          <span class="b-icon">📱</span>
+          <span>Portal del Empleado</span>
+          <span class="b-sub">4 módulos</span>
+        </div>
+        <div class="children">
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">⏰</span>Asistencia</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Check-in GPS o QR</div>
+              <div class="leaf"><span class="l-dot"></span>Descanso 30 min (timer)</div>
+              <div class="leaf"><span class="l-dot"></span>Registrar Fin de Jornada</div>
+              <div class="leaf"><span class="l-dot"></span>Mapa de ubicación</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📅</span>Historial</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Filtro por día/semana/mes</div>
+              <div class="leaf"><span class="l-dot"></span>Estados y horas trabajadas</div>
+              <div class="leaf"><span class="l-dot"></span>Descargar CSV</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🏖️</span>Vacaciones</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Balance de días</div>
+              <div class="leaf"><span class="l-dot"></span>Solicitar vacaciones</div>
+              <div class="leaf"><span class="l-dot"></span>Cancelar pendientes</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🔳</span>Mi QR</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Código personal PNG</div>
+              <div class="leaf"><span class="l-dot"></span>Check-in por admin</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Branch 3: Registro de Asistencia -->
+      <div class="branch c-amber">
+        <div class="branch-node">
+          <span class="b-icon">🕒</span>
+          <span>Registro de Asistencia</span>
+          <span class="b-sub">Flujo diario</span>
+        </div>
+        <div class="children">
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">✅</span>Check-in (Entrada)</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>GPS: coordenadas precisas</div>
+              <div class="leaf"><span class="l-dot"></span>QR dinámico NOM-037</div>
+              <div class="leaf"><span class="l-dot"></span>Tolerancia 10 min</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">☕</span>Descanso (30 min)</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Timer con cuenta regresiva</div>
+              <div class="leaf"><span class="l-dot"></span>Alerta verde / ámbar / rojo</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🏁</span>Fin de Jornada</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Check-out GPS o QR</div>
+              <div class="leaf"><span class="l-dot"></span>Cálculo horas trabajadas</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📊</span>Estados</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Presente · Retardo</div>
+              <div class="leaf"><span class="l-dot"></span>Ausente · Salida Anticipada</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ================= CENTER ROOT ================= -->
+    <div class="center-root">
+      <div class="root-node">
+        <div class="root-icon">📋</div>
+        <div class="root-title">Control de<br>Asistencia</div>
+        <div class="root-sub">NOM-037 · LFT</div>
+        <div class="root-version">v2.2 · Producción</div>
+      </div>
+    </div>
+
+    <!-- ================= RIGHT SIDE ================= -->
+    <div class="right-side">
+
+      <!-- Branch 4: Panel Administrativo -->
+      <div class="branch c-teal">
+        <div class="branch-node">
+          <span class="b-icon">🛠️</span>
+          <span>Panel Administrativo</span>
+          <span class="b-sub">9 módulos</span>
+        </div>
+        <div class="children">
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📈</span>Dashboard</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>KPIs en tiempo real</div>
+              <div class="leaf"><span class="l-dot"></span>Asistencia de hoy</div>
+              <div class="leaf"><span class="l-dot"></span>Empleados ausentes</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">👷</span>Empleados</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>CRUD completo</div>
+              <div class="leaf"><span class="l-dot"></span>Asignar horarios</div>
+              <div class="leaf"><span class="l-dot"></span>Ver historial individual</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📝</span>Asistencias</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Corrección manual</div>
+              <div class="leaf"><span class="l-dot"></span>Justificar faltas</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">✈️</span>Vacaciones</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Aprobar / Rechazar</div>
+              <div class="leaf"><span class="l-dot"></span>Saldos por empleado</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🗓️</span>Horarios y Feriados</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Configurar L-V</div>
+              <div class="leaf"><span class="l-dot"></span>Días no laborables</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🏢</span>Sucursales y Empresa</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Multi-local (Local 261)</div>
+              <div class="leaf"><span class="l-dot"></span>RFC, registro patronal</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🔍</span>Auditoría</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Bitácora inmutable</div>
+              <div class="leaf"><span class="l-dot"></span>Filtros por usuario/fecha</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Branch 5: Reportes NOM-037 -->
+      <div class="branch c-violet">
+        <div class="branch-node">
+          <span class="b-icon">📑</span>
+          <span>Reportes NOM-037</span>
+          <span class="b-sub">5 tipos + export</span>
+        </div>
+        <div class="children">
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📋</span>Reporte Diario</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Asistencia por fecha</div>
+              <div class="leaf"><span class="l-dot"></span>Por sucursal o global</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">⏱️</span>Horas Extra</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Cálculo automático</div>
+              <div class="leaf"><span class="l-dot"></span>Histórico 90 días</div>
+              <div class="leaf"><span class="l-dot"></span>Por empleado</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">❌</span>Ausencias</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Faltas justificadas</div>
+              <div class="leaf"><span class="l-dot"></span>Faltas injustificadas</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">⚠️</span>Incidencias</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Consolidado completo</div>
+              <div class="leaf"><span class="l-dot"></span>Retardos, salidas anticipadas</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📊</span>Comparativo</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Por sucursal</div>
+              <div class="leaf"><span class="l-dot"></span>Solo Admin General</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📤</span>Exportación</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>CSV (datos crudos)</div>
+              <div class="leaf"><span class="l-dot"></span>XLSX multi-hoja</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Branch 6: Cumplimiento Legal & Tecnología -->
+      <div class="branch c-rose">
+        <div class="branch-node">
+          <span class="b-icon">⚖️</span>
+          <span>Cumplimiento y Tecnología</span>
+          <span class="b-sub">Base del sistema</span>
+        </div>
+        <div class="children">
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">📜</span>Cumplimiento Legal</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>NOM-037: registro electrónico</div>
+              <div class="leaf"><span class="l-dot"></span>LFT: jornada 8h + descanso 30 min</div>
+              <div class="leaf"><span class="l-dot"></span>Auditoría con IP y dispositivo</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🔐</span>Seguridad</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>NextAuth (sesiones)</div>
+              <div class="leaf"><span class="l-dot"></span>QR con HMAC-SHA256</div>
+              <div class="leaf"><span class="l-dot"></span>Roles y permisos por endpoint</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">💻</span>Stack Tecnológico</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Next.js 16 + TypeScript</div>
+              <div class="leaf"><span class="l-dot"></span>Tailwind CSS 4 + shadcn/ui</div>
+              <div class="leaf"><span class="l-dot"></span>Prisma ORM + PostgreSQL</div>
+              <div class="leaf"><span class="l-dot"></span>Supabase (base de datos)</div>
+            </div>
+          </div>
+          <div class="child-wrap">
+            <div class="sub-node"><span class="s-icon">🚀</span>Despliegue</div>
+            <div class="leaf-group">
+              <div class="leaf"><span class="l-dot"></span>Vercel (producción)</div>
+              <div class="leaf"><span class="l-dot"></span>GitHub (código fuente)</div>
+              <div class="leaf"><span class="l-dot"></span>Migración automática</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><span class="legend-swatch" style="background:#475569;"></span>Roles</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#047857;"></span>Portal Empleado</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#B45309;"></span>Registro Asistencia</div>
+    <div class="legend-divider"></div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#0F766E;"></span>Panel Admin</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#6D28D9;"></span>Reportes</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#BE123C;"></span>Cumplimiento y Tech</div>
+    <div class="legend-divider"></div>
+    <div class="legend-note">Producción: control-asistencia-v22.vercel.app</div>
+  </div>
+
+</div>
+
+<script>
+/**
+ * Universal recursive connector script v4-fix
+ */
+function drawAllLines() {
+  const map = document.getElementById('mindmap');
+  if (!map) return;
+  const cRect = map.getBoundingClientRect();
+
+  const old = map.querySelector('svg.lines');
+  if (old) old.remove();
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('lines');
+  svg.setAttribute('width', cRect.width);
+  svg.setAttribute('height', cRect.height);
+  svg.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1;';
+  let lineCount = 0;
+
+  function rel(el) {
+    const r = el.getBoundingClientRect();
+    return {
+      cx: r.left - cRect.left + r.width/2,
+      cy: r.top - cRect.top + r.height/2,
+      left: r.left - cRect.left,
+      right: r.right - cRect.left,
+    };
+  }
+
+  function drawLine(x1, y1, x2, y2, color, width) {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', Math.round(x1)); l.setAttribute('y1', Math.round(y1));
+    l.setAttribute('x2', Math.round(x2)); l.setAttribute('y2', Math.round(y2));
+    l.setAttribute('stroke', color); l.setAttribute('stroke-width', width);
+    l.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(l);
+    lineCount++;
+  }
+
+  const lineStyles = [
+    { color: '#64748B', width: 2.5 },
+    { color: '#94A3B8', width: 2 },
+    { color: '#A8B4C2', width: 1.5 },
+    { color: '#B8C2CC', width: 1.2 },
+    { color: '#CBD5E1', width: 1 },
+  ];
+  function getLineStyle(branchColor, depth) {
+    const s = lineStyles[Math.min(depth, lineStyles.length - 1)];
+    return { color: s.color, width: s.width };
+  }
+
+  function connect(parentEl, childEls, color, width, dir) {
+    if (!childEls.length) return;
+    const p = rel(parentEl);
+    const startX = dir === 'left' ? p.left : p.right;
+    const startY = p.cy;
+
+    if (childEls.length === 1) {
+      const c = rel(childEls[0]);
+      const endX = dir === 'left' ? c.right : c.left;
+      const midY = Math.round((startY + c.cy) / 2);
+      drawLine(startX, midY, endX, midY, color, width);
+      return;
+    }
+
+    let closestEdge;
+    if (dir === 'left') {
+      closestEdge = Math.max(...childEls.map(ch => rel(ch).right));
+    } else {
+      closestEdge = Math.min(...childEls.map(ch => rel(ch).left));
+    }
+    const childClearance = 16;
+    const midpoint = startX + (closestEdge - startX) / 2;
+    const midFromChild = dir === 'left' ? closestEdge + childClearance : closestEdge - childClearance;
+    const midX = dir === 'left'
+      ? Math.min(midpoint, midFromChild)
+      : Math.max(midpoint, midFromChild);
+
+    drawLine(startX, startY, midX, startY, color, width);
+
+    const allCYs = childEls.map(ch => rel(ch).cy);
+    const minY = Math.min(startY, ...allCYs);
+    const maxY = Math.max(startY, ...allCYs);
+    drawLine(midX, minY, midX, maxY, color, width);
+
+    childEls.forEach(ch => {
+      const c = rel(ch);
+      const endX = dir === 'left' ? c.right : c.left;
+      const endY = c.cy;
+      drawLine(midX, endY, endX, endY, color, width);
+    });
+  }
+
+  const NODE_SEL = '.branch-node, .sub-node, .leaf, .deep-node';
+  const CONTAINER_SEL = ':scope > .children, :scope > .leaf-group, :scope > .deep-group';
+
+  function processChildren(parentNodeEl, containerEl, branchColor, depth, dir) {
+    if (!containerEl) return;
+    const childNodeEls = [];
+    for (const wrapper of containerEl.children) {
+      const nodeEl = wrapper.matches?.(NODE_SEL) ? wrapper : wrapper.querySelector(NODE_SEL);
+      if (nodeEl) childNodeEls.push(nodeEl);
+    }
+    if (!childNodeEls.length) return;
+    const style = getLineStyle(branchColor, depth);
+    connect(parentNodeEl, childNodeEls, style.color, style.width, dir);
+
+    for (const wrapper of containerEl.children) {
+      const nodeEl = wrapper.matches?.(NODE_SEL) ? wrapper : wrapper.querySelector(NODE_SEL);
+      if (!nodeEl) continue;
+      wrapper.querySelectorAll(CONTAINER_SEL).forEach(nc =>
+        processChildren(nodeEl, nc, branchColor, depth + 1, dir)
+      );
+    }
+  }
+
+  const rootNode = map.querySelector('.root-node');
+  if (!rootNode) return;
+  const rp = rel(rootNode);
+
+  const leftSel = '.left-side > .branch, .left-branches > .left-branch, .left-branches > div';
+  const leftBranches = map.querySelectorAll(leftSel);
+  const leftBranchNodes = [];
+  leftBranches.forEach(b => {
+    const bn = b.querySelector(':scope > .branch-node');
+    if (bn) leftBranchNodes.push(bn);
+  });
+  if (leftBranchNodes.length) {
+    connect(rootNode, leftBranchNodes, '#64748B', 2.5, 'left');
+    leftBranches.forEach(b => {
+      const bn = b.querySelector(':scope > .branch-node');
+      b.querySelectorAll(CONTAINER_SEL).forEach(nc =>
+        processChildren(bn, nc, null, 1, 'left')
+      );
+    });
+  }
+
+  const rightSel = '.right-side > .branch, .right-branches > .right-branch, .right-branches > div';
+  const rightBranches = map.querySelectorAll(rightSel);
+  const rightBranchNodes = [];
+  rightBranches.forEach(b => {
+    const bn = b.querySelector(':scope > .branch-node');
+    if (bn) rightBranchNodes.push(bn);
+  });
+  if (rightBranchNodes.length) {
+    connect(rootNode, rightBranchNodes, '#64748B', 2.5, 'right');
+    rightBranches.forEach(b => {
+      const bn = b.querySelector(':scope > .branch-node');
+      b.querySelectorAll(CONTAINER_SEL).forEach(nc =>
+        processChildren(bn, nc, null, 1, 'right')
+      );
+    });
+  }
+
+  map.appendChild(svg);
+  console.log('✅ Drawn ' + lineCount + ' connector lines');
+}
+window.addEventListener('load', () => setTimeout(drawAllLines, 100));
+</script>
+</body>
+</html>
