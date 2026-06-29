@@ -26,6 +26,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/s
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -43,6 +44,8 @@ import {
   ChevronDown, ChevronUp, Loader2, Image as ImageIcon, Save,
   Coffee, Utensils, X, FileSpreadsheet, Printer, Hourglass, UserCheck, UserX,
   LogIn,
+  Shield, ShieldAlert, Copy, ArrowLeft, Check,
+  Maximize2, Minimize2,
 } from 'lucide-react';
 
 // ============================================================
@@ -344,7 +347,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'qr-terminal', label: 'Terminal QR', icon: QrCode, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'company', label: 'Empresa y Feriados', icon: Building, roles: ['GENERAL_ADMIN'] },
-  { id: 'settings', label: 'Configuración', icon: SettingsIcon, roles: ['GENERAL_ADMIN'] },
+  { id: 'settings', label: 'Configuración', icon: SettingsIcon, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
 ];
 
 function navItemsForRole(role: Role): NavItem[] {
@@ -3388,6 +3391,10 @@ function AuditView({ role }: { role: Role }) {
 function QRTerminalView() {
   const { data, isLoading, refetch, isFetching } = useDynamicQR();
   const [secondsLeft, setSecondsLeft] = useState(300);
+  // QR generado localmente con la lib `qrcode` (sin enviar el token a terceros).
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [kioskMode, setKioskMode] = useState(false);
 
   useEffect(() => {
     if (data?.expiresAt) {
@@ -3403,6 +3410,49 @@ function QRTerminalView() {
     }
   }, [data, refetch]);
 
+  // ------------------------------------------------------------
+  // Generación local del QR como data URL (NO filtra el token a
+  // servicios de terceros como api.qrserver.com).
+  // Se regenera cada vez que cambia `data.code`.
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (!data?.code) {
+      setQrDataUrl(null);
+      setQrError(null);
+      return;
+    }
+    let cancelled = false;
+    setQrError(null);
+    import('qrcode')
+      .then((QRCode) => {
+        QRCode.toDataURL(
+          data.code,
+          {
+            width: 300,
+            margin: 2,
+            color: { dark: '#0F172A', light: '#FFFFFF' },
+          },
+          (err: Error | null | undefined, url: string) => {
+            if (cancelled) return;
+            if (err) {
+              setQrError(err.message || 'No se pudo generar el QR');
+              setQrDataUrl(null);
+              return;
+            }
+            setQrDataUrl(url);
+          },
+        );
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : 'No se pudo cargar la librería qrcode';
+        setQrError(msg);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.code]);
+
   const downloadPng = () => {
     if (!data?.code) return;
     import('qrcode').then((QRCode) => {
@@ -3417,16 +3467,125 @@ function QRTerminalView() {
     });
   };
 
+  // ------------------------------------------------------------
+  // Modo kiosco: pantalla completa + QR gigante.
+  // ------------------------------------------------------------
+  const enterKioskMode = async () => {
+    try {
+      if (typeof document !== 'undefined' && !document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      // Algunos navegadores bloquean fullscreen — aún así mostramos UI kiosco.
+    }
+    setKioskMode(true);
+  };
+
+  const exitKioskMode = async () => {
+    setKioskMode(false);
+    try {
+      if (typeof document !== 'undefined' && document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Sincronizar kioskMode si el usuario sale de fullscreen con Esc.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const handler = () => {
+      if (!document.fullscreenElement && kioskMode) {
+        setKioskMode(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, [kioskMode]);
+
+  // ------------------------------------------------------------
+  // Render kiosco (pantalla completa)
+  // ------------------------------------------------------------
+  if (kioskMode) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center p-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={exitKioskMode}
+          className="absolute top-4 right-4 gap-1.5 text-muted-foreground hover:text-foreground"
+        >
+          <Minimize2 className="w-4 h-4" /> Salir del modo kiosco
+        </Button>
+
+        <div className="flex flex-col items-center gap-6">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold tracking-tight">Terminal QR NOM-037</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Escanea este código con la app de empleado para registrar asistencia.
+            </p>
+          </div>
+
+          <div className="relative">
+            {isLoading ? (
+              <Loader2 className="h-12 w-12 animate-spin text-zinc-400" />
+            ) : qrDataUrl ? (
+              <div className="rounded-2xl border-4 border-zinc-900 p-6 bg-white shadow-2xl">
+                <img
+                  src={qrDataUrl}
+                  alt="QR Code"
+                  width={400}
+                  height={400}
+                  className="w-[400px] h-[400px]"
+                />
+              </div>
+            ) : qrError ? (
+              <div className="w-[400px] h-[400px] flex items-center justify-center bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm p-4 text-center">
+                {qrError}
+              </div>
+            ) : (
+              <div className="w-[400px] h-[400px] flex items-center justify-center bg-muted rounded-xl">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 text-3xl font-mono font-bold tabular-nums">
+            <Clock className="w-7 h-7 text-emerald-600" />
+            {Math.floor(secondsLeft / 60)}:{(secondsLeft % 60).toString().padStart(2, '0')}
+            <span className="text-base font-normal text-muted-foreground">restantes</span>
+          </div>
+
+          <Button onClick={() => refetch()} variant="outline" className="gap-2">
+            <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
+            Generar nuevo código
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------
+  // Render normal (vista de administración)
+  // ------------------------------------------------------------
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <QrCode className="h-5 w-5" /> Terminal QR Dinámico
-          </CardTitle>
-          <CardDescription>
-            Código para login kiosco. Expira en {Math.floor(secondsLeft / 60)}:{(secondsLeft % 60).toString().padStart(2, '0')}
-          </CardDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2">
+                <QrCode className="h-5 w-5" /> Terminal QR Dinámico
+              </CardTitle>
+              <CardDescription>
+                Código para login kiosco. Expira en {Math.floor(secondsLeft / 60)}:{(secondsLeft % 60).toString().padStart(2, '0')}
+              </CardDescription>
+            </div>
+            <Button onClick={enterKioskMode} variant="outline" className="gap-2 shrink-0">
+              <Maximize2 className="h-4 w-4" /> Modo kiosco
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
           {isLoading ? (
@@ -3434,17 +3593,22 @@ function QRTerminalView() {
           ) : data?.code ? (
             <>
               <div className="rounded-xl border-2 border-zinc-200 p-4 bg-white">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data.code)}`}
-                  alt="QR Code"
-                  width={300}
-                  height={300}
-                />
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt="QR Code" width={300} height={300} />
+                ) : qrError ? (
+                  <div className="w-[300px] h-[300px] flex items-center justify-center text-rose-700 text-sm p-4 text-center">
+                    {qrError}
+                  </div>
+                ) : (
+                  <div className="w-[300px] h-[300px] flex items-center justify-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+                  </div>
+                )}
               </div>
               <p className="text-xs text-zinc-500 font-mono break-all max-w-md text-center">
                 {data.code.substring(0, 60)}...
               </p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 justify-center">
                 <Button onClick={() => refetch()} variant="outline" className="gap-2">
                   <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
                   Generar nuevo
@@ -3453,6 +3617,10 @@ function QRTerminalView() {
                   <Download className="h-4 w-4" /> Descargar PNG
                 </Button>
               </div>
+              <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 max-w-md text-center flex items-center gap-1.5 justify-center">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                El QR se genera localmente en tu navegador. El token nunca se envía a servicios externos.
+              </p>
             </>
           ) : (
             <p className="text-zinc-500">No hay código generado</p>
@@ -3623,29 +3791,626 @@ function CompanyView() {
 }
 
 // ============================================================
-// SETTINGS VIEW (placeholder)
+// SETTINGS VIEW — MFA TOTP management
 // ============================================================
 
+interface MfaSetupResponse {
+  message?: string;
+  qrDataUrl?: string;
+  secret?: string;
+  backupCodes?: string[];
+  nextStep?: string;
+}
+
 function SettingsView() {
+  // Estado de MFA (cargado desde /api/auth/me)
+  const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null);
+  const [mfaEnrolledAt, setMfaEnrolledAt] = useState<string | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+
+  // Dialog de activación (3 pasos)
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupStep, setSetupStep] = useState<1 | 2 | 3>(1);
+  const [setupLoading, setSetupLoading] = useState(false);
+  const [setupData, setSetupData] = useState<MfaSetupResponse | null>(null);
+  const [verifyToken, setVerifyToken] = useState('');
+  const [secretCopied, setSecretCopied] = useState(false);
+
+  // Dialog de desactivación
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [disableLoading, setDisableLoading] = useState(false);
+  const [disableToken, setDisableToken] = useState('');
+  const [disableUseBackup, setDisableUseBackup] = useState(false);
+  const [disableBackupCode, setDisableBackupCode] = useState('');
+
+  // Cargar estado de MFA al montar
+  const refreshMfaStatus = useCallback(async () => {
+    setLoadingStatus(true);
+    try {
+      const data = await apiGet<{ user: { mfaEnabled?: boolean; mfaEnrolledAt?: string | null } }>('/api/auth/me');
+      setMfaEnabled(!!data.user?.mfaEnabled);
+      setMfaEnrolledAt(data.user?.mfaEnrolledAt ?? null);
+    } catch {
+      // silencioso
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshMfaStatus();
+  }, [refreshMfaStatus]);
+
+  // --- Activación: paso 1 → llama /setup ---
+  const startSetup = async () => {
+    setSetupOpen(true);
+    setSetupStep(1);
+    setSetupData(null);
+    setVerifyToken('');
+    setSecretCopied(false);
+    setSetupLoading(true);
+    try {
+      const data = await apiSend<MfaSetupResponse>('/api/auth/mfa/setup', 'POST');
+      setSetupData(data);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al iniciar configuración MFA');
+      setSetupOpen(false);
+    } finally {
+      setSetupLoading(false);
+    }
+  };
+
+  const copySecret = async () => {
+    if (!setupData?.secret) return;
+    try {
+      await navigator.clipboard.writeText(setupData.secret);
+      setSecretCopied(true);
+      toast.success('Código secreto copiado');
+      setTimeout(() => setSecretCopied(false), 2000);
+    } catch {
+      toast.error('No se pudo copiar al portapapeles');
+    }
+  };
+
+  // --- Activación: paso 2 → llama /verify ---
+  const handleVerify = async () => {
+    const token = verifyToken.trim();
+    if (!/^\d{6}$/.test(token)) {
+      toast.error('El código debe ser de 6 dígitos');
+      return;
+    }
+    setSetupLoading(true);
+    try {
+      await apiSend('/api/auth/mfa/verify', 'POST', { token });
+      toast.success('MFA activado correctamente');
+      setVerifyToken('');
+      setSetupStep(3);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Código inválido');
+      setVerifyToken('');
+    } finally {
+      setSetupLoading(false);
+    }
+  };
+
+  // --- Activación: paso 3 → descargar códigos de respaldo ---
+  const downloadBackupCodes = () => {
+    if (!setupData?.backupCodes?.length) return;
+    const lines = [
+      'Control de Asistencia NOM-037 — Códigos de respaldo MFA',
+      `Generados: ${new Date().toLocaleString('es-MX')}`,
+      '',
+      'Instrucciones:',
+      '- Guarda este archivo en un lugar seguro (no en el correo).',
+      '- Cada código solo se puede usar UNA vez.',
+      '- Si pierdes tu dispositivo autenticador, usa uno de estos códigos',
+      '  para iniciar sesión o desactivar MFA.',
+      '',
+      'Códigos:',
+      ...setupData.backupCodes.map((c, i) => `${(i + 1).toString().padStart(2, '0')}. ${c}`),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'codigos-respaldo-mfa.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Códigos descargados');
+  };
+
+  const finishSetup = () => {
+    setSetupOpen(false);
+    setSetupStep(1);
+    setSetupData(null);
+    setVerifyToken('');
+    refreshMfaStatus();
+    toast.success('Configuración MFA completada');
+  };
+
+  // --- Desactivación ---
+  const handleDisable = async () => {
+    const token = disableToken.trim();
+    const backup = disableBackupCode.trim();
+    if (!disableUseBackup && !/^\d{6}$/.test(token)) {
+      toast.error('El código debe ser de 6 dígitos');
+      return;
+    }
+    if (disableUseBackup && backup.length < 8) {
+      toast.error('Ingresa un código de respaldo válido');
+      return;
+    }
+    setDisableLoading(true);
+    try {
+      const payload: Record<string, string> = {};
+      if (disableUseBackup) {
+        payload.backupCode = backup;
+      } else {
+        payload.token = token;
+      }
+      await apiSend('/api/auth/mfa/disable', 'POST', payload);
+      toast.success('MFA desactivado');
+      setDisableOpen(false);
+      setDisableToken('');
+      setDisableBackupCode('');
+      setDisableUseBackup(false);
+      refreshMfaStatus();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo desactivar MFA');
+      setDisableToken('');
+      setDisableBackupCode('');
+    } finally {
+      setDisableLoading(false);
+    }
+  };
+
+  const enrolledDateFormatted = mfaEnrolledAt
+    ? new Intl.DateTimeFormat('es-MX', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(mfaEnrolledAt))
+    : null;
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <SettingsIcon className="h-5 w-5" /> Configuración del Sistema
-        </CardTitle>
-        <CardDescription>Configuración global — próximamente en v2.3</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="rounded-lg border border-dashed border-zinc-200 p-8 text-center text-zinc-500">
-          <SettingsIcon className="mx-auto mb-3 h-10 w-10 text-zinc-300" />
-          <p className="font-medium text-zinc-700">Próximamente</p>
-          <p className="text-sm mt-1">
-            Esta sección incluirá: tolerancia global, horario estándar,
-            duración de descansos, política de bloqueo, y política de sesión.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <SettingsIcon className="h-5 w-5" /> Configuración del Sistema
+          </CardTitle>
+          <CardDescription>
+            Gestiona la seguridad de tu cuenta y preferencias de acceso.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
+      {/* MFA Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Shield className="h-5 w-5 text-teal-600" />
+                Autenticación de dos factores (MFA)
+                {loadingStatus ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+                ) : mfaEnabled ? (
+                  <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
+                    <CheckCircle2 className="h-3 w-3 mr-1" /> MFA activo
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-zinc-500">
+                    <ShieldAlert className="h-3 w-3 mr-1" /> No activo
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription className="max-w-2xl">
+                Añade una capa extra de seguridad. Necesitarás un código de tu app
+                autenticadora (Google Authenticator, Authy, 1Password) cada vez que
+                inicies sesión.
+              </CardDescription>
+            </div>
+            <div className="flex-shrink-0">
+              {!loadingStatus && !mfaEnabled && (
+                <Button onClick={startSetup} disabled={setupLoading}>
+                  <Shield className="h-4 w-4 mr-1" /> Activar MFA
+                </Button>
+              )}
+              {!loadingStatus && mfaEnabled && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDisableOpen(true);
+                    setDisableToken('');
+                    setDisableBackupCode('');
+                    setDisableUseBackup(false);
+                  }}
+                >
+                  <ShieldAlert className="h-4 w-4 mr-1" /> Desactivar MFA
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingStatus ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+          ) : mfaEnabled ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-emerald-900">
+                    Tu cuenta está protegida con autenticación de dos factores.
+                  </p>
+                  {enrolledDateFormatted && (
+                    <p className="text-xs text-emerald-700">
+                      Activo desde {enrolledDateFormatted}.
+                    </p>
+                  )}
+                  <p className="text-xs text-emerald-700 mt-2">
+                    Al iniciar sesión se te pedirá un código de 6 dígitos de tu app
+                    autenticadora. Si pierdes tu dispositivo, puedes usar uno de los
+                    códigos de respaldo que generaste al activar MFA.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-zinc-200 p-6 text-center">
+              <ShieldAlert className="mx-auto mb-3 h-10 w-10 text-zinc-300" />
+              <p className="font-medium text-zinc-700">MFA no está activado</p>
+              <p className="text-sm text-zinc-500 mt-1 max-w-md mx-auto">
+                Activa la autenticación de dos factores para proteger tu cuenta contra
+                accesos no autorizados, incluso si alguien obtiene tu contraseña.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ============================================================ */}
+      {/* DIALOG: Activación MFA (3 pasos) */}
+      {/* ============================================================ */}
+      <Dialog
+        open={setupOpen}
+        onOpenChange={(open) => {
+          // Permitir cerrar solo si no estamos en medio de una carga
+          if (!setupLoading) {
+            setSetupOpen(open);
+            if (!open) {
+              setSetupStep(1);
+              setSetupData(null);
+              setVerifyToken('');
+            }
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-teal-600" />
+              Activar autenticación de dos factores
+            </DialogTitle>
+            <DialogDescription>
+              Paso {setupStep} de 3 · Sigue las instrucciones para proteger tu cuenta.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 py-2">
+            {[1, 2, 3].map((s) => (
+              <div
+                key={s}
+                className={cn(
+                  'h-1.5 flex-1 rounded-full transition-colors',
+                  setupStep >= s ? 'bg-teal-500' : 'bg-zinc-200'
+                )}
+              />
+            ))}
+          </div>
+
+          {setupStep === 1 && (
+            <div className="space-y-4">
+              {setupLoading ? (
+                <div className="flex flex-col items-center py-8 gap-2">
+                  <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+                  <p className="text-sm text-zinc-500">Generando secreto y código QR...</p>
+                </div>
+              ) : setupData ? (
+                <>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-900 mb-2">Escanea el QR</p>
+                    <div className="flex justify-center bg-white border border-zinc-200 rounded-lg p-3">
+                      <img
+                        src={setupData.qrDataUrl}
+                        alt="Código QR para configurar MFA"
+                        width={240}
+                        height={240}
+                        className="h-auto w-[240px]"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs text-zinc-600">
+                      Si no puedes escanear el QR, ingresa este código manualmente en tu
+                      app autenticadora:
+                    </p>
+                    <div className="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-2">
+                      <code className="flex-1 font-mono text-xs break-all text-zinc-800">
+                        {setupData.secret}
+                      </code>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={copySecret}
+                        className="flex-shrink-0 h-8 px-2"
+                      >
+                        {secretCopied ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      onClick={() => setSetupStep(2)}
+                      className="w-full"
+                    >
+                      Ya lo escaneé, continuar <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </DialogFooter>
+                </>
+              ) : (
+                <p className="text-sm text-zinc-500 text-center py-6">
+                  No se pudo generar la configuración. Cierra e intenta de nuevo.
+                </p>
+              )}
+            </div>
+          )}
+
+          {setupStep === 2 && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-medium text-zinc-900 mb-1">
+                  Verifica el código
+                </p>
+                <p className="text-xs text-zinc-600 mb-3">
+                  Ingresa el código de 6 dígitos que muestra tu app autenticadora.
+                </p>
+                <div className="flex justify-center py-2">
+                  <InputOTP
+                    maxLength={6}
+                    value={verifyToken}
+                    onChange={(v) => setVerifyToken(v)}
+                    disabled={setupLoading}
+                    autoFocus
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={1} />
+                      <InputOTPSlot index={2} />
+                      <InputOTPSlot index={3} />
+                      <InputOTPSlot index={4} />
+                      <InputOTPSlot index={5} />
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+              </div>
+              <DialogFooter className="flex-row gap-2 sm:justify-between">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setSetupStep(1)}
+                  disabled={setupLoading}
+                >
+                  <ArrowLeft className="h-4 w-4 mr-1" /> Volver
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleVerify}
+                  disabled={setupLoading || verifyToken.length !== 6}
+                >
+                  {setupLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" /> Verificando...
+                    </>
+                  ) : (
+                    'Verificar y activar'
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {setupStep === 3 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <CheckCircle2 className="h-5 w-5" />
+                <p className="text-sm font-medium">¡MFA activado correctamente!</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-900 mb-1">
+                  Guarda tus códigos de respaldo
+                </p>
+                <p className="text-xs text-zinc-600 mb-3">
+                  Guarda estos códigos en un lugar seguro. Si pierdes tu dispositivo,
+                  los necesitarás para recuperar acceso. Cada código solo se puede usar
+                  una vez.
+                </p>
+                {setupData?.backupCodes && (
+                  <div className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                    {setupData.backupCodes.map((code, i) => (
+                      <div
+                        key={i}
+                        className="font-mono text-xs text-zinc-800 px-2 py-1 rounded bg-white border border-zinc-100 text-center"
+                      >
+                        {code}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-amber-800">
+                  Guarda estos códigos en un lugar seguro. Si pierdes tu dispositivo,
+                  los necesitarás para recuperar acceso. Cada código solo se puede usar
+                  una vez.
+                </p>
+              </div>
+              <DialogFooter className="flex-row gap-2 sm:justify-between">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={downloadBackupCodes}
+                >
+                  <Download className="h-4 w-4 mr-1" /> Descargar códigos
+                </Button>
+                <Button type="button" onClick={finishSetup}>
+                  <Check className="h-4 w-4 mr-1" /> He guardado los códigos, finalizar
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================ */}
+      {/* DIALOG: Desactivar MFA */}
+      {/* ============================================================ */}
+      <Dialog
+        open={disableOpen}
+        onOpenChange={(open) => {
+          if (!disableLoading) {
+            setDisableOpen(open);
+            if (!open) {
+              setDisableToken('');
+              setDisableBackupCode('');
+              setDisableUseBackup(false);
+            }
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-amber-600" />
+              Desactivar autenticación de dos factores
+            </DialogTitle>
+            <DialogDescription>
+              Para confirmar, ingresa un código de tu app autenticadora o un código de
+              respaldo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-amber-800">
+                Al desactivar MFA, tu cuenta quedará protegida únicamente por tu
+                contraseña. Esto reduce significativamente la seguridad.
+              </p>
+            </div>
+
+            {!disableUseBackup ? (
+              <div className="space-y-2">
+                <Label htmlFor="disable-otp">Código de 6 dígitos</Label>
+                <div className="flex justify-center py-1">
+                  <InputOTP
+                    maxLength={6}
+                    value={disableToken}
+                    onChange={setDisableToken}
+                    disabled={disableLoading}
+                    autoFocus
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={1} />
+                      <InputOTPSlot index={2} />
+                      <InputOTPSlot index={3} />
+                      <InputOTPSlot index={4} />
+                      <InputOTPSlot index={5} />
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="disable-backup">Código de respaldo</Label>
+                <Input
+                  id="disable-backup"
+                  type="text"
+                  placeholder="XXXX-XXXX-XXXX-XXXX"
+                  value={disableBackupCode}
+                  onChange={(e) => setDisableBackupCode(e.target.value)}
+                  disabled={disableLoading}
+                  autoFocus
+                  className="font-mono uppercase tracking-wider text-center"
+                />
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setDisableUseBackup(!disableUseBackup);
+                setDisableToken('');
+                setDisableBackupCode('');
+              }}
+              disabled={disableLoading}
+              className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline"
+            >
+              {disableUseBackup
+                ? 'Usar código de la app autenticadora'
+                : 'Usar código de respaldo en su lugar'}
+            </button>
+          </div>
+
+          <DialogFooter className="flex-row gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDisableOpen(false)}
+              disabled={disableLoading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDisable}
+              disabled={
+                disableLoading ||
+                (!disableUseBackup
+                  ? disableToken.length !== 6
+                  : disableBackupCode.trim().length < 8)
+              }
+            >
+              {disableLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" /> Desactivando...
+                </>
+              ) : (
+                'Desactivar MFA'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 
@@ -3703,7 +4468,9 @@ export function AdminLayout() {
       case 'company':
         return isGA ? <CompanyView /> : <ForbiddenView />;
       case 'settings':
-        return isGA ? <SettingsView /> : <ForbiddenView />;
+        return (role === 'GENERAL_ADMIN' || role === 'SUCURSAL_ADMIN')
+          ? <SettingsView />
+          : <ForbiddenView />;
       default:
         return <DashboardView role={role} userSucursalId={user?.sucursalId || null} userSucursalName={user?.sucursalName || null} userSucursalCodigoLocal={user?.sucursalCodigoLocal || null} />;
     }

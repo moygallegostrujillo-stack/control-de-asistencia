@@ -64,6 +64,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { QrScanner } from '@/components/qr/qr-scanner';
 import {
   Clock,
   History as HistoryIcon,
@@ -91,6 +92,8 @@ import {
   CalendarDays,
   Hourglass,
   FileText,
+  Camera,
+  Keyboard,
 } from 'lucide-react';
 
 // ============================================================
@@ -447,6 +450,13 @@ function AttendanceView() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
 
+  // QR sub-mode (dentro de checkMode='QR'): escanear con cámara o ingresar manualmente.
+  const [qrInputMode, setQrInputMode] = useState<'scan' | 'manual'>('scan');
+  // Acción que se dispara cuando el empleado escanea un QR del terminal.
+  const [pendingAction, setPendingAction] = useState<
+    'check-in' | 'check-out' | 'meal-start' | 'meal-end'
+  >('check-in');
+
   const employeeId = user?.employeeId ?? null;
   const todayResponse = data as TodayResponse | undefined;
   const record = todayResponse?.record ?? null;
@@ -503,12 +513,13 @@ function AttendanceView() {
     queryClient.invalidateQueries({ queryKey: ['attendance', 'mine'] });
   }, [queryClient]);
 
-  const handleCheckIn = async () => {
+  const handleCheckIn = async (codeOverride?: string) => {
     if (!employeeId) {
       toast.error('Su cuenta no tiene un perfil de empleado asociado.');
       return;
     }
-    if (checkMode === 'QR' && !qrCode.trim()) {
+    const effectiveCode = codeOverride ?? qrCode;
+    if (checkMode === 'QR' && !effectiveCode.trim()) {
       toast.error('Ingrese o escanee un código QR.');
       return;
     }
@@ -525,7 +536,7 @@ function AttendanceView() {
       const res = await apiSend<{ record: TodayRecord; message?: string }>(
         '/api/attendance/check-in',
         'POST',
-        { lat, long, method: checkMode, qrCode: checkMode === 'QR' ? qrCode.trim() : undefined },
+        { lat, long, method: checkMode, qrCode: checkMode === 'QR' ? effectiveCode.trim() : undefined },
       );
       toast.success('Entrada registrada', {
         description: `Registrada a las ${formatTimeInMexico(res.record.checkInTime)}`,
@@ -541,8 +552,9 @@ function AttendanceView() {
     }
   };
 
-  const handleCheckOut = async () => {
-    if (checkMode === 'QR' && !qrCode.trim()) {
+  const handleCheckOut = async (codeOverride?: string) => {
+    const effectiveCode = codeOverride ?? qrCode;
+    if (checkMode === 'QR' && !effectiveCode.trim()) {
       toast.error('Ingrese o escanee un código QR.');
       return;
     }
@@ -565,7 +577,7 @@ function AttendanceView() {
         lat,
         long,
         method: checkMode,
-        qrCode: checkMode === 'QR' ? qrCode.trim() : undefined,
+        qrCode: checkMode === 'QR' ? effectiveCode.trim() : undefined,
       });
       toast.success('Fin de jornada registrado', {
         description: `Salida: ${formatTimeInMexico(res.record.checkOutTime)} · Trabajadas: ${formatMinutes(res.workedMinutes)}`,
@@ -636,6 +648,95 @@ function AttendanceView() {
   const isCheckedOut = !!record?.checkOutTime;
   const isOnBreak = !!record?.mealStart && !record?.mealEnd;
   const mealCompleted = !!record?.mealStart && !!record?.mealEnd;
+
+  // Acciones disponibles según el estado del registro de hoy.
+  // Se usa para poblar el selector de acción al escanear QR.
+  const availableActions = useMemo<
+    { value: 'check-in' | 'check-out' | 'meal-start' | 'meal-end'; label: string }[]
+  >(() => {
+    const actions: {
+      value: 'check-in' | 'check-out' | 'meal-start' | 'meal-end';
+      label: string;
+    }[] = [];
+    if (!isCheckedIn) {
+      actions.push({ value: 'check-in', label: 'Registrar Entrada' });
+    } else if (!isCheckedOut) {
+      if (!record?.mealStart) {
+        actions.push({ value: 'meal-start', label: 'Iniciar Descanso' });
+      } else if (!record?.mealEnd) {
+        actions.push({ value: 'meal-end', label: 'Terminar Descanso' });
+      }
+      actions.push({ value: 'check-out', label: 'Registrar Salida' });
+    }
+    return actions;
+  }, [isCheckedIn, isCheckedOut, record?.mealStart, record?.mealEnd]);
+
+  // Mantener pendingAction sincronizado con las acciones disponibles.
+  useEffect(() => {
+    if (availableActions.length === 0) return;
+    const stillValid = availableActions.some((a) => a.value === pendingAction);
+    if (!stillValid) {
+      setPendingAction(availableActions[0].value);
+    }
+  }, [availableActions, pendingAction]);
+
+  // ---------- QR scan handler ----------
+  // Valida el formato del código escaneado y dispara la acción seleccionada.
+  // - NOM037:<hex>:<epoch>:<hmac>  → QR dinámico del terminal (válido).
+  // - EMP:<numero>:<hmac>          → QR personal del empleado (NO aceptado).
+  // - Otro formato                 → error.
+  //
+  // No se memoiza con useCallback: QrScanner guarda onScan en un ref vivo
+  // (onScanRef) que se actualiza en cada render, por lo que siempre invoca
+  // la versión más fresca. Esto evita problemas de stale-closure con
+  // handleCheckIn / handleCheckOut / handleMealToggle (que tampoco están
+  // memoizados y se recrean en cada render).
+  const handleScan = async (code: string) => {
+    if (submitting !== null) return; // ya hay una acción en curso
+    if (!code) return;
+
+    // Validación de formato en cliente (defense-in-depth; la API valida HMAC de nuevo).
+    if (code.startsWith('EMP:')) {
+      toast.error(
+        'No puedes usar tu propio QR personal para registrar asistencia. Escanea el QR del terminal.',
+      );
+      return;
+    }
+    if (!code.startsWith('NOM037:')) {
+      toast.error('Formato de QR no reconocido', {
+        description: 'Se esperaba un código del terminal NOM-037.',
+      });
+      return;
+    }
+
+    // Feedback inmediato al usuario.
+    const preview = code.substring(0, 12);
+    toast.success(`Código escaneado: ${preview}…`);
+    setQrCode(code);
+
+    // Disparar la acción seleccionada.
+    switch (pendingAction) {
+      case 'check-in':
+        if (!isCheckedIn) await handleCheckIn(code);
+        else toast.info('Ya registraste tu entrada hoy.');
+        break;
+      case 'check-out':
+        if (isCheckedIn && !isCheckedOut) await handleCheckOut(code);
+        else toast.info('No puedes registrar salida en este momento.');
+        break;
+      case 'meal-start':
+        if (isCheckedIn && !isCheckedOut && !record?.mealStart) await handleMealToggle();
+        else toast.info('No puedes iniciar descanso en este momento.');
+        break;
+      case 'meal-end':
+        if (isCheckedIn && !isCheckedOut && record?.mealStart && !record?.mealEnd) {
+          await handleMealToggle();
+        } else {
+          toast.info('No puedes terminar descanso en este momento.');
+        }
+        break;
+    }
+  };
 
   const statusConfig: {
     title: string;
@@ -818,16 +919,85 @@ function AttendanceView() {
                   )}
 
                   {checkMode === 'QR' && (
-                    <div className="space-y-2">
-                      <Label htmlFor="qr" className="text-xs text-muted-foreground">
-                        Código QR
-                      </Label>
-                      <Input
-                        id="qr"
-                        placeholder="Escanee o ingrese el código QR del terminal"
-                        value={qrCode}
-                        onChange={(e) => setQrCode(e.target.value)}
-                      />
+                    <div className="space-y-3">
+                      {/* Selector de acción — visible en ambos sub-modos (scan / manual) */}
+                      {availableActions.length > 0 && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">
+                            Acción a ejecutar al escanear
+                          </Label>
+                          <Select
+                            value={pendingAction}
+                            onValueChange={(v) =>
+                              setPendingAction(
+                                v as 'check-in' | 'check-out' | 'meal-start' | 'meal-end',
+                              )
+                            }
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Selecciona una acción" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableActions.map((a) => (
+                                <SelectItem key={a.value} value={a.value}>
+                                  {a.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {/* Sub-tabs: Escanear QR / Ingresar manualmente */}
+                      <Tabs
+                        value={qrInputMode}
+                        onValueChange={(v) => setQrInputMode(v as 'scan' | 'manual')}
+                      >
+                        <TabsList className="grid w-full grid-cols-2">
+                          <TabsTrigger value="scan" className="gap-1.5">
+                            <Camera className="w-3.5 h-3.5" /> Escanear QR
+                          </TabsTrigger>
+                          <TabsTrigger value="manual" className="gap-1.5">
+                            <Keyboard className="w-3.5 h-3.5" /> Manual
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+
+                      {qrInputMode === 'scan' ? (
+                        <div className="space-y-2">
+                          <QrScanner
+                            onScan={(code) => {
+                              void handleScan(code);
+                            }}
+                            onError={(err) =>
+                              toast.error('Error de cámara', { description: err })
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground text-center">
+                            Apunta la cámara al QR del terminal. La acción seleccionada se
+                            ejecutará automáticamente.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Label htmlFor="qr" className="text-xs text-muted-foreground">
+                            Código QR del terminal
+                          </Label>
+                          <Input
+                            id="qr"
+                            placeholder="Pega el código NOM037:…"
+                            value={qrCode}
+                            onChange={(e) => setQrCode(e.target.value)}
+                            autoComplete="off"
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            spellCheck={false}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Pega el código del terminal y pulsa la acción correspondiente.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -840,7 +1010,7 @@ function AttendanceView() {
                 {!isCheckedIn && (
                   <Button
                     className="w-full h-12 text-base"
-                    onClick={handleCheckIn}
+                    onClick={() => handleCheckIn()}
                     disabled={!employeeId || submitting !== null || (checkMode === 'GPS' && locating)}
                   >
                     {submitting === 'check-in' ? (
@@ -861,7 +1031,7 @@ function AttendanceView() {
                           ? 'bg-amber-600 hover:bg-amber-700 text-white'
                           : 'border-amber-300 text-amber-700 hover:bg-amber-50'
                       }`}
-                      onClick={handleMealToggle}
+                      onClick={() => handleMealToggle()}
                       disabled={submitting !== null}
                     >
                       {submitting === 'meal-start' || submitting === 'meal-end' ? (
@@ -887,7 +1057,7 @@ function AttendanceView() {
                     <Button
                       variant="destructive"
                       className="w-full h-12 text-base bg-rose-600 hover:bg-rose-700"
-                      onClick={handleCheckOut}
+                      onClick={() => handleCheckOut()}
                       disabled={submitting !== null}
                     >
                       {submitting === 'check-out' ? (

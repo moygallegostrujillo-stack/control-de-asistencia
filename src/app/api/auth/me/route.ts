@@ -33,6 +33,9 @@ export async function GET(req: NextRequest) {
       employeeId: user.employee?.id ?? null,
       sucursalName: user.sucursal?.name ?? null,
       sucursalCodigoLocal: user.sucursal?.codigoLocal ?? null,
+      // MFA flags (no exponemos el secret)
+      mfaEnabled: user.mfaEnabled,
+      mfaEnrolledAt: user.mfaEnrolledAt ?? null,
     };
 
     return NextResponse.json({ user: payload });

@@ -12,10 +12,11 @@ import { auditLog, getIpAndUA } from '@/lib/audit';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { email, password, mfaToken } = (body || {}) as {
+    const { email, password, mfaToken, backupCode } = (body || {}) as {
       email?: string;
       password?: string;
       mfaToken?: string;
+      backupCode?: string;
     };
 
     if (!email || !password) {
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await validateCredentials(email, password, mfaToken, req);
+    const result = await validateCredentials(email, password, mfaToken, req, backupCode);
 
     // Caso especial: requiere MFA
     if (result.needsMfa) {

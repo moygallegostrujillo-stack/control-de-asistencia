@@ -38,14 +38,23 @@ export interface SessionPayload {
 }
 
 /**
- * Valida credenciales (email + password + opcional MFA TOTP).
+ * Valida credenciales (email + password + opcional MFA TOTP o backup code).
  * Retorna el payload del usuario o null.
+ *
+ * MFA: si el usuario tiene MFA activo, debe proveer `mfaToken` (TOTP 6 dígitos)
+ * o `backupCode` (código de respaldo de un solo uso). Si no viene ninguno,
+ * retorna `{ needsMfa: true }` para que el caller pida el segundo factor.
+ *
+ * Backup codes: son case-insensitive (se normalizan a upper-case). Si se
+ * encuentra un match, se remueve el hash correspondiente del array en DB
+ * (one-time use).
  */
 export async function validateCredentials(
   email: string,
   password: string,
   mfaToken?: string,
-  req?: any
+  req?: any,
+  backupCode?: string
 ): Promise<{ user: SessionPayload | null; error?: string; needsMfa?: boolean }> {
   const normalizedEmail = email.toLowerCase().trim();
   const now = getMexicoNow().toJSDate();
@@ -97,17 +106,60 @@ export async function validateCredentials(
 
   // MFA verification (si está habilitado)
   if (user.mfaEnabled && user.mfaSecret) {
-    if (!mfaToken) {
+    // Si no viene ni TOTP ni backup code → pedir segundo factor
+    if (!mfaToken && !backupCode) {
       return { user: null, needsMfa: true, error: 'Se requiere código MFA' };
     }
-    try {
-      const secret = decryptSecret(user.mfaSecret);
-      const ok = authenticator.verify({ token: mfaToken, secret });
-      if (!ok) {
-        return { user: null, error: 'Código MFA inválido' };
+
+    // 1. Probar TOTP primero (si viene)
+    let mfaVerified = false;
+    if (mfaToken) {
+      try {
+        const secret = decryptSecret(user.mfaSecret);
+        mfaVerified = authenticator.verify({ token: mfaToken, secret });
+      } catch {
+        // Continuar al fallback de backup code si también vino uno
       }
-    } catch {
-      return { user: null, error: 'Error al validar MFA' };
+      if (!mfaVerified) {
+        // Si el token vino pero es inválido y no hay backup code, error claro
+        if (!backupCode) {
+          return { user: null, error: 'Código MFA inválido' };
+        }
+      }
+    }
+
+    // 2. Fallback (o ruta principal) — backup code
+    if (!mfaVerified && backupCode) {
+      const codes: string[] = user.mfaBackupCodesHash
+        ? (() => { try { return JSON.parse(user.mfaBackupCodesHash); } catch { return []; } })()
+        : [];
+      const normalized = backupCode.trim().toUpperCase();
+      let matchedHash: string | null = null;
+      for (const hash of codes) {
+        try {
+          if (await bcrypt.compare(normalized, hash)) {
+            matchedHash = hash;
+            break;
+          }
+        } catch {
+          // hash corrupto — seguir
+        }
+      }
+      if (matchedHash) {
+        // One-time use: remover el hash consumido
+        const remaining = codes.filter((h) => h !== matchedHash);
+        await db.user.update({
+          where: { id: user.id },
+          data: { mfaBackupCodesHash: JSON.stringify(remaining) },
+        });
+        mfaVerified = true;
+      } else {
+        return { user: null, error: 'Código de respaldo inválido' };
+      }
+    }
+
+    if (!mfaVerified) {
+      return { user: null, error: 'Código MFA inválido' };
     }
   }
 
