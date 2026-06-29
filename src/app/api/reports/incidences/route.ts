@@ -39,9 +39,11 @@ export async function GET(req: NextRequest) {
     const endDateStr = searchParams.get('endDate') || getMexicoTodayISO();
     const requestedSucursalId = searchParams.get('sucursalId');
 
-    // SUCURSAL_ADMIN: forzar su sucursal
+    // SUCURSAL_ADMIN / SUPERVISOR: forzar su sucursal
     const sucursalId =
-      user.role === 'SUCURSAL_ADMIN' ? user.sucursalId : requestedSucursalId;
+      user.role === 'SUCURSAL_ADMIN' || user.role === 'SUPERVISOR'
+        ? user.sucursalId
+        : requestedSucursalId;
 
     const start = new Date(`${startDateStr}T00:00:00.000Z`);
     const end = new Date(`${endDateStr}T23:59:59.999Z`);

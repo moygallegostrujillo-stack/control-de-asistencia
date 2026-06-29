@@ -6,16 +6,11 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { validateQRToken } from '@/lib/qr';
+import { buildSessionCookies, applySessionCookies } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { getMexicoNow } from '@/lib/timezone';
-
-const SESSION_MAX_AGE = 8 * 3600; // 8 hours
-
-// Rate limit placeholder: apply @upstash/ratelimit per-IP if this
-// endpoint is exposed beyond the local kiosk network.
 
 export async function POST(req: NextRequest) {
   try {
@@ -100,18 +95,11 @@ export async function POST(req: NextRequest) {
       employeeId: user.employee?.id ?? null,
       sucursalName: user.sucursal?.name ?? null,
       sucursalCodigoLocal: user.sucursal?.codigoLocal ?? null,
+      mfaVerified: false,
     };
 
-    const token = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
-
-    const cookieStore = await cookies();
-    cookieStore.set('session_user', token, {
-      httpOnly: false,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: SESSION_MAX_AGE,
-      path: '/',
-    });
+    // Crear sesión JWT firmada (Phase A — NextAuth)
+    const cookiePairs = await buildSessionCookies(payload);
 
     const { ip, ua } = getIpAndUA(req);
     await auditLog({
@@ -125,7 +113,9 @@ export async function POST(req: NextRequest) {
       details: { method: 'qr', qrId: dynamicQR.id },
     });
 
-    return NextResponse.json({ user: payload, token });
+    const res = NextResponse.json({ user: payload });
+    applySessionCookies(res, cookiePairs);
+    return res;
   } catch (error) {
     console.error('[auth/qr-login] error:', error);
     return NextResponse.json(

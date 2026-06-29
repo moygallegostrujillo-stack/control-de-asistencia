@@ -9,7 +9,7 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string;
-  role: 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'EMPLOYEE';
+  role: 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'SUPERVISOR' | 'EMPLOYEE';
   sucursalId: string | null;
   employeeId: string | null;
   sucursalName?: string | null;

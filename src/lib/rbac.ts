@@ -3,7 +3,9 @@
 // ============================================================
 
 import type { AuthUser } from './auth';
-import { Role } from '@prisma/client';
+
+// Role type (string-based, no Prisma enum)
+export type Role = 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'SUPERVISOR' | 'EMPLOYEE';
 
 export type Permission =
   | 'dashboard:global'
@@ -26,6 +28,7 @@ export type Permission =
   | 'reports:comparative'
   | 'reports:sucursal'
   | 'attendance:correct'
+  | 'attendance:view'
   | 'qr:generate'
   | 'kiosco:quick-login';
 
@@ -34,6 +37,7 @@ const PERMISSIONS: Record<Role, Permission[]> = {
     'dashboard:global',
     'dashboard:sucursal',
     'attendance:own',
+    'attendance:view',
     'employees:create',
     'employees:edit',
     'employees:delete',
@@ -56,6 +60,7 @@ const PERMISSIONS: Record<Role, Permission[]> = {
   ],
   SUCURSAL_ADMIN: [
     'dashboard:sucursal',
+    'attendance:view',
     'employees:create',
     'employees:edit',
     'sucursales:edit', // solo SU sucursal (validado en API)
@@ -64,6 +69,19 @@ const PERMISSIONS: Record<Role, Permission[]> = {
     'reports:sucursal',
     'attendance:correct',
     'qr:generate',
+    'kiosco:quick-login',
+  ],
+  SUPERVISOR: [
+    // Read-only sucursal-scoped access: dashboard, employees list,
+    // attendance history, reports, audit log and kiosk quick-login.
+    // NO mutations: no employee CRUD, no vacation approvals, no
+    // attendance corrections, no QR generation, no company/sucursal mgmt.
+    'dashboard:sucursal',
+    'attendance:own',
+    'attendance:view',
+    'vacations:request',
+    'audit:sucursal',
+    'reports:sucursal',
     'kiosco:quick-login',
   ],
   EMPLOYEE: ['attendance:own', 'vacations:request'],
@@ -83,6 +101,8 @@ export function roleLabel(role: string): string {
       return 'Administrador General';
     case 'SUCURSAL_ADMIN':
       return 'Admin de Sucursal';
+    case 'SUPERVISOR':
+      return 'Supervisor';
     case 'EMPLOYEE':
       return 'Empleado';
     default:

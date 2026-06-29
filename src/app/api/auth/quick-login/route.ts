@@ -7,15 +7,9 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { buildSessionCookies, applySessionCookies } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
-
-const SESSION_MAX_AGE = 8 * 3600; // 8 hours
-
-// Rate limit placeholder: apply @upstash/ratelimit per-IP. Since this
-// endpoint skips password verification, it must be restricted to a
-// trusted network (kiosk device) in production.
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,18 +51,11 @@ export async function POST(req: NextRequest) {
       employeeId: user.employee?.id ?? null,
       sucursalName: user.sucursal?.name ?? null,
       sucursalCodigoLocal: user.sucursal?.codigoLocal ?? null,
+      mfaVerified: false, // quick-login skips MFA (kiosk trusts the device)
     };
 
-    const token = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
-
-    const cookieStore = await cookies();
-    cookieStore.set('session_user', token, {
-      httpOnly: false,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: SESSION_MAX_AGE,
-      path: '/',
-    });
+    // Crear sesión JWT firmada (Phase A — NextAuth)
+    const cookiePairs = await buildSessionCookies(payload);
 
     const { ip, ua } = getIpAndUA(req);
     await auditLog({
@@ -82,7 +69,9 @@ export async function POST(req: NextRequest) {
       details: { method: 'quick' },
     });
 
-    return NextResponse.json({ user: payload, token });
+    const res = NextResponse.json({ user: payload });
+    applySessionCookies(res, cookiePairs);
+    return res;
   } catch (error) {
     console.error('[auth/quick-login] error:', error);
     return NextResponse.json(

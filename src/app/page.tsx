@@ -79,7 +79,11 @@ export default function Home() {
     return <LoginForm />;
   }
 
-  if (user.role === 'GENERAL_ADMIN' || user.role === 'SUCURSAL_ADMIN') {
+  if (
+    user.role === 'GENERAL_ADMIN' ||
+    user.role === 'SUCURSAL_ADMIN' ||
+    user.role === 'SUPERVISOR'
+  ) {
     return <AdminLayout />;
   }
 

@@ -25,7 +25,7 @@ const DEFAULT_SCHEDULES = [
   { dayOfWeek: 5, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
 ];
 
-const VALID_ROLES = new Set(['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'EMPLOYEE']);
+const VALID_ROLES = new Set(['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR', 'EMPLOYEE']);
 
 export async function GET(req: NextRequest) {
   try {

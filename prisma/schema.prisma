@@ -39,12 +39,17 @@ model User {
   email               String   @unique
   passwordHash        String
   name                String
-  role                String   @default("EMPLOYEE") // GENERAL_ADMIN | SUCURSAL_ADMIN | EMPLOYEE
+  role                String   @default("EMPLOYEE") // GENERAL_ADMIN | SUCURSAL_ADMIN | SUPERVISOR | EMPLOYEE
   sucursalId          String?
   isActive            Boolean  @default(true)
   lastLoginAt         DateTime?
   failedLoginAttempts Int      @default(0)
   lockedUntil         DateTime?
+  // --- MFA (Phase A — NextAuth + TOTP) ---
+  mfaEnabled          Boolean  @default(false)
+  mfaSecret           String?  // TOTP secret (encrypted at rest via app-level AES)
+  mfaBackupCodesHash  String?  // JSON array of bcrypt hashes
+  mfaEnrolledAt       DateTime?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

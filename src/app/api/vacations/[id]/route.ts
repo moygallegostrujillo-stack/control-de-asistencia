@@ -24,6 +24,7 @@ import {
   isGeneralAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
+import { emitVacationStatus } from '@/lib/realtime';
 import { toISODate } from '@/lib/timezone';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -146,6 +147,15 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
             : 0,
       },
     });
+
+    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
+    emitVacationStatus({
+      vacationId: id,
+      employeeId: existing.employee.id,
+      status,
+      approvedBy: user.id,
+      sucursalId: existing.employee.sucursalId ?? undefined,
+    }).catch(() => {});
 
     return NextResponse.json({ vacation });
   } catch (error) {

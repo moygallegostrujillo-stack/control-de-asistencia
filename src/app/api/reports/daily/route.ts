@@ -35,9 +35,11 @@ export async function GET(req: NextRequest) {
     const dateStr = searchParams.get('date') || getMexicoTodayISO();
     const requestedSucursalId = searchParams.get('sucursalId');
 
-    // SUCURSAL_ADMIN: sólo puede ver su propia sucursal.
+    // SUCURSAL_ADMIN / SUPERVISOR: sólo puede ver su propia sucursal.
     const sucursalId =
-      user.role === 'SUCURSAL_ADMIN' ? user.sucursalId : requestedSucursalId;
+      user.role === 'SUCURSAL_ADMIN' || user.role === 'SUPERVISOR'
+        ? user.sucursalId
+        : requestedSucursalId;
 
     // Rango del día (UTC midnight a UTC 23:59:59) para el @db.Date
     const dateStart = new Date(`${dateStr}T00:00:00.000Z`);

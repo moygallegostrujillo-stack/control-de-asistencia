@@ -22,6 +22,7 @@ import {
   type AuthUser,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
+import { emitVacationRequested } from '@/lib/realtime';
 import { toISODate } from '@/lib/timezone';
 
 const VALID_TYPES = new Set([
@@ -273,6 +274,18 @@ export async function POST(req: NextRequest) {
         reason: reason ?? null,
       },
     });
+
+    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
+    emitVacationRequested({
+      vacationId: vacation.id,
+      employeeId,
+      employeeName: employee.user.name,
+      type,
+      startDate: toISODate(start),
+      endDate: toISODate(end),
+      days,
+      sucursalId: employee.sucursalId ?? undefined,
+    }).catch(() => {});
 
     return NextResponse.json({ vacation }, { status: 201 });
   } catch (error) {

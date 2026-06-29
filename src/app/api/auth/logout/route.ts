@@ -4,8 +4,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { getAuthUser } from '@/lib/auth';
+import { getAuthUser, buildClearCookies } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 
 export async function POST(req: NextRequest) {
@@ -26,16 +25,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const cookieStore = await cookies();
-    cookieStore.set('session_user', '', {
-      httpOnly: false,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 0,
-      path: '/',
-    });
-
-    return NextResponse.json({ ok: true });
+    const res = NextResponse.json({ ok: true });
+    for (const c of buildClearCookies()) {
+      res.cookies.set(c.name, c.value, c.options);
+    }
+    return res;
   } catch (error) {
     console.error('[auth/logout] error:', error);
     return NextResponse.json(

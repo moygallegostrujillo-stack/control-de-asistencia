@@ -13,6 +13,7 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
+import { emitCheckIn } from '@/lib/realtime';
 import {
   getMexicoTodayDate,
   getMexicoTodayISO,
@@ -216,6 +217,17 @@ export async function POST(req: NextRequest) {
         performedBy: user.email,
       },
     });
+
+    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
+    emitCheckIn({
+      employeeId,
+      employeeName: employee.user.name,
+      employeeNumber: employee.employeeNumber,
+      sucursalId: employee.sucursalId,
+      time: now.toISOString(),
+      method: checkMethod,
+      status,
+    }).catch(() => {});
 
     return NextResponse.json({ record }, { status: 201 });
   } catch (error) {

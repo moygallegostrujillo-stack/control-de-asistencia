@@ -3,6 +3,7 @@
 // Returns active users for the quick-access login buttons.
 //  - GENERAL_ADMIN  → all active users
 //  - SUCURSAL_ADMIN → only users in their sucursal
+//  - SUPERVISOR     → only users in their sucursal (same as SUCURSAL_ADMIN)
 //  - EMPLOYEE       → only themselves
 // Includes employee info (employeeNumber, position, department)
 // when available.
@@ -26,7 +27,10 @@ export async function GET(req: NextRequest) {
         include: { sucursal: true, employee: true },
         orderBy: [{ role: 'desc' }, { name: 'asc' }],
       });
-    } else if (authUser.role === 'SUCURSAL_ADMIN') {
+    } else if (
+      authUser.role === 'SUCURSAL_ADMIN' ||
+      authUser.role === 'SUPERVISOR'
+    ) {
       // Only users in their sucursal
       if (!authUser.sucursalId) {
         return NextResponse.json({ users: [] });

@@ -13,6 +13,7 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
+import { emitBreakStart } from '@/lib/realtime';
 import { getMexicoTodayDate, getDayOfWeek } from '@/lib/timezone';
 
 const MIN_SHIFT_MINUTES = 8 * 60; // 8 horas
@@ -138,6 +139,14 @@ export async function POST(req: NextRequest) {
         performedBy: user.email,
       },
     });
+
+    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
+    emitBreakStart({
+      employeeId,
+      employeeName: record.employee.user.name,
+      sucursalId: record.employee.sucursalId,
+      time: now.toISOString(),
+    }).catch(() => {});
 
     return NextResponse.json({
       record: updated,

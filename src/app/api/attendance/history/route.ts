@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
     let effectiveSucursalId: string | undefined;
     if (isGeneralAdmin(user)) {
       effectiveSucursalId = querySucursalId || undefined;
-    } else if (user.role === 'SUCURSAL_ADMIN') {
+    } else if (user.role === 'SUCURSAL_ADMIN' || user.role === 'SUPERVISOR') {
       effectiveSucursalId = user.sucursalId || undefined;
     }
     if (effectiveSucursalId) {

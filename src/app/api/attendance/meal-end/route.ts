@@ -15,6 +15,7 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
+import { emitBreakEnd } from '@/lib/realtime';
 import { getMexicoTodayDate, minutesBetween } from '@/lib/timezone';
 
 export async function POST(req: NextRequest) {
@@ -127,6 +128,16 @@ export async function POST(req: NextRequest) {
         performedBy: user.email,
       },
     });
+
+    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
+    emitBreakEnd({
+      employeeId,
+      employeeName: record.employee.user.name,
+      sucursalId: record.employee.sucursalId,
+      time: now.toISOString(),
+      durationMinutes: mealDurationMinutes,
+      exceeded: mealExceeded,
+    }).catch(() => {});
 
     return NextResponse.json({
       record: updated,

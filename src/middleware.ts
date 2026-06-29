@@ -1,37 +1,62 @@
 // ============================================================
-// Middleware — Protege /api/* con cookie session_user + RBAC
+// Middleware — Protege /api/* con NextAuth JWT + RBAC
+// (con fallback a cookie legacy para transición)
 // ============================================================
 
 import { NextResponse, type NextRequest } from 'next/server';
+import { getToken } from 'next-auth/jwt';
 
 interface SessionPayload {
   id: string;
   email: string;
   name: string;
-  role: 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'EMPLOYEE';
+  role: 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'SUPERVISOR' | 'EMPLOYEE';
   sucursalId: string | null;
   employeeId: string | null;
 }
 
-function parseSession(req: NextRequest): SessionPayload | null {
-  // 1. Cookie
+function decodeLegacyCookie(cookie: string): SessionPayload | null {
+  try {
+    const json = Buffer.from(cookie, 'base64').toString('utf-8');
+    const payload = JSON.parse(json);
+    if (payload && payload.id && payload.role) return payload;
+  } catch {}
+  return null;
+}
+
+async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
+  // 1. NextAuth JWT (firmado, seguro) — preferido
+  try {
+    const token = await getToken({
+      req: req as any,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
+    if (token && token.id && token.role) {
+      return {
+        id: token.id as string,
+        email: token.email as string,
+        name: token.name as string,
+        role: token.role as SessionPayload['role'],
+        sucursalId: (token.sucursalId as string) || null,
+        employeeId: (token.employeeId as string) || null,
+      };
+    }
+  } catch {}
+
+  // 2. Cookie legacy `session_user` (base64, transición)
   const cookie = req.cookies.get('session_user')?.value;
   if (cookie) {
-    try {
-      const json = Buffer.from(cookie, 'base64').toString('utf-8');
-      const payload = JSON.parse(json);
-      if (payload.id && payload.role) return payload;
-    } catch {}
+    const payload = decodeLegacyCookie(cookie);
+    if (payload) return payload;
   }
-  // 2. Authorization header Bearer <base64>
+
+  // 3. Authorization header Bearer <base64> (legacy, mobile/CLI)
   const authHeader = req.headers.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
-    try {
-      const json = Buffer.from(authHeader.slice(7), 'base64').toString('utf-8');
-      const payload = JSON.parse(json);
-      if (payload.id && payload.role) return payload;
-    } catch {}
+    const payload = decodeLegacyCookie(authHeader.slice(7));
+    if (payload) return payload;
   }
+
   return null;
 }
 
@@ -39,6 +64,13 @@ const PUBLIC_PATHS = [
   '/api/auth/login',
   '/api/auth/qr-login',
   '/api/auth/quick-login',
+  '/api/auth/session',
+  '/api/auth/csrf',
+  '/api/auth/providers',
+  '/api/auth/signin',
+  '/api/auth/signout',
+  '/api/auth/callback',
+  '/api/auth/_log',
   '/api/health',
   '/api/seed',
   '/api/download',
@@ -47,7 +79,7 @@ const PUBLIC_PATHS = [
   '/api/route',
 ];
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   // Health check raíz
@@ -61,12 +93,17 @@ export function middleware(req: NextRequest) {
   }
 
   // Todo lo demás requiere sesión
-  const session = parseSession(req);
+  const session = await parseSession(req);
   if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   const role = session.role;
+  // SUPERVISOR is intentionally NOT promoted here: they get the same
+  // mutation restrictions as EMPLOYEE (no POST/PUT/DELETE on protected
+  // resources) but can still GET any endpoint that an authenticated user
+  // can read. Per-endpoint handlers enforce finer-grained scoping
+  // (e.g. getSucursalFilter scopes queries to their sucursalId).
   const isGeneralAdmin = role === 'GENERAL_ADMIN';
   const isSucursalAdmin = role === 'SUCURSAL_ADMIN';
   const method = req.method;

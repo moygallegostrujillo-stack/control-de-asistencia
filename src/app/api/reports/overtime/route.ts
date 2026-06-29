@@ -33,9 +33,11 @@ export async function GET(req: NextRequest) {
     const requestedSucursalId = searchParams.get('sucursalId');
     const employeeIdParam = searchParams.get('employeeId');
 
-    // SUCURSAL_ADMIN: forzar su sucursal
+    // SUCURSAL_ADMIN / SUPERVISOR: forzar su sucursal
     const sucursalId =
-      user.role === 'SUCURSAL_ADMIN' ? user.sucursalId : requestedSucursalId;
+      user.role === 'SUCURSAL_ADMIN' || user.role === 'SUPERVISOR'
+        ? user.sucursalId
+        : requestedSucursalId;
 
     // Validar rango
     const start = new Date(`${startDateStr}T00:00:00.000Z`);

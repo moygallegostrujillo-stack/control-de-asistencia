@@ -14,6 +14,7 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
+import { emitCheckOut } from '@/lib/realtime';
 import { getMexicoTodayDate } from '@/lib/timezone';
 import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
 import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
@@ -177,6 +178,17 @@ export async function POST(req: NextRequest) {
         performedBy: user.email,
       },
     });
+
+    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
+    emitCheckOut({
+      employeeId,
+      employeeName: record.employee.user.name,
+      employeeNumber: record.employee.employeeNumber,
+      sucursalId: record.employee.sucursalId,
+      time: now.toISOString(),
+      method: checkMethod,
+      workedMinutes: calc.workedMinutes,
+    }).catch(() => {});
 
     return NextResponse.json({
       record: updated,

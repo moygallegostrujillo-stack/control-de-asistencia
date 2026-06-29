@@ -8,7 +8,9 @@ import { useAttendanceToday, type TodayResponse } from '@/hooks/queries/use-atte
 import { useDynamicQR } from '@/hooks/queries/use-dynamic-qr';
 import { FreshnessIndicator } from '@/components/shared/freshness-indicator';
 import { PollingToast } from '@/components/shared/polling-toast';
-import { roleLabel, sucursalLabel } from '@/lib/rbac';
+import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
+import type { AuthUser } from '@/lib/auth';
+import { useRealtime } from '@/hooks/use-realtime';
 import { cn } from '@/lib/utils';
 import { formatTimeInMexico, formatDateInMexico, formatMinutes, formatDateTimeInMexico, getMexicoTodayISO } from '@/lib/timezone';
 import { Button } from '@/components/ui/button';
@@ -47,7 +49,7 @@ import {
 // Types (subset of API payloads used by views)
 // ============================================================
 
-type Role = 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'EMPLOYEE';
+type Role = 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'SUPERVISOR' | 'EMPLOYEE';
 
 interface EmployeeRow {
   id: string;
@@ -332,14 +334,14 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'employees', label: 'Empleados', icon: Users, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'sucursales', label: 'Sucursales', labelSucursal: 'Mi Sucursal', icon: Building2, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'users', label: 'Usuarios y Roles', icon: ShieldCheck, roles: ['GENERAL_ADMIN'] },
   { id: 'vacations', label: 'Vacaciones y Permisos', icon: CalendarCheck, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
-  { id: 'history', label: 'Historial', icon: HistoryIcon, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
-  { id: 'reports', label: 'Reportes', icon: FileBarChart, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
-  { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
+  { id: 'history', label: 'Historial', icon: HistoryIcon, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
+  { id: 'reports', label: 'Reportes', icon: FileBarChart, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
+  { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'qr-terminal', label: 'Terminal QR', icon: QrCode, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'company', label: 'Empresa y Feriados', icon: Building, roles: ['GENERAL_ADMIN'] },
   { id: 'settings', label: 'Configuración', icon: SettingsIcon, roles: ['GENERAL_ADMIN'] },
@@ -377,6 +379,9 @@ interface DashboardViewProps {
 
 function DashboardView({ role, userSucursalId }: DashboardViewProps) {
   const isGA = role === 'GENERAL_ADMIN';
+  // SUPERVISOR can view the dashboard but cannot correct attendance
+  // records (no 'attendance:correct' permission in rbac PERMISSIONS).
+  const canCorrect = can({ role } as AuthUser, 'attendance:correct');
   const [selectedSucursalId, setSelectedSucursalId] = useState<string>('all');
   const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
   const [loadingSucursales, setLoadingSucursales] = useState(isGA);
@@ -598,7 +603,7 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                         <TableHead className="w-[90px] whitespace-nowrap">Estado</TableHead>
                         <TableHead className="w-[65px] whitespace-nowrap">Método</TableHead>
                         <TableHead className="w-[130px] whitespace-nowrap">Ubicación</TableHead>
-                        <TableHead className="w-[90px] whitespace-nowrap text-right">Acciones</TableHead>
+                        {canCorrect && <TableHead className="w-[90px] whitespace-nowrap text-right">Acciones</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -668,15 +673,19 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                               )}
                             </TableCell>
                             <TableCell className="whitespace-nowrap text-right">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 gap-1.5 text-xs"
-                                onClick={() => handleOpenCorrection(r)}
-                              >
-                                <Pencil className="h-3 w-3" />
-                                Corregir
-                              </Button>
+                              {canCorrect ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 gap-1.5 text-xs"
+                                  onClick={() => handleOpenCorrection(r)}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                  Corregir
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                           </TableRow>
                         );
@@ -1926,11 +1935,12 @@ function UserFormDialog({ mode, sucursales, user, onClose, onSaved }: {
               <SelectContent>
                 <SelectItem value="GENERAL_ADMIN">Administrador General</SelectItem>
                 <SelectItem value="SUCURSAL_ADMIN">Admin de Sucursal</SelectItem>
+                <SelectItem value="SUPERVISOR">Supervisor</SelectItem>
                 <SelectItem value="EMPLOYEE">Empleado</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          {(role === 'SUCURSAL_ADMIN' || role === 'EMPLOYEE') && (
+          {(role === 'SUCURSAL_ADMIN' || role === 'SUPERVISOR' || role === 'EMPLOYEE') && (
             <div className="space-y-1.5">
               <Label>Sucursal *</Label>
               <Select value={sucursalId} onValueChange={setSucursalId}>
@@ -3650,6 +3660,9 @@ export function AdminLayout() {
   const role = user?.role as Role;
   const isGA = role === 'GENERAL_ADMIN';
 
+  // Tiempo real: escucha eventos de Socket.io para updates instantáneos
+  useRealtime();
+
   const navItems = navItemsForRole(role);
 
   const handleLogout = async () => {
@@ -3660,6 +3673,14 @@ export function AdminLayout() {
   };
 
   const renderView = () => {
+    // Defense-in-depth: even if a SUPERVISOR manually toggles the active
+    // view (e.g. via devtools), restrict them to the read-only subset
+    // (dashboard, history, reports, audit). Everything else renders a
+    // ForbiddenView so no mutation UI is exposed.
+    const supervisorAllowedViews: AdminView[] = ['dashboard', 'history', 'reports', 'audit'];
+    if (role === 'SUPERVISOR' && !supervisorAllowedViews.includes(adminView)) {
+      return <ForbiddenView />;
+    }
     switch (adminView) {
       case 'dashboard':
         return <DashboardView role={role} userSucursalId={user?.sucursalId || null} userSucursalName={user?.sucursalName || null} userSucursalCodigoLocal={user?.sucursalCodigoLocal || null} />;

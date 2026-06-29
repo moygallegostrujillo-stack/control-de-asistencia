@@ -16,7 +16,7 @@ import { auditLog, getIpAndUA } from '@/lib/audit';
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const VALID_ROLES = new Set(['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'EMPLOYEE']);
+const VALID_ROLES = new Set(['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR', 'EMPLOYEE']);
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
   try {
