@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""Render the NOM-037 process flow diagram HTML to high-quality PNG + PDF.
+"""Render the NOM-037 architecture diagram HTML to high-quality PNG + PDF.
+
+Default target: arquitectura-sistema.html (DIAG-1-ARQUITECTURA-V2).
+Optionally pass an HTML path as the first CLI argument to render a different
+diagram (e.g. flujo-procesos.html).
 
 Outputs:
-  /home/z/my-project/public/diagramas/flujo-procesos.png  (2x device scale)
-  /home/z/my-project/public/diagramas/flujo-procesos.pdf  (custom wide format)
+  <stem>.png  (2x device scale)
+  <stem>.pdf  (custom wide format, single page)
 """
 import asyncio
 import os
+import sys
 from playwright.async_api import async_playwright
 
-HTML_PATH = "/home/z/my-project/public/diagramas/flujo-procesos.html"
-PNG_PATH  = "/home/z/my-project/public/diagramas/flujo-procesos.png"
-PDF_PATH  = "/home/z/my-project/public/diagramas/flujo-procesos.pdf"
+DEFAULT_HTML = "/home/z/my-project/public/diagramas/arquitectura-sistema.html"
+HTML_PATH = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_HTML
+STEM, _ = os.path.splitext(HTML_PATH)
+PNG_PATH = STEM + ".png"
+PDF_PATH = STEM + ".pdf"
 
-INITIAL_W = 1600
-INITIAL_H = 1200
+INITIAL_W = 1700
+INITIAL_H = 1400
 
 
 async def render():
@@ -73,6 +80,7 @@ async def render():
         pdf_size = os.path.getsize(PDF_PATH)
         print(f"PDF OK  {PDF_PATH}  ({pdf_size/1024:.1f} KB)")
 
+        print(f"Render target: {HTML_PATH}")
         await browser.close()
         return png_size, pdf_size
 

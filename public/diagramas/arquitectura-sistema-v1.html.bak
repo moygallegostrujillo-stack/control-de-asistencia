@@ -311,20 +311,6 @@
     color: var(--accent-ink);
     background: rgba(58,175,169,.10);
   }
-  .card .tag.new {
-    color: #FFFFFF;
-    background: var(--accent-deep);
-    font-weight: 700;
-    letter-spacing: .4px;
-    text-transform: uppercase;
-    font-size: 9px;
-  }
-  .card .tag.sec {
-    color: #1F5F66;
-    background: rgba(31, 95, 102, .12);
-    border: 1px solid rgba(31, 95, 102, .25);
-    font-weight: 600;
-  }
 
   /* ====================================================================
      CONNECTOR — orthogonal arrow between bands
@@ -583,17 +569,13 @@
         Vista de capas técnica del stack en producción (Next.js 16 · Prisma · PostgreSQL ·
         Socket.io) con gateway Caddy, mini-service realtime en Railway y servicios externos
         de cumplimiento normativo (MFA TOTP, QR HMAC, geolocalización).
-        <strong style="color:var(--accent-deep);">Rev. 2</strong> — incorpora flujo
-        MFA 2-step con backup codes, escáner de cámara QR (html5-qrcode) y generación
-        local de QR (sin servicios de terceros).
       </p>
     </div>
     <div class="meta">
-      <span class="version-pill">v2.2.0 · Rev. 2</span>
+      <span class="version-pill">v2.2.0</span>
       <div class="env-line">
         <strong>Repo:</strong> github.com/moygallegostrujillo-stack/control-de-asistencia<br>
-        <strong>Deploy:</strong> control-asistencia-v22.vercel.app<br>
-        <strong>Rev:</strong> 2 — post-MFA &amp; QR scanner impl
+        <strong>Deploy:</strong> control-asistencia-v22.vercel.app
       </div>
     </div>
   </header>
@@ -610,7 +592,7 @@
         <p class="desc">Capa de presentación. Render SSR/CSR, estado servidor y cliente, canal tiempo real.</p>
         <div class="host"><strong>Entorno:</strong> Navegador web moderno (Chromium, Firefox, Safari) · PWA-ready</div>
       </div>
-      <div class="band-cards cols-4">
+      <div class="band-cards cols-6">
 
         <div class="card">
           <div class="card-head">
@@ -696,34 +678,6 @@
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-head">
-            <span class="icon">
-              <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M9 6l1.5-2h3L15 6"/></svg>
-            </span>
-            <span class="name">QrScanner (cámara)</span>
-          </div>
-          <span class="tech">html5-qrcode@2.3.8 · NEW</span>
-          <p class="desc">Escáner de cámara para AttendanceView. Toggle trasera/frontal, overlay animado, autoStop al decodificar. Requiere HTTPS en iOS Safari; fallback a entrada manual si no hay cámara.</p>
-          <div class="tags">
-            <span class="tag new">NEW</span><span class="tag hi">getUserMedia</span><span class="tag">rear/front</span><span class="tag">autoStop</span>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <span class="icon">
-              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/><path d="M15 13l3 3 3-3"/></svg>
-            </span>
-            <span class="name">QRTerminal + Kiosk Mode</span>
-          </div>
-          <span class="tech">qrcode lib · local gen · NEW</span>
-          <p class="desc">QR del terminal generado en-browser con <code>import('qrcode')</code> — sin api.qrserver.com (no filtra HMAC). Modo kiosco: <code>requestFullscreen()</code> + QR 400×400 + countdown grande.</p>
-          <div class="tags">
-            <span class="tag new">NEW</span><span class="tag sec">Sin third-party</span><span class="tag">requestFullscreen</span><span class="tag">countdown</span>
-          </div>
-        </div>
-
       </div>
     </section>
 
@@ -804,7 +758,7 @@
         <p class="desc">Capa de aplicación: API REST, RBAC, ORM y render. Ejecuta como funciones serverless.</p>
         <div class="host"><strong>Host:</strong> Vercel · región iad1 (US East)</div>
       </div>
-      <div class="band-cards cols-6">
+      <div class="band-cards cols-5">
 
         <div class="card">
           <div class="card-head">
@@ -827,7 +781,7 @@
             </span>
             <span class="name">API REST</span>
           </div>
-          <span class="tech">56 Route Handlers</span>
+          <span class="tech">53 Route Handlers</span>
           <p class="desc">Endpoints REST bajo /api/*. Validación Zod, manejo de errores centralizado.</p>
           <div class="tags">
             <span class="tag hi">REST</span><span class="tag">Zod</span><span class="tag">Edge runtime</span>
@@ -841,24 +795,10 @@
             </span>
             <span class="name">NextAuth.js v4</span>
           </div>
-          <span class="tech">JWT AES-256-GCM · 2-step MFA</span>
-          <p class="desc">Sesiones stateless firmadas y cifradas. Login 2-step: si MFA activo, responde <code>needsMfa:true</code> sin cookie; paso 2 con <code>mfaToken</code> TOTP o <code>backupCode</code> (bcrypt) → JWT con claim <code>mfaVerified:true</code>.</p>
+          <span class="tech">JWT AES-256-GCM · MFA TOTP</span>
+          <p class="desc">Sesiones stateless firmadas y cifradas. MFA TOTP (RFC 6238) opcional.</p>
           <div class="tags">
-            <span class="tag hi">JWE</span><span class="tag hi">mfaVerified</span><span class="tag">needsMfa</span><span class="tag">RFC 6238</span>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <span class="icon">
-              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2M20 14v.01M14 20h6v-6"/></svg>
-            </span>
-            <span class="name">MFA TOTP API</span>
-          </div>
-          <span class="tech">3 endpoints · setup|verify|disable · NEW</span>
-          <p class="desc"><code>/mfa/setup</code> genera secreto (AES-256-GCM) + QR + 10 backup codes. <code>/mfa/verify</code> activa con TOTP 6 dígitos. <code>/mfa/disable</code> revoca con TOTP o backup code.</p>
-          <div class="tags">
-            <span class="tag new">NEW</span><span class="tag sec">Backup codes bcrypt</span><span class="tag sec">One-time use</span><span class="tag">cost 10</span>
+            <span class="tag hi">JWE</span><span class="tag">TOTP</span><span class="tag">RFC 6238</span>
           </div>
         </div>
 
@@ -1137,37 +1077,32 @@
       <div class="flow">
         <div class="flow-head">
           <span class="flow-num">A</span>
-          <span class="flow-title">Autenticación (2-step MFA)</span>
+          <span class="flow-title">Autenticación</span>
         </div>
         <div class="flow-trace">
           <span class="step">Browser</span><span class="arr">→</span>
           <span class="step">Caddy</span><span class="arr">→</span>
-          <span class="step">POST /api/auth/login</span><br>
-          ↳ si MFA activo: <span class="step">needsMfa:true</span> (200 sin cookie)<br>
-          ↳ paso 2 con <span class="step">mfaToken</span> TOTP | <span class="step">backupCode</span><span class="arr">→</span>
-          <span class="step">validateCredentials</span><span class="arr">→</span>
-          <span class="step">JWT mfaVerified:true</span><span class="arr">→</span>
-          <span class="step">Cookie httpOnly</span>
+          <span class="step">Next.js</span><span class="arr">→</span>
+          <span class="step">NextAuth</span><span class="arr">→</span>
+          <span class="step">JWT</span><span class="arr">→</span>
+          <span class="step">DB</span>
         </div>
-        <p class="flow-note">TOTP RFC 6238 (30s ±1 ventana) o backup codes bcrypt cost 10 (one-time use: se remueve el hash del array en DB al matchear). Secreto TOTP cifrado AES-256-GCM. Lockout 5 intentos / 15 min.</p>
+        <p class="flow-note">Cookie <code>next-auth.session-token</code> (JWE AES-256-GCM). MFA TOTP opcional tras validación de credenciales.</p>
       </div>
 
       <div class="flow">
         <div class="flow-head">
           <span class="flow-num">B</span>
-          <span class="flow-title">Check-in tiempo real (cámara QR)</span>
+          <span class="flow-title">Check-in tiempo real</span>
         </div>
         <div class="flow-trace">
-          <span class="step">AttendanceView</span><span class="arr">→</span>
-          <span class="step">QrScanner</span> (html5-qrcode)<br>
-          ↳ <span class="step">handleScan</span> valida formato (<span class="step">NOM037:</span> ok · rechaza <span class="step">EMP:</span>)<span class="arr">→</span>
-          <span class="step">POST /api/attendance/check-in</span><span class="arr">→</span>
-          <span class="step">validateQRToken</span> (HMAC 5min)<br>
-          ↳ <span class="step">DB</span> + <span class="step">AuditLog</span> + <span class="step">/emit</span><span class="arr">→</span>
+          <span class="step">Browser</span><span class="arr">→</span>
+          <span class="step">API</span><span class="arr">→</span>
+          <span class="step">DB</span> + <span class="step">AuditLog</span> + <span class="step">/emit</span><span class="arr">→</span>
           <span class="step">WebSocket</span><span class="arr">→</span>
           <span class="step">Dashboard admins</span>
         </div>
-        <p class="flow-note">Token <code>NOM037:&lt;hex&gt;:&lt;epoch&gt;:&lt;hmac&gt;</code> con TTL 5 min. Defense-in-depth: cliente valida formato, servidor valida HMAC + anti-replay. Sub-tabs Escanear / Manual en UI del empleado.</p>
+        <p class="flow-note">Cada check-in/out/break dispara <code>emit*</code> (fire-and-forget) hacia el mini-service para difusión a salas.</p>
       </div>
 
       <div class="flow">
@@ -1197,9 +1132,7 @@
     <div class="item"><span class="swatch sw-extern"></span> Externos</div>
     <span class="sep"></span>
     <div class="item arrow-glyph"><span class="line"></span> Flujo entre capas</div>
-    <div class="item"><span class="tag hi">etiqueta</span> Highlight de característica</div>
-    <div class="item"><span class="tag new">NEW</span> Añadido en Rev. 2</div>
-    <div class="item"><span class="tag sec">seguridad</span> Mejora de seguridad</div>
+    <div class="item"><span class="tag hi">etiqueta</span> Highlight de característica clave</div>
   </div>
 
   <!-- ===================== FOOTER ===================== -->
@@ -1207,11 +1140,11 @@
     <div class="left">
       <span>Control de Asistencia NOM-037 v2.2.0</span>
       <span class="dot"></span>
-      <span>Diagrama de Arquitectura · Rev. 2 (post-MFA &amp; QR scanner impl)</span>
+      <span>Diagrama de Arquitectura</span>
       <span class="dot"></span>
-      <span>Generado: 2026-06-29</span>
+      <span>Generado: 2025-01-30</span>
     </div>
-    <div class="right">DIAG-1-ARQUITECTURA-V2 · tech-cyan-gray-v1</div>
+    <div class="right">DIAG-1-ARQUITECTURA · tech-cyan-gray-v1</div>
   </footer>
 
 </div>

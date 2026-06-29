@@ -178,28 +178,6 @@
   .step-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
   .step-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
 
-  /* Two-row sub-grid (used when a phase holds 6 steps: 3+3) */
-  .step-grid + .step-grid { margin-top: 16px; }
-  .subgrid-label {
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--phase-stripe);
-    margin: 4px 2px 8px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .subgrid-label::before {
-    content: "";
-    display: inline-block;
-    width: 14px;
-    height: 2px;
-    background: var(--phase-stripe);
-    border-radius: 2px;
-  }
-
   /* ----- Step node ------------------------------------------------- */
   .step-node {
     background: #FCFCFD;
@@ -380,16 +358,13 @@
       de la empresa hasta la generación de reportes de cumplimiento. Cada fase indica el rol
       responsable y los pasos numerados que la componen, alineados al modelo de datos Prisma
       (Company, Sucursal, Employee, WorkSchedule, AttendanceRecord, Vacation, AuditLog).
-      <strong>Rev. 2:</strong> incorpora login 2-step MFA TOTP + backup codes, escáner de cámara QR
-      (html5-qrcode) con validación de formato <code>NOM037:</code>/<code>EMP:</code>, generación
-      local del QR del terminal (sin api.qrserver.com) y modo kiosco fullscreen.
     </p>
     <div class="doc-meta">
-      <span class="meta-item"><span class="meta-label">Versión:</span> <span class="meta-val">2.2.0 &middot; Rev. 2 (post-MFA &amp; QR scanner impl)</span></span>
+      <span class="meta-item"><span class="meta-label">Versión:</span> <span class="meta-val">2.2.0</span></span>
       <span class="meta-sep">|</span>
       <span class="meta-item"><span class="meta-label">Fases:</span> <span class="meta-val">7</span></span>
       <span class="meta-sep">|</span>
-      <span class="meta-item"><span class="meta-label">Pasos:</span> <span class="meta-val">34</span></span>
+      <span class="meta-item"><span class="meta-label">Pasos:</span> <span class="meta-val">27</span></span>
       <span class="meta-sep">|</span>
       <span class="meta-item"><span class="meta-label">Roles:</span> <span class="meta-val">General Admin · Sucursal Admin · Supervisor · Empleado</span></span>
       <span class="meta-sep">|</span>
@@ -407,7 +382,6 @@
       <span class="role-badge"><span class="role-dot"></span>Admin General</span>
     </div>
     <div class="phase-card-body">
-      <div class="subgrid-label">Onboarding de empresa</div>
       <div class="step-grid cols-3">
         <div class="step-node">
           <div class="step-head">
@@ -426,33 +400,9 @@
         <div class="step-node">
           <div class="step-head">
             <div class="step-num-circle">1.3</div>
-            <div class="step-title">MFA Setup</div>
+            <div class="step-title">Activación de MFA TOTP</div>
           </div>
-          <div class="step-desc"><code>POST /api/auth/mfa/setup</code> retorna <code>{ qrDataUrl, secret, backupCodes }</code>. Secret encriptado <strong>AES-256-GCM</strong> (IV 12B + authTag 16B) antes de guardar en <code>User.mfaSecret</code>.</div>
-        </div>
-      </div>
-      <div class="subgrid-label">Activación y gestión MFA</div>
-      <div class="step-grid cols-3">
-        <div class="step-node">
-          <div class="step-head">
-            <div class="step-num-circle">1.4</div>
-            <div class="step-title">MFA Verify (TOTP)</div>
-          </div>
-          <div class="step-desc">Dialog 3-pasos: escanear QR → <code>InputOTP</code> 6 dígitos → <code>POST /api/auth/mfa/verify</code> con <code>{ token }</code>. Éxito activa <code>mfaEnabled=true</code> + <code>mfaEnrolledAt</code>.</div>
-        </div>
-        <div class="step-node">
-          <div class="step-head">
-            <div class="step-num-circle">1.5</div>
-            <div class="step-title">Backup codes (one-time use)</div>
-          </div>
-          <div class="step-desc">10 códigos <code>XXXX-XXXX-XXXX-XXXX</code> hasheados <strong>bcrypt cost 10</strong> en <code>mfaBackupCodesHash</code> (JSON array). Descarga <code>.txt</code> obligatoria. Cada código se consume al usarse (se remueve del array).</div>
-        </div>
-        <div class="step-node">
-          <div class="step-head">
-            <div class="step-num-circle">1.6</div>
-            <div class="step-title">MFA Disable</div>
-          </div>
-          <div class="step-desc"><code>POST /api/auth/mfa/disable</code> con <code>InputOTP</code> o backup code → limpia <code>mfaSecret</code>, <code>mfaBackupCodesHash</code>, <code>mfaEnabled</code>. Registro <code>AuditLog</code> action <code>MFA_DISABLED</code>.</div>
+          <div class="step-desc">Enrolamiento MFA con NextAuth + Google Authenticator: secreto AES-256-GCM y códigos de respaldo bcrypt.</div>
         </div>
       </div>
     </div>
@@ -555,57 +505,46 @@
     <div class="phase-card-header">
       <div class="phase-title-block">
         <span class="phase-num-tag"><span class="phase-num-digit">04</span>FASE</span>
-        <span class="phase-name">Autenticación 2-step MFA + Check-in QR</span>
+        <span class="phase-name">Registro de asistencia diario</span>
       </div>
-      <span class="role-badge"><span class="role-dot"></span>Empleado + Admin</span>
+      <span class="role-badge"><span class="role-dot"></span>Empleado</span>
     </div>
     <div class="phase-card-body">
-      <div class="subgrid-label">Login 2-step MFA</div>
-      <div class="step-grid cols-3">
+      <div class="step-grid cols-5">
         <div class="step-node">
           <div class="step-head">
             <div class="step-num-circle">4.1</div>
-            <div class="step-title">Login Paso 1 (credenciales)</div>
+            <div class="step-title">Login en kiosco</div>
           </div>
-          <div class="step-desc"><code>POST /api/auth/login</code> con email + password. Si MFA activo, API retorna <code>{ needsMfa: true }</code> <strong>SIN emitir cookie</strong> aún.</div>
+          <div class="step-desc">Acceso vía QR dinámico HMAC, quick-login o password (JWT NextAuth firmado).</div>
         </div>
         <div class="step-node">
           <div class="step-head">
             <div class="step-num-circle">4.2</div>
-            <div class="step-title">Login Paso 2 (TOTP / backup)</div>
+            <div class="step-title">Check-in + GPS</div>
           </div>
-          <div class="step-desc">UI "Verificación en dos pasos": <code>InputOTP</code> 6 dígitos (TOTP RFC 6238) o toggle a backup code <code>XXXX-XXXX-XXXX-XXXX</code>.</div>
+          <div class="step-desc">Registro de <code>checkInTime</code> con lat/long y validación contra geofence de la sucursal.</div>
         </div>
         <div class="step-node">
           <div class="step-head">
             <div class="step-num-circle">4.3</div>
-            <div class="step-title">JWT + cookie sesión</div>
+            <div class="step-title">Inicio/fin comida</div>
           </div>
-          <div class="step-desc"><code>POST /api/auth/login</code> con <code>mfaToken</code> o <code>backupCode</code> → <code>validateCredentials</code> → JWT con claim <code>mfaVerified:true</code> → cookie <code>next-auth.session-token</code> (httpOnly, SameSite=strict, maxAge 8h, rotación 30min).</div>
+          <div class="step-desc"><code>mealStart</code> / <code>mealEnd</code> con cálculo de duración y flag <code>mealExceeded</code> según tolerancia.</div>
         </div>
-      </div>
-      <div class="subgrid-label">Check-in con QrScanner de cámara</div>
-      <div class="step-grid cols-3">
         <div class="step-node">
           <div class="step-head">
             <div class="step-num-circle">4.4</div>
-            <div class="step-title">QrScanner + selector de acción</div>
+            <div class="step-title">Inicio/fin descanso</div>
           </div>
-          <div class="step-desc"><code>&lt;QrScanner /&gt;</code> (html5-qrcode, <code>facingMode:'environment'</code>) + sub-tabs Escanear/Manual + selector Entrada / Salida / Inicio comida / Fin comida sincronizado con <code>availableActions</code>.</div>
+          <div class="step-desc"><code>restStart</code> / <code>restEnd</code> con <code>restExceeded</code> según tolerancia configurada.</div>
         </div>
         <div class="step-node">
           <div class="step-head">
             <div class="step-num-circle">4.5</div>
-            <div class="step-title">handleScan validación de formato</div>
+            <div class="step-title">Check-out</div>
           </div>
-          <div class="step-desc"><code>EMP:</code> rechazado ("No puedes usar tu propio QR personal"), <code>NOM037:&lt;hex&gt;:&lt;epoch&gt;:&lt;hmac&gt;</code> aceptado, otros formato no reconocido. <code>autoStop</code> detiene cámara tras decode exitoso.</div>
-        </div>
-        <div class="step-node">
-          <div class="step-head">
-            <div class="step-num-circle">4.6</div>
-            <div class="step-title">POST attendance API + GPS</div>
-          </div>
-          <div class="step-desc"><code>POST /api/attendance/{check-in|check-out|meal-start|meal-end}</code> → server valida HMAC + 5min expiry + geofence GPS → escribe <code>AttendanceRecord</code> (<code>mealExceeded</code>, <code>workedMinutes</code>, <code>isLocked</code>) → emite socket.io + toast.</div>
+          <div class="step-desc">Cierre del día con cálculo de <code>workedMinutes</code> y <code>overtimeMinutes</code>. Registro <code>isLocked</code>.</div>
         </div>
       </div>
     </div>
@@ -618,54 +557,29 @@
     <div class="phase-card-header">
       <div class="phase-title-block">
         <span class="phase-num-tag"><span class="phase-num-digit">05</span>FASE</span>
-        <span class="phase-name">Terminal QR local + Tiempo real</span>
+        <span class="phase-name">Tiempo real y monitoreo</span>
       </div>
-      <span class="role-badge"><span class="role-dot"></span>Admin Sucursal / Supervisor</span>
+      <span class="role-badge"><span class="role-dot"></span>Supervisor / Admin Sucursal</span>
     </div>
     <div class="phase-card-body">
-      <div class="subgrid-label">Terminal QR admin (generación local)</div>
       <div class="step-grid cols-3">
         <div class="step-node">
           <div class="step-head">
             <div class="step-num-circle">5.1</div>
-            <div class="step-title">Terminal QR local</div>
-          </div>
-          <div class="step-desc">Hook <code>useDynamicQR</code> pollea <code>/api/qr/dynamic</code> cada 60s. Cliente genera QR vía <code>import('qrcode')</code> → <code>QRCode.toDataURL(code, {width:300})</code> → <code>&lt;img src={dataUrl}&gt;</code>. <strong>Token NUNCA sale del navegador</strong> (sin api.qrserver.com).</div>
-        </div>
-        <div class="step-node">
-          <div class="step-head">
-            <div class="step-num-circle">5.2</div>
-            <div class="step-title">Token NOM037 dinámico</div>
-          </div>
-          <div class="step-desc">Server genera <code>NOM037:&lt;hex&gt;:&lt;epoch&gt;:&lt;hmac&gt;</code> con expiry 5min. Countdown <code>mm:ss</code> visible + botones "Generar nuevo" y "Descargar PNG" (400×400).</div>
-        </div>
-        <div class="step-node">
-          <div class="step-head">
-            <div class="step-num-circle">5.3</div>
-            <div class="step-title">Modo kiosco fullscreen</div>
-          </div>
-          <div class="step-desc"><code>requestFullscreen()</code> activa overlay <code>fixed inset-0</code> con QR 400×400 + countdown <code>text-3xl</code> + botón salir. Listener <code>fullscreenchange</code> sincroniza <code>kioskMode</code> si usuario sale con Esc.</div>
-        </div>
-      </div>
-      <div class="subgrid-label">Monitoreo en vivo</div>
-      <div class="step-grid cols-3">
-        <div class="step-node">
-          <div class="step-head">
-            <div class="step-num-circle">5.4</div>
             <div class="step-title">Dashboard en vivo</div>
           </div>
           <div class="step-desc">Eventos Socket.io en tiempo real: <code>attendance:check-in/out</code> y <code>attendance:break-start/end</code>.</div>
         </div>
         <div class="step-node">
           <div class="step-head">
-            <div class="step-num-circle">5.5</div>
+            <div class="step-num-circle">5.2</div>
             <div class="step-title">Notificaciones de incidencias</div>
           </div>
           <div class="step-desc">Alertas automáticas de impuntualidad, descanso excedido y ausencias vía toasts y rooms Socket.io.</div>
         </div>
         <div class="step-node">
           <div class="step-head">
-            <div class="step-num-circle">5.6</div>
+            <div class="step-num-circle">5.3</div>
             <div class="step-title">Validación de justificaciones</div>
           </div>
           <div class="step-desc">Resolución de <code>justificationStatus</code>: <code>PENDING</code> &rarr; <code>APPROVED</code> / <code>REJECTED</code> con auditoría.</div>
@@ -782,7 +696,7 @@
   <!-- ====================== FOOTER ====================== -->
   <footer class="doc-footer">
     <div class="footer-text">
-      <strong>Control de Asistencia NOM-037 v2.2.0 &middot; Rev. 2</strong> &middot; Diagrama de Flujo de Procesos (post-MFA &amp; QR scanner impl) &middot; Generado: 2026-06-29
+      <strong>Control de Asistencia NOM-037 v2.2.0</strong> &middot; Diagrama de Flujo de Procesos &middot; Generado: 2026-06-29
     </div>
     <div class="footer-tag">Layout C &middot; Phased Vertical</div>
   </footer>
