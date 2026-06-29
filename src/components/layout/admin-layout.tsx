@@ -46,6 +46,7 @@ import {
   LogIn,
   Shield, ShieldAlert, Copy, ArrowLeft, Check,
   Maximize2, Minimize2,
+  FileDown, FileText, ExternalLink, BookOpen, FileType,
 } from 'lucide-react';
 
 // ============================================================
@@ -347,6 +348,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'qr-terminal', label: 'Terminal QR', icon: QrCode, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'company', label: 'Empresa y Feriados', icon: Building, roles: ['GENERAL_ADMIN'] },
+  { id: 'documentation', label: 'Documentación', icon: BookOpen, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'settings', label: 'Configuración', icon: SettingsIcon, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
 ];
 
@@ -365,6 +367,7 @@ const VIEW_TITLES: Record<AdminView, string> = {
   audit: 'Auditoría',
   'qr-terminal': 'Terminal QR',
   company: 'Empresa y Feriados',
+  documentation: 'Documentación',
   settings: 'Configuración',
 };
 
@@ -4442,7 +4445,7 @@ export function AdminLayout() {
     // view (e.g. via devtools), restrict them to the read-only subset
     // (dashboard, history, reports, audit). Everything else renders a
     // ForbiddenView so no mutation UI is exposed.
-    const supervisorAllowedViews: AdminView[] = ['dashboard', 'history', 'reports', 'audit'];
+    const supervisorAllowedViews: AdminView[] = ['dashboard', 'history', 'reports', 'audit', 'documentation'];
     if (role === 'SUPERVISOR' && !supervisorAllowedViews.includes(adminView)) {
       return <ForbiddenView />;
     }
@@ -4467,6 +4470,8 @@ export function AdminLayout() {
         return <QRTerminalView />;
       case 'company':
         return isGA ? <CompanyView /> : <ForbiddenView />;
+      case 'documentation':
+        return <DocumentationView />;
       case 'settings':
         return (role === 'GENERAL_ADMIN' || role === 'SUCURSAL_ADMIN')
           ? <SettingsView />
@@ -4636,5 +4641,211 @@ function ForbiddenView() {
         <p className="text-sm text-zinc-500 mt-1">No tienes permisos para ver esta sección.</p>
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================
+// DOCUMENTATION VIEW — descarga de diagramas del sistema
+// ============================================================
+
+interface DiagramMeta {
+  slug: string;
+  title: string;
+  description: string;
+  category: 'Arquitectura' | 'Proceso' | 'Guía';
+  updatedLabel: string;
+  badgeColor: string;
+}
+
+const DIAGRAMS: DiagramMeta[] = [
+  {
+    slug: 'arquitectura-sistema',
+    title: 'Arquitectura del Sistema',
+    description:
+      'Diagrama de las 6 capas (Cliente → Gateway → App → Realtime → DB → Externos) con conectores ortogonales, flujos transversales (Autenticación 2-step MFA, Check-in tiempo real, Cumplimiento NOM-037) y stack técnico completo. Rev. 2 post-impl.',
+    category: 'Arquitectura',
+    updatedLabel: 'Rev. 2 · 2026-06-29',
+    badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',
+  },
+  {
+    slug: 'flujo-procesos',
+    title: 'Flujo de Procesos',
+    description:
+      'Diagrama de 7 fases / 34 pasos: Onboarding (incl. MFA setup), Autenticación 2-step MFA + Check-in QR con cámara, Terminal QR local + Kiosk mode, Tiempo real, Reportes, Auditoría, Cierre. Rev. 2 post-impl.',
+    category: 'Proceso',
+    updatedLabel: 'Rev. 2 · 2026-06-29',
+    badgeColor: 'bg-slate-100 text-slate-800 border-slate-200',
+  },
+  {
+    slug: 'activacion-mfa-totp',
+    title: 'Activación de MFA TOTP',
+    description:
+      'Guía paso a paso de la activación MFA TOTP con 5 fases: setup (AES-256-GCM), verificación InputOTP, backup codes bcrypt one-time use, login 2-step, desactivación. Incluye screenshots reales del sistema.',
+    category: 'Guía',
+    updatedLabel: '2026-06-29',
+    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  },
+  {
+    slug: 'uso-codigo-qr',
+    title: 'Uso del Código QR',
+    description:
+      'Guía de usuario para empleados: cómo escanear el QR del terminal con la cámara, validación de formato NOM037:/EMP:, selector de acción (entrada/salida/comida), modo manual, y Mi QR personal. Incluye screenshots reales.',
+    category: 'Guía',
+    updatedLabel: '2026-06-29',
+    badgeColor: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  },
+];
+
+function DocumentationView() {
+  const [downloading, setDownloading] = useState<Record<string, boolean>>({});
+
+  const handleDownload = async (slug: string, format: 'png' | 'pdf') => {
+    const key = `${slug}:${format}`;
+    setDownloading((s) => ({ ...s, [key]: true }));
+    try {
+      const res = await fetch(
+        `/api/diagrama/download?file=${encodeURIComponent(slug)}&format=${format}`
+      );
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      // Disparar descarga con un <a> temporal
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `NOM-037-${slug}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Descargando ${slug}.${format}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`No se pudo descargar: ${msg}`);
+    } finally {
+      setDownloading((s) => ({ ...s, [key]: false }));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-100">
+              <BookOpen className="h-5 w-5 text-teal-700" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Documentación del sistema</CardTitle>
+              <CardDescription className="mt-1">
+                Diagramas y guías técnicas del proyecto Control de Asistencia NOM-037 v2.2.0.
+                Disponibles en tres formatos: <strong>HTML</strong> (vista rápida en el navegador),
+                <strong> PNG</strong> (imagen de alta resolución para incluir en documentos) y
+                <strong> PDF</strong> (para imprimir o compartir).
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {DIAGRAMS.map((d) => (
+          <Card key={d.slug} className="flex flex-col">
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FileType className="h-5 w-5 text-zinc-400" />
+                  <CardTitle className="text-base">{d.title}</CardTitle>
+                </div>
+                <Badge variant="outline" className={`shrink-0 ${d.badgeColor}`}>
+                  {d.category}
+                </Badge>
+              </div>
+              <p className="text-xs text-zinc-500 mt-1">{d.updatedLabel}</p>
+            </CardHeader>
+            <CardContent className="flex-1 flex flex-col gap-3">
+              <p className="text-sm text-zinc-600 leading-relaxed">{d.description}</p>
+
+              <div className="mt-auto grid grid-cols-3 gap-2 pt-2">
+                {/* Ver HTML en nueva pestaña — sirve directamente desde /public */}
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  title="Abrir en pestaña nueva"
+                >
+                  <a
+                    href={`/diagramas/${d.slug}.html`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    <span className="text-xs">Ver</span>
+                  </a>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={downloading[`${d.slug}:png`]}
+                  onClick={() => handleDownload(d.slug, 'png')}
+                  title="Descargar imagen PNG (alta resolución)"
+                >
+                  {downloading[`${d.slug}:png`] ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ImageIcon className="h-3.5 w-3.5" />
+                  )}
+                  <span className="text-xs">PNG</span>
+                </Button>
+
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={downloading[`${d.slug}:pdf`]}
+                  onClick={() => handleDownload(d.slug, 'pdf')}
+                  title="Descargar documento PDF para imprimir"
+                >
+                  {downloading[`${d.slug}:pdf`] ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileDown className="h-3.5 w-3.5" />
+                  )}
+                  <span className="text-xs">PDF</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-start gap-2 text-xs text-zinc-500">
+            <FileText className="h-4 w-4 mt-0.5 shrink-0 text-zinc-400" />
+            <div className="space-y-1">
+              <p>
+                <strong>Nota técnica:</strong> los archivos se generan localmente con Playwright
+                desde HTML autocontenido (CSS inline, sin dependencias externas). El token HMAC de
+                los QR del terminal nunca se envía a servicios de terceros — la generación ocurre
+                100% en el navegador con la librería <code>qrcode</code>.
+              </p>
+              <p>
+                Si necesitas regenerar los diagramas tras cambios en el sistema, ejecuta{' '}
+                <code className="bg-zinc-100 px-1.5 py-0.5 rounded">
+                  python3 public/diagramas/render.py
+                </code>{' '}
+                (requiere Playwright instalado).
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

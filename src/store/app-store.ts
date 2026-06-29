@@ -15,6 +15,7 @@ export type AdminView =
   | 'audit'
   | 'qr-terminal'
   | 'company'
+  | 'documentation'
   | 'settings';
 
 export type EmployeeView = 'attendance' | 'history' | 'vacations' | 'qr';

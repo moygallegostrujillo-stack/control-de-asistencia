@@ -1,26 +1,18 @@
 // ============================================================
 // Control de Asistencia NOM-037 — Schema v2.2 (PostgreSQL)
 // ============================================================
-// ESTE ARCHIVO ES PARA PRODUCCIÓN (Vercel + Supabase).
-// Para desarrollo local, usar `schema.prisma` (SQLite).
-//
-// Cambiar entre los dos con:
-//   ./scripts/switch-schema.sh postgres   ← producción
-//   ./scripts/switch-schema.sh sqlite     ← dev local
-// ============================================================
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider  = "sqlite"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================
-// MODELO: Company (singleton) — datos de la empresa
+// MODELO: Company (singleton) — fix #3 datos de la empresa
 // ============================================================
 
 model Company {
@@ -79,7 +71,7 @@ model User {
 model Sucursal {
   id                       String   @id @default(cuid())
   name                     String   @unique
-  codigoLocal              String?  // "261" para Matriz
+  codigoLocal              String?  // fix #9 — "261" para Matriz
   address                  String
   latitude                 Float?
   longitude                Float?
@@ -89,7 +81,7 @@ model Sucursal {
   restToleranceMinutes     Int      @default(3)
   mealDurationMinutes      Int      @default(30)
   restDurationMinutes      Int      @default(15)
-  checkoutToleranceMinutes Int      @default(10)
+  checkoutToleranceMinutes Int      @default(10) // fix #2
   isActive                 Boolean  @default(true)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
@@ -112,7 +104,7 @@ model Employee {
   userId              String   @unique
   hireDate            DateTime @default(now())
   baseSalary          Float?
-  vacationBalanceDays Int      @default(12)
+  vacationBalanceDays Int      @default(12) // fix #1
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -145,7 +137,7 @@ model WorkSchedule {
 }
 
 // ============================================================
-// MODELO: AttendanceRecord (INMUTABLE — NOM-037)
+// MODELO: AttendanceRecord (INMUTABLE)
 // ============================================================
 
 model AttendanceRecord {
@@ -195,7 +187,7 @@ model AttendanceRecord {
 }
 
 // ============================================================
-// MODELO: Vacation
+// MODELO: Vacation — fix #1
 // ============================================================
 
 model Vacation {
@@ -224,7 +216,7 @@ model Vacation {
 }
 
 // ============================================================
-// MODELO: Holiday — días feriados
+// MODELO: Holiday — fix #1 días feriados
 // ============================================================
 
 model Holiday {
@@ -249,7 +241,7 @@ model AuditLog {
   sucursalId String?
   ipAddress  String?
   userAgent  String?
-  details    String?  // JSON string
+  details    String?  // JSON string en SQLite
   createdAt  DateTime @default(now())
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
