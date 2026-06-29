@@ -1,7 +1,14 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "prisma generate && prisma db push --accept-data-loss && bun run prisma/seed.ts && next build",
+  "buildCommand": "prisma generate && prisma db push --accept-data-loss && next build",
   "installCommand": "bun install",
   "devCommand": "next dev",
-  "regions": ["iad1"]
+  "regions": ["iad1"],
+  "env": {
+    "NEXT_PUBLIC_APP_VERSION": "2.2.0"
+  },
+  "github": {
+    "silent": true
+  }
 }

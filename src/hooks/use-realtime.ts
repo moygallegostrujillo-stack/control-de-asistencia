@@ -159,19 +159,41 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   useEffect(() => {
     if (!enabled || !user) return;
 
-    // Construir URL del socket via gateway (XTransformPort=3003)
-    const socket = io('/?XTransformPort=3003', {
-      transports: ['websocket', 'polling'],
-      auth: {
-        token: typeof window !== 'undefined'
-          ? localStorage.getItem('auth-payload')
-          : null,
-      },
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 10,
-    });
+    // Construir URL del socket:
+    // - En producción (Vercel): usar NEXT_PUBLIC_REALTIME_URL (Railway/Render)
+    // - En el sandbox: usar gateway Caddy con XTransformPort=3003
+    const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL;
+    let socket: Socket;
+
+    if (realtimeUrl) {
+      // Producción: conexión directa al servicio realtime (Railway/Render)
+      socket = io(realtimeUrl, {
+        transports: ['websocket', 'polling'],
+        auth: {
+          token: typeof window !== 'undefined'
+            ? localStorage.getItem('auth-payload')
+            : null,
+        },
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 10,
+      });
+    } else {
+      // Sandbox local: vía gateway Caddy (XTransformPort=3003)
+      socket = io('/?XTransformPort=3003', {
+        transports: ['websocket', 'polling'],
+        auth: {
+          token: typeof window !== 'undefined'
+            ? localStorage.getItem('auth-payload')
+            : null,
+        },
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 10,
+      });
+    }
 
     socketRef.current = socket;
 

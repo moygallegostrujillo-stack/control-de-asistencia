@@ -1,0 +1,275 @@
+// ============================================================
+// Control de Asistencia NOM-037 — Schema v2.2 (PostgreSQL)
+// ============================================================
+// ESTE ARCHIVO ES PARA PRODUCCIÓN (Vercel + Supabase).
+// Para desarrollo local, usar `schema.prisma` (SQLite).
+//
+// Cambiar entre los dos con:
+//   ./scripts/switch-schema.sh postgres   ← producción
+//   ./scripts/switch-schema.sh sqlite     ← dev local
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================
+// MODELO: Company (singleton) — datos de la empresa
+// ============================================================
+
+model Company {
+  id                 String   @id @default("singleton")
+  razonSocial        String
+  rfc                String
+  registroPatronal   String?
+  domicilioFiscal    String?
+  telefono           String?
+  email              String?
+  logoUrl            String?
+  representanteLegal String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// ============================================================
+// MODELO: User
+// ============================================================
+
+model User {
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  passwordHash        String
+  name                String
+  role                String   @default("EMPLOYEE") // GENERAL_ADMIN | SUCURSAL_ADMIN | SUPERVISOR | EMPLOYEE
+  sucursalId          String?
+  isActive            Boolean  @default(true)
+  lastLoginAt         DateTime?
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
+  // --- MFA (Phase A — NextAuth + TOTP) ---
+  mfaEnabled          Boolean  @default(false)
+  mfaSecret           String?  // TOTP secret (encrypted at rest via app-level AES)
+  mfaBackupCodesHash  String?  // JSON array of bcrypt hashes
+  mfaEnrolledAt       DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  employee                Employee?
+  auditLogs               AuditLog[]
+  sucursal                Sucursal?            @relation("SucursalAdmins", fields: [sucursalId], references: [id])
+  vacationsRequested      Vacation[]           @relation("VacationRequester")
+  vacationsApproved       Vacation[]           @relation("VacationApprover")
+  justificationsResolved  AttendanceRecord[]  @relation("JustificationResolver")
+  dynamicQRs              DynamicQR[]          @relation("DynamicQRCreator")
+
+  @@index([sucursalId])
+  @@index([role])
+}
+
+// ============================================================
+// MODELO: Sucursal
+// ============================================================
+
+model Sucursal {
+  id                       String   @id @default(cuid())
+  name                     String   @unique
+  codigoLocal              String?  // "261" para Matriz
+  address                  String
+  latitude                 Float?
+  longitude                Float?
+  geofenceRadiusMeters     Int      @default(150)
+  enforceGeofence          Boolean  @default(false)
+  mealToleranceMinutes     Int      @default(5)
+  restToleranceMinutes     Int      @default(3)
+  mealDurationMinutes      Int      @default(30)
+  restDurationMinutes      Int      @default(15)
+  checkoutToleranceMinutes Int      @default(10)
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  employees         Employee[]
+  admins            User[]              @relation("SucursalAdmins")
+  attendanceRecords AttendanceRecord[]
+}
+
+// ============================================================
+// MODELO: Employee
+// ============================================================
+
+model Employee {
+  id                  String   @id @default(cuid())
+  employeeNumber      String   @unique
+  position            String
+  department          String
+  sucursalId          String
+  userId              String   @unique
+  hireDate            DateTime @default(now())
+  baseSalary          Float?
+  vacationBalanceDays Int      @default(12)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id])
+  sucursal         Sucursal         @relation(fields: [sucursalId], references: [id])
+  workSchedules    WorkSchedule[]
+  attendanceRecords AttendanceRecord[]
+  vacations        Vacation[]
+
+  @@index([sucursalId])
+  @@index([isActive])
+}
+
+// ============================================================
+// MODELO: WorkSchedule
+// ============================================================
+
+model WorkSchedule {
+  id               String  @id @default(cuid())
+  employeeId       String
+  dayOfWeek        Int     // 0=domingo ... 6=sábado
+  startTime        String  // "HH:mm"
+  endTime          String  // "HH:mm"
+  toleranceMinutes Int     @default(10)
+  isWeeklyRest     Boolean @default(false)
+  employee         Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, dayOfWeek])
+}
+
+// ============================================================
+// MODELO: AttendanceRecord (INMUTABLE — NOM-037)
+// ============================================================
+
+model AttendanceRecord {
+  id                        String   @id @default(cuid())
+  employeeId                String
+  sucursalId                String
+  date                      DateTime
+  checkInTime               DateTime?
+  checkInLat                Float?
+  checkInLong               Float?
+  checkInMethod             String?
+  checkInIp                 String?
+  checkInUserAgent          String?
+  checkOutTime              DateTime?
+  checkOutLat               Float?
+  checkOutLong              Float?
+  checkOutMethod            String?
+  checkOutIp                String?
+  checkOutUserAgent         String?
+  mealStart                 DateTime?
+  mealEnd                   DateTime?
+  mealDurationMinutes       Int?
+  mealExceeded              Boolean  @default(false)
+  restStart                 DateTime?
+  restEnd                   DateTime?
+  restDurationMinutes       Int?
+  restExceeded              Boolean  @default(false)
+  status                    String   @default("PRESENT") // PRESENT|ABSENT|LATE|EARLY_LEAVE
+  workedMinutes             Int?
+  overtimeMinutes           Int?
+  notes                     String?
+  justification             String?
+  justificationStatus       String?  // PENDING / APPROVED / REJECTED
+  justificationResolvedById String?
+  isLocked                  Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  employee            Employee @relation(fields: [employeeId], references: [id])
+  sucursal            Sucursal @relation(fields: [sucursalId], references: [id])
+  justificationResolver User?  @relation("JustificationResolver", fields: [justificationResolvedById], references: [id])
+
+  @@unique([employeeId, date])
+  @@index([sucursalId, date])
+  @@index([date])
+  @@index([status])
+}
+
+// ============================================================
+// MODELO: Vacation
+// ============================================================
+
+model Vacation {
+  id              String   @id @default(cuid())
+  employeeId      String
+  type            String   @default("VACACIONES") // VACACIONES|PERMISO|INCAPACIDAD|MATERNIDAD|PATERNIDAD|OTRO
+  startDate       DateTime
+  endDate         DateTime
+  days            Int
+  reason          String?
+  status          String   @default("PENDING") // PENDING|APPROVED|REJECTED|CANCELLED
+  requestedById   String
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  requestedBy User     @relation("VacationRequester", fields: [requestedById], references: [id])
+  approvedBy  User?    @relation("VacationApprover", fields: [approvedById], references: [id])
+
+  @@index([employeeId, startDate])
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+// ============================================================
+// MODELO: Holiday — días feriados
+// ============================================================
+
+model Holiday {
+  id          String   @id @default(cuid())
+  date        DateTime @unique
+  name        String
+  description String?
+  isOfficial  Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// MODELO: AuditLog
+// ============================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  sucursalId String?
+  ipAddress  String?
+  userAgent  String?
+  details    String?  // JSON string
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([sucursalId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ============================================================
+// MODELO: DynamicQR
+// ============================================================
+
+model DynamicQR {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  expiresAt   DateTime
+  used        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  createdById String?
+  createdBy   User?    @relation("DynamicQRCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([expiresAt])
+}

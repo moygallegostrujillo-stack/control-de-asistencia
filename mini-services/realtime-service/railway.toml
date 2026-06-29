@@ -1,0 +1,23 @@
+# ============================================================
+# Railway config — mini-service realtime
+# ============================================================
+# Deploy en Railway:
+#   1. Crear cuenta en https://railway.app
+#   2. New Project → Deploy from GitHub repo
+#   3. Seleccionar este directorio: mini-services/realtime-service
+#   4. Railway detecta automáticamente el Dockerfile
+#   5. Añadir variables de entorno (ver .env.example)
+# ============================================================
+
+[deploy]
+# Railway usa el Dockerfile por defecto si existe
+# Solo necesitamos especificar el directorio root
+root = "mini-services/realtime-service"
+
+[deploy.healthcheck]
+path = "/health"
+timeout = 5
+interval = 30
+
+# Escalado: 1 instancia suficiente para <1000 clientes concurrentes
+# Si necesitas más, Railway escala automáticamente con replicas

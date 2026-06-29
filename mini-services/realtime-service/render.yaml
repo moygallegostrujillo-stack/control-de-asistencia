@@ -1,0 +1,28 @@
+# ============================================================
+# Render config — mini-service realtime (alternativa a Railway)
+# ============================================================
+# Deploy en Render:
+#   1. Crear cuenta en https://render.com
+#   2. New + → Web Service → conectar repo GitHub
+#   3. Root Directory: mini-services/realtime-service
+#   4. Runtime: Docker
+#   5. Añadir variables de entorno (ver .env.example)
+# ============================================================
+
+services:
+  - type: web
+    name: control-asistencia-realtime
+    env: docker
+    rootDir: mini-services/realtime-service
+    plan: starter  # $7/mes, suficiente para producción pequeña
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3003
+      - key: NEXTAUTH_SECRET
+        sync: false  # configurar manualmente desde el dashboard
+      - key: CORS_ORIGIN
+        sync: false  # URL de tu app en Vercel: https://control-asistencia.vercel.app
