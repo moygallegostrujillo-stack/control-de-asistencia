@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Asistencia NOM-037 v2.2.0 · Diagrama de Flujo de Procesos</title>
+<style>
+  /* =================================================================
+     Control de Asistencia NOM-037 v2.2.0
+     Diagrama de Flujo de Procesos — Layout C (Phased Vertical)
+     Paleta: Tech Cyan-Gray
+     ================================================================= */
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #F5F7FA;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: #1F2937;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ----- Canvas ----------------------------------------------------- */
+  #root {
+    width: fit-content;
+    min-width: 1500px;
+    margin: 0 auto;
+    padding: 56px 60px 44px;
+    background: #F5F7FA;
+  }
+
+  /* ----- Header ----------------------------------------------------- */
+  .doc-header {
+    margin-bottom: 36px;
+    padding-bottom: 24px;
+    border-bottom: 2px solid #E6ECF2;
+  }
+  .doc-eyebrow {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #3AAFA9;
+    padding: 5px 12px;
+    background: rgba(58, 175, 169, 0.10);
+    border-radius: 4px;
+    margin-bottom: 16px;
+  }
+  .doc-title {
+    font-size: 30px;
+    font-weight: 800;
+    color: #1F2937;
+    line-height: 1.2;
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .doc-subtitle {
+    font-size: 15px;
+    font-weight: 400;
+    color: #4B5563;
+    line-height: 1.55;
+    max-width: 1100px;
+    margin: 0;
+  }
+  .doc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    margin-top: 18px;
+    font-size: 12.5px;
+    color: #6B7280;
+  }
+  .doc-meta .meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .doc-meta .meta-label {
+    font-weight: 600;
+    color: #4B5563;
+  }
+  .doc-meta .meta-val {
+    color: #1F3C54;
+    font-weight: 600;
+  }
+  .doc-meta .meta-sep {
+    color: #CBD5E1;
+  }
+
+  /* ----- Phase cards ----------------------------------------------- */
+  .phase-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(31, 41, 55, 0.04),
+                0 4px 12px rgba(31, 41, 55, 0.03);
+    overflow: visible;
+  }
+
+  .phase-card-header {
+    background: var(--phase-bg);
+    border-left: 6px solid var(--phase-stripe);
+    border-radius: 14px 14px 0 0;
+    padding: 16px 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .phase-title-block {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .phase-num-tag {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--phase-stripe);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .phase-num-tag .phase-num-digit {
+    display: inline-block;
+    background: var(--phase-stripe);
+    color: #FFFFFF;
+    padding: 3px 9px;
+    border-radius: 5px;
+    margin-right: 6px;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+  }
+  .phase-name {
+    font-size: 19px;
+    font-weight: 700;
+    color: #1F2937;
+    line-height: 1.25;
+    letter-spacing: -0.005em;
+  }
+  .role-badge {
+    background: #FFFFFF;
+    border: 1.5px solid var(--phase-stripe);
+    color: var(--phase-stripe);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .role-badge .role-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--phase-stripe);
+    display: inline-block;
+  }
+
+  .phase-card-body {
+    padding: 24px 26px 28px;
+  }
+
+  /* Grids */
+  .step-grid {
+    display: grid;
+    gap: 16px;
+  }
+  .step-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .step-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .step-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+
+  /* ----- Step node ------------------------------------------------- */
+  .step-node {
+    background: #FCFCFD;
+    border: 1px solid #E6ECF2;
+    border-top: 3px solid var(--phase-stripe);
+    border-radius: 10px;
+    padding: 16px 15px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 148px;
+  }
+  .step-head {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+  }
+  .step-num-circle {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--phase-stripe);
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13.5px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    box-shadow: 0 1px 2px rgba(31, 41, 55, 0.15);
+  }
+  .step-title {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #1F2937;
+    line-height: 1.28;
+    letter-spacing: -0.005em;
+  }
+  .step-desc {
+    font-size: 12.5px;
+    font-weight: 400;
+    color: #4B5563;
+    line-height: 1.5;
+    margin-top: 2px;
+  }
+  .step-desc code {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 11.5px;
+    background: #EEF2F6;
+    color: #1F3C54;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  /* ----- Phase connector (vertical arrow) -------------------------- */
+  .phase-connector {
+    text-align: center;
+    margin: 14px 0;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .phase-connector::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, transparent 0%, #3AAFA9 30%, #3AAFA9 70%, transparent 100%);
+    transform: translateX(-50%);
+  }
+  .phase-connector .arrow {
+    position: relative;
+    z-index: 1;
+    background: #F5F7FA;
+    color: #3AAFA9;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid #3AAFA9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 2px;
+  }
+
+  /* ----- Phase color schemes (same-hue progression) ---------------- */
+  .phase-1 { --phase-bg: #F0F4F8; --phase-stripe: #64748B; }
+  .phase-2 { --phase-bg: #E8EDF2; --phase-stripe: #5B7A99; }
+  .phase-3 { --phase-bg: #DCE3EB; --phase-stripe: #4A6783; }
+  .phase-4 { --phase-bg: #D0D9E3; --phase-stripe: #3E5A78; }
+  .phase-5 { --phase-bg: #C4CFD9; --phase-stripe: #34506C; }
+  .phase-6 { --phase-bg: #B8C5D0; --phase-stripe: #2A4660; }
+  .phase-7 { --phase-bg: #ACBBC7; --phase-stripe: #1F3C54; }
+
+  /* ----- Footer ---------------------------------------------------- */
+  .doc-footer {
+    margin-top: 40px;
+    padding: 20px 26px;
+    background: #FFFFFF;
+    border: 1px solid #E6ECF2;
+    border-left: 4px solid #3AAFA9;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .doc-footer .footer-text {
+    font-size: 12.5px;
+    color: #4B5563;
+    line-height: 1.5;
+  }
+  .doc-footer .footer-text strong {
+    color: #1F2937;
+    font-weight: 700;
+  }
+  .doc-footer .footer-tag {
+    font-size: 11px;
+    font-weight: 700;
+    color: #3AAFA9;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+
+  /* ----- NOM-037 legend strip ------------------------------------- */
+  .nom-strip {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 22px;
+    padding: 12px 18px;
+    background: #FFFFFF;
+    border: 1px dashed #CBD5E1;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #4B5563;
+    flex-wrap: wrap;
+  }
+  .nom-strip .legend-label {
+    font-weight: 700;
+    color: #1F2937;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 11px;
+  }
+  .nom-strip .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .nom-strip .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+</style>
+</head>
+<body>
+<div id="root">
+
+  <!-- ====================== HEADER ====================== -->
+  <header class="doc-header">
+    <span class="doc-eyebrow">Sistema · NOM-037</span>
+    <h1 class="doc-title">Diagrama de Flujo de Procesos</h1>
+    <p class="doc-subtitle">
+      Flujo end-to-end del Sistema de Control de Asistencia NOM-037 — desde el onboarding
+      de la empresa hasta la generación de reportes de cumplimiento. Cada fase indica el rol
+      responsable y los pasos numerados que la componen, alineados al modelo de datos Prisma
+      (Company, Sucursal, Employee, WorkSchedule, AttendanceRecord, Vacation, AuditLog).
+    </p>
+    <div class="doc-meta">
+      <span class="meta-item"><span class="meta-label">Versión:</span> <span class="meta-val">2.2.0</span></span>
+      <span class="meta-sep">|</span>
+      <span class="meta-item"><span class="meta-label">Fases:</span> <span class="meta-val">7</span></span>
+      <span class="meta-sep">|</span>
+      <span class="meta-item"><span class="meta-label">Pasos:</span> <span class="meta-val">27</span></span>
+      <span class="meta-sep">|</span>
+      <span class="meta-item"><span class="meta-label">Roles:</span> <span class="meta-val">General Admin · Sucursal Admin · Supervisor · Empleado</span></span>
+      <span class="meta-sep">|</span>
+      <span class="meta-item"><span class="meta-label">Stack:</span> <span class="meta-val">Next.js 16 · Prisma · PostgreSQL (Supabase) · Socket.io</span></span>
+    </div>
+  </header>
+
+  <!-- ====================== PHASE 1 ====================== -->
+  <section class="phase-card phase-1">
+    <div class="phase-card-header">
+      <div class="phase-title-block">
+        <span class="phase-num-tag"><span class="phase-num-digit">01</span>FASE</span>
+        <span class="phase-name">Onboarding inicial</span>
+      </div>
+      <span class="role-badge"><span class="role-dot"></span>Admin General</span>
+    </div>
+    <div class="phase-card-body">
+      <div class="step-grid cols-3">
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">1.1</div>
+            <div class="step-title">Alta de empresa</div>
+          </div>
+          <div class="step-desc">Registro de <code>Company</code> singleton: razón social, RFC y registro patronal.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">1.2</div>
+            <div class="step-title">Configuración de feriados</div>
+          </div>
+          <div class="step-desc">Alta de días feriados oficiales en el modelo <code>Holiday</code> para excluirlos del cálculo de asistencia.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">1.3</div>
+            <div class="step-title">Activación de MFA TOTP</div>
+          </div>
+          <div class="step-desc">Enrolamiento MFA con NextAuth + Google Authenticator: secreto AES-256-GCM y códigos de respaldo bcrypt.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="phase-connector"><span class="arrow">&darr;</span></div>
+
+  <!-- ====================== PHASE 2 ====================== -->
+  <section class="phase-card phase-2">
+    <div class="phase-card-header">
+      <div class="phase-title-block">
+        <span class="phase-num-tag"><span class="phase-num-digit">02</span>FASE</span>
+        <span class="phase-name">Configuración multisucursales</span>
+      </div>
+      <span class="role-badge"><span class="role-dot"></span>Admin General</span>
+    </div>
+    <div class="phase-card-body">
+      <div class="step-grid cols-4">
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">2.1</div>
+            <div class="step-title">Alta de sucursal</div>
+          </div>
+          <div class="step-desc">Registro de <code>Sucursal</code>: nombre, código local, dirección y coordenadas GPS.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">2.2</div>
+            <div class="step-title">Configuración de geofence</div>
+          </div>
+          <div class="step-desc">Definir <code>geofenceRadiusMeters</code> y flag <code>enforceGeofence</code> para validar ubicación de check-in.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">2.3</div>
+            <div class="step-title">Tolerancias NOM-037</div>
+          </div>
+          <div class="step-desc">Configurar <code>mealTolerance</code>, <code>restTolerance</code> y <code>checkoutTolerance</code> en minutos.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">2.4</div>
+            <div class="step-title">Asignación de Admin</div>
+          </div>
+          <div class="step-desc">Crear <code>User</code> con rol <code>SUCURSAL_ADMIN</code> vinculado a la sucursal.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="phase-connector"><span class="arrow">&darr;</span></div>
+
+  <!-- ====================== PHASE 3 ====================== -->
+  <section class="phase-card phase-3">
+    <div class="phase-card-header">
+      <div class="phase-title-block">
+        <span class="phase-num-tag"><span class="phase-num-digit">03</span>FASE</span>
+        <span class="phase-name">Gestión de empleados</span>
+      </div>
+      <span class="role-badge"><span class="role-dot"></span>Admin Sucursal</span>
+    </div>
+    <div class="phase-card-body">
+      <div class="step-grid cols-4">
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">3.1</div>
+            <div class="step-title">Alta de empleado</div>
+          </div>
+          <div class="step-desc">Crear <code>Employee</code> + <code>User</code> EMPLOYEE vinculado (1:1) con sucursal asignada.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">3.2</div>
+            <div class="step-title">Asignación de horarios</div>
+          </div>
+          <div class="step-desc">Configurar <code>WorkSchedule</code> por día de la semana con <code>startTime</code>, <code>endTime</code> y tolerancia.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">3.3</div>
+            <div class="step-title">Número de empleado</div>
+          </div>
+          <div class="step-desc">Generación de <code>employeeNumber</code> único (constraint <code>@unique</code>) para identificación operativa.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">3.4</div>
+            <div class="step-title">Credenciales + QR</div>
+          </div>
+          <div class="step-desc">Entrega de credenciales de acceso y QR personal para quick-login en el kiosco.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="phase-connector"><span class="arrow">&darr;</span></div>
+
+  <!-- ====================== PHASE 4 ====================== -->
+  <section class="phase-card phase-4">
+    <div class="phase-card-header">
+      <div class="phase-title-block">
+        <span class="phase-num-tag"><span class="phase-num-digit">04</span>FASE</span>
+        <span class="phase-name">Registro de asistencia diario</span>
+      </div>
+      <span class="role-badge"><span class="role-dot"></span>Empleado</span>
+    </div>
+    <div class="phase-card-body">
+      <div class="step-grid cols-5">
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">4.1</div>
+            <div class="step-title">Login en kiosco</div>
+          </div>
+          <div class="step-desc">Acceso vía QR dinámico HMAC, quick-login o password (JWT NextAuth firmado).</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">4.2</div>
+            <div class="step-title">Check-in + GPS</div>
+          </div>
+          <div class="step-desc">Registro de <code>checkInTime</code> con lat/long y validación contra geofence de la sucursal.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">4.3</div>
+            <div class="step-title">Inicio/fin comida</div>
+          </div>
+          <div class="step-desc"><code>mealStart</code> / <code>mealEnd</code> con cálculo de duración y flag <code>mealExceeded</code> según tolerancia.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">4.4</div>
+            <div class="step-title">Inicio/fin descanso</div>
+          </div>
+          <div class="step-desc"><code>restStart</code> / <code>restEnd</code> con <code>restExceeded</code> según tolerancia configurada.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">4.5</div>
+            <div class="step-title">Check-out</div>
+          </div>
+          <div class="step-desc">Cierre del día con cálculo de <code>workedMinutes</code> y <code>overtimeMinutes</code>. Registro <code>isLocked</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="phase-connector"><span class="arrow">&darr;</span></div>
+
+  <!-- ====================== PHASE 5 ====================== -->
+  <section class="phase-card phase-5">
+    <div class="phase-card-header">
+      <div class="phase-title-block">
+        <span class="phase-num-tag"><span class="phase-num-digit">05</span>FASE</span>
+        <span class="phase-name">Tiempo real y monitoreo</span>
+      </div>
+      <span class="role-badge"><span class="role-dot"></span>Supervisor / Admin Sucursal</span>
+    </div>
+    <div class="phase-card-body">
+      <div class="step-grid cols-3">
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">5.1</div>
+            <div class="step-title">Dashboard en vivo</div>
+          </div>
+          <div class="step-desc">Eventos Socket.io en tiempo real: <code>attendance:check-in/out</code> y <code>attendance:break-start/end</code>.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">5.2</div>
+            <div class="step-title">Notificaciones de incidencias</div>
+          </div>
+          <div class="step-desc">Alertas automáticas de impuntualidad, descanso excedido y ausencias vía toasts y rooms Socket.io.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">5.3</div>
+            <div class="step-title">Validación de justificaciones</div>
+          </div>
+          <div class="step-desc">Resolución de <code>justificationStatus</code>: <code>PENDING</code> &rarr; <code>APPROVED</code> / <code>REJECTED</code> con auditoría.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="phase-connector"><span class="arrow">&darr;</span></div>
+
+  <!-- ====================== PHASE 6 ====================== -->
+  <section class="phase-card phase-6">
+    <div class="phase-card-header">
+      <div class="phase-title-block">
+        <span class="phase-num-tag"><span class="phase-num-digit">06</span>FASE</span>
+        <span class="phase-name">Gestión de vacaciones y permisos</span>
+      </div>
+      <span class="role-badge"><span class="role-dot"></span>Empleado + Admin</span>
+    </div>
+    <div class="phase-card-body">
+      <div class="step-grid cols-4">
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">6.1</div>
+            <div class="step-title">Solicitud de vacaciones</div>
+          </div>
+          <div class="step-desc">Empleado crea <code>Vacation</code> con estado inicial <code>PENDING</code>, tipo y rango de fechas.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">6.2</div>
+            <div class="step-title">Aprobación / rechazo</div>
+          </div>
+          <div class="step-desc">Admin resuelve la solicitud: <code>APPROVED</code> o <code>REJECTED</code> con motivo y <code>approvedBy</code>.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">6.3</div>
+            <div class="step-title">Descuento de saldo</div>
+          </div>
+          <div class="step-desc">Al aprobarse, descuento automático de <code>vacationBalanceDays</code> del empleado.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">6.4</div>
+            <div class="step-title">Registro en audit log</div>
+          </div>
+          <div class="step-desc">Toda transacción queda registrada en <code>AuditLog</code> con <code>userId</code>, <code>action</code> e <code>ipAddress</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="phase-connector"><span class="arrow">&darr;</span></div>
+
+  <!-- ====================== PHASE 7 ====================== -->
+  <section class="phase-card phase-7">
+    <div class="phase-card-header">
+      <div class="phase-title-block">
+        <span class="phase-num-tag"><span class="phase-num-digit">07</span>FASE</span>
+        <span class="phase-name">Reportes y cumplimiento NOM-037</span>
+      </div>
+      <span class="role-badge"><span class="role-dot"></span>Admin General</span>
+    </div>
+    <div class="phase-card-body">
+      <div class="step-grid cols-4">
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">7.1</div>
+            <div class="step-title">Reportes operativos</div>
+          </div>
+          <div class="step-desc">Generación de reportes diarios, overtime, ausencias e incidencias por sucursal y rango de fechas.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">7.2</div>
+            <div class="step-title">Exportación multi-formato</div>
+          </div>
+          <div class="step-desc">Exportación de resultados en <code>CSV</code>, <code>Excel</code> y <code>JSON</code> para integraciones externas.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">7.3</div>
+            <div class="step-title">Audit log completo</div>
+          </div>
+          <div class="step-desc">Trazabilidad inmutable garantizada por <code>AttendanceRecord.isLocked</code> y registro en <code>AuditLog</code>.</div>
+        </div>
+        <div class="step-node">
+          <div class="step-head">
+            <div class="step-num-circle">7.4</div>
+            <div class="step-title">Verificación NOM-037</div>
+          </div>
+          <div class="step-desc">Validación de los 10 requisitos normativos: registro horario, geolocalización, tolerancias, inmutabilidad y más.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== NOM LEGEND STRIP ====================== -->
+  <div class="nom-strip">
+    <span class="legend-label">Progresión de fases</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#F0F4F8;border-left:3px solid #64748B;"></span>Fase 1</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#E8EDF2;border-left:3px solid #5B7A99;"></span>Fase 2</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#DCE3EB;border-left:3px solid #4A6783;"></span>Fase 3</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#D0D9E3;border-left:3px solid #3E5A78;"></span>Fase 4</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#C4CFD9;border-left:3px solid #34506C;"></span>Fase 5</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#B8C5D0;border-left:3px solid #2A4660;"></span>Fase 6</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#ACBBC7;border-left:3px solid #1F3C54;"></span>Fase 7</span>
+    <span style="color:#CBD5E1;">|</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#3AAFA9;"></span>Conector de flujo</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#FFFFFF;border:1px solid var(--phase-stripe, #64748B);"></span>Badge de rol</span>
+  </div>
+
+  <!-- ====================== FOOTER ====================== -->
+  <footer class="doc-footer">
+    <div class="footer-text">
+      <strong>Control de Asistencia NOM-037 v2.2.0</strong> &middot; Diagrama de Flujo de Procesos &middot; Generado: 2026-06-29
+    </div>
+    <div class="footer-tag">Layout C &middot; Phased Vertical</div>
+  </footer>
+
+</div>
+</body>
+</html>

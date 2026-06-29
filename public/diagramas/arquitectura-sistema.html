@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arquitectura del Sistema — Control de Asistencia NOM-037 v2.2.0</title>
+<style>
+  /* ====================================================================
+     TECH CYAN-GRAY PALETTE — Architecture Diagram
+     Single-accent palette built around #3AAFA9 (teal) over neutral slate.
+     All layer accents are tints/shades within the teal/cyan/slate family
+     (same-hue progression per _rules.md).
+     ==================================================================== */
+  :root {
+    --text:        #1F2937;   /* main text */
+    --text-sub:    #4B5563;   /* secondary text */
+    --text-muted:  #6B7280;   /* muted labels */
+    --text-soft:   #94A3B8;   /* very muted */
+    --bg:          #F5F7FA;   /* canvas background */
+    --band-bg:     #FFFFFF;   /* band surface */
+    --band-stripe: #E6ECF2;   /* subtle stripe between bands */
+    --card-bg:     #FFFFFF;   /* card surface */
+    --card-border: #DDE3EA;   /* card border */
+    --card-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 12px -6px rgba(15,23,42,.10);
+
+    --accent:      #3AAFA9;   /* PRIMARY accent (teal) */
+    --accent-deep: #2C7A7B;   /* darker teal */
+    --accent-ink:  #1F5F66;   /* deep teal-ink for text on light */
+
+    /* Per-layer accent strips — all within teal/cyan/slate family */
+    --layer-client:    #3AAFA9;
+    --layer-gateway:   #4A8DA8;
+    --layer-app:       #2C7A7B;
+    --layer-realtime:  #5FA8A8;
+    --layer-db:        #1F5F66;
+    --layer-extern:    #6B7C85;
+
+    --connector:   #94A3B8;
+    --connector-d: #64748B;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "Helvetica Neue", Arial, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ====================================================================
+     CANVAS — wraps everything. Sized for export (≥1400px wide).
+     ==================================================================== */
+  #root {
+    width: 1600px;
+    margin: 0 auto;
+    padding: 48px 56px 32px;
+    background: var(--bg);
+    position: relative;
+  }
+
+  /* ====================================================================
+     HEADER
+     ==================================================================== */
+  .header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding-bottom: 22px;
+    border-bottom: 2px solid var(--band-stripe);
+    margin-bottom: 32px;
+  }
+  .header .eyebrow {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+    background: rgba(58, 175, 169, .10);
+    padding: 5px 12px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .header h1 {
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.4px;
+    line-height: 1.15;
+  }
+  .header .subtitle {
+    font-size: 14px;
+    color: var(--text-sub);
+    margin-top: 8px;
+    max-width: 760px;
+    line-height: 1.5;
+  }
+  .header .meta {
+    text-align: right;
+    flex-shrink: 0;
+    padding-left: 24px;
+  }
+  .header .meta .version-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent-deep);
+    color: #FFFFFF;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 999px;
+    letter-spacing: .3px;
+  }
+  .header .meta .version-pill::before {
+    content: "";
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    opacity: .9;
+  }
+  .header .meta .env-line {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .header .meta .env-line strong {
+    color: var(--text-sub);
+    font-weight: 600;
+  }
+
+  /* ====================================================================
+     ARCHITECTURE STACK — 6 horizontal bands
+     Each band: [label column | cards row]
+     Between bands: connector arrow
+     ==================================================================== */
+  .stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .band {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 0;
+    background: var(--band-bg);
+    border: 1px solid var(--card-border);
+    border-left: 5px solid var(--accent);
+    border-radius: 10px;
+    box-shadow: var(--card-shadow);
+    overflow: hidden;
+  }
+
+  /* Per-layer left border accents */
+  .band.layer-client    { border-left-color: var(--layer-client); }
+  .band.layer-gateway   { border-left-color: var(--layer-gateway); }
+  .band.layer-app       { border-left-color: var(--layer-app); }
+  .band.layer-realtime  { border-left-color: var(--layer-realtime); }
+  .band.layer-db        { border-left-color: var(--layer-db); }
+  .band.layer-extern    { border-left-color: var(--layer-extern); }
+
+  .band-label {
+    padding: 22px 22px 22px 22px;
+    background: linear-gradient(180deg, rgba(58,175,169,.04) 0%, rgba(58,175,169,.01) 100%);
+    border-right: 1px solid var(--band-stripe);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .band-label .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #FFFFFF;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    letter-spacing: 0;
+  }
+  .band.layer-client   .band-label .num { background: var(--layer-client); }
+  .band.layer-gateway  .band-label .num { background: var(--layer-gateway); }
+  .band.layer-app      .band-label .num { background: var(--layer-app); }
+  .band.layer-realtime .band-label .num { background: var(--layer-realtime); }
+  .band.layer-db       .band-label .num { background: var(--layer-db); }
+  .band.layer-extern   .band-label .num { background: var(--layer-extern); }
+
+  .band-label .name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -.2px;
+    line-height: 1.25;
+  }
+  .band-label .role {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent-ink);
+    margin-top: 6px;
+  }
+  .band-label .desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 10px;
+    line-height: 1.5;
+  }
+  .band-label .host {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-soft);
+    border-top: 1px dashed var(--band-stripe);
+    padding-top: 10px;
+    line-height: 1.5;
+  }
+  .band-label .host strong { color: var(--text-sub); font-weight: 600; }
+
+  .band-cards {
+    padding: 22px 22px 24px 22px;
+    display: grid;
+    gap: 14px;
+  }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .cols-5 { grid-template-columns: repeat(5, 1fr); }
+  .cols-6 { grid-template-columns: repeat(6, 1fr); }
+
+  /* ====================================================================
+     CARD — atomic unit
+     ==================================================================== */
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 14px 14px 13px;
+    display: flex;
+    flex-direction: column;
+    min-height: 110px;
+    transition: none;
+  }
+  .card .card-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 8px;
+  }
+  .card .icon {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-deep);
+  }
+  .card .icon svg {
+    width: 18px; height: 18px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .card .name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .card .tech {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: rgba(58,175,169,.08);
+    padding: 2px 7px;
+    border-radius: 3px;
+    display: inline-block;
+    margin-top: 6px;
+    letter-spacing: .2px;
+    align-self: flex-start;
+  }
+  .card .desc {
+    font-size: 11.5px;
+    color: var(--text-sub);
+    line-height: 1.5;
+    margin-top: 8px;
+  }
+  .card .tags {
+    margin-top: 9px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .card .tag {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--band-stripe);
+    padding: 2px 6px;
+    border-radius: 3px;
+    line-height: 1.4;
+    font-weight: 500;
+  }
+  .card .tag.hi {
+    color: var(--accent-ink);
+    background: rgba(58,175,169,.10);
+  }
+
+  /* ====================================================================
+     CONNECTOR — orthogonal arrow between bands
+     ==================================================================== */
+  .connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 0 12px 0;
+    position: relative;
+  }
+  .connector .line {
+    width: 2px;
+    height: 28px;
+    background: var(--connector);
+    position: relative;
+  }
+  .connector .line::after {
+    /* arrowhead */
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid var(--connector-d);
+  }
+  .connector .label {
+    position: absolute;
+    left: calc(50% + 18px);
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg);
+    padding: 2px 8px;
+    border: 1px solid var(--band-stripe);
+    border-radius: 3px;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  /* bidirectional variant */
+  .connector.bi .line::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 8px solid var(--connector-d);
+  }
+
+  /* ====================================================================
+     CROSS-CUTTING FLOWS PANEL
+     ==================================================================== */
+  .flows-section {
+    margin-top: 36px;
+    background: var(--band-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    box-shadow: var(--card-shadow);
+    overflow: hidden;
+  }
+  .flows-header {
+    padding: 16px 22px;
+    background: linear-gradient(180deg, rgba(58,175,169,.06) 0%, rgba(58,175,169,.02) 100%);
+    border-bottom: 1px solid var(--band-stripe);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .flows-header .badge {
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    background: var(--accent-deep);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .flows-header .badge svg {
+    width: 14px; height: 14px;
+    stroke: currentColor; fill: none;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .flows-header .title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .flows-header .hint {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+  .flows-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+  }
+  .flow {
+    padding: 18px 22px;
+    border-right: 1px solid var(--band-stripe);
+  }
+  .flow:last-child { border-right: none; }
+  .flow .flow-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .flow .flow-num {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .flow .flow-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .flow .flow-trace {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    color: var(--text-sub);
+    background: var(--bg);
+    border: 1px dashed var(--band-stripe);
+    border-radius: 5px;
+    padding: 8px 10px;
+    line-height: 1.7;
+    margin-top: 6px;
+  }
+  .flow .flow-trace .step {
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .flow .flow-trace .arr {
+    color: var(--connector-d);
+    margin: 0 4px;
+  }
+  .flow .flow-note {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: 9px;
+    line-height: 1.5;
+  }
+
+  /* ====================================================================
+     LEGEND
+     ==================================================================== */
+  .legend {
+    margin-top: 28px;
+    background: var(--band-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 14px 22px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 18px 28px;
+  }
+  .legend .legend-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-right: 6px;
+  }
+  .legend .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-sub);
+  }
+  .legend .swatch {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(15,23,42,.10);
+  }
+  .sw-client   { background: var(--layer-client); }
+  .sw-gateway  { background: var(--layer-gateway); }
+  .sw-app      { background: var(--layer-app); }
+  .sw-realtime { background: var(--layer-realtime); }
+  .sw-db       { background: var(--layer-db); }
+  .sw-extern   { background: var(--layer-extern); }
+  .legend .sep {
+    width: 1px;
+    height: 18px;
+    background: var(--band-stripe);
+  }
+  .legend .arrow-glyph {
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .legend .arrow-glyph .line {
+    width: 18px; height: 2px; background: var(--connector); position: relative;
+  }
+  .legend .arrow-glyph .line::after {
+    content: "";
+    position: absolute; right: -1px; top: 50%;
+    transform: translateY(-50%);
+    width: 0; height: 0;
+    border-left: 6px solid var(--connector-d);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+  }
+
+  /* ====================================================================
+     FOOTER
+     ==================================================================== */
+  .footer {
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid var(--band-stripe);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .footer .left { display: flex; align-items: center; gap: 12px; }
+  .footer .dot {
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--text-soft);
+  }
+  .footer .right {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--text-soft);
+  }
+</style>
+</head>
+<body>
+<div id="root">
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="header">
+    <div class="title-side">
+      <span class="eyebrow">Diagrama de Arquitectura · Técnico</span>
+      <h1>Control de Asistencia NOM-037 — Arquitectura del Sistema</h1>
+      <p class="subtitle">
+        Vista de capas técnica del stack en producción (Next.js 16 · Prisma · PostgreSQL ·
+        Socket.io) con gateway Caddy, mini-service realtime en Railway y servicios externos
+        de cumplimiento normativo (MFA TOTP, QR HMAC, geolocalización).
+      </p>
+    </div>
+    <div class="meta">
+      <span class="version-pill">v2.2.0</span>
+      <div class="env-line">
+        <strong>Repo:</strong> github.com/moygallegostrujillo-stack/control-de-asistencia<br>
+        <strong>Deploy:</strong> control-asistencia-v22.vercel.app
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== ARCHITECTURE STACK ===================== -->
+  <div class="stack">
+
+    <!-- ===================== BAND 1 · CLIENTE ===================== -->
+    <section class="band layer-client">
+      <div class="band-label">
+        <span class="num">1</span>
+        <div class="name">Cliente</div>
+        <div class="role">Browser / Mobile</div>
+        <p class="desc">Capa de presentación. Render SSR/CSR, estado servidor y cliente, canal tiempo real.</p>
+        <div class="host"><strong>Entorno:</strong> Navegador web moderno (Chromium, Firefox, Safari) · PWA-ready</div>
+      </div>
+      <div class="band-cards cols-6">
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg>
+            </span>
+            <span class="name">UI Next.js 16</span>
+          </div>
+          <span class="tech">React 19 · App Router</span>
+          <p class="desc">RSC + Client Components. Ruteo por archivo, streaming SSR, Suspense.</p>
+          <div class="tags">
+            <span class="tag hi">App Router</span><span class="tag">RSC</span><span class="tag">Streaming</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5L19 19M19 5l-2.5 2.5M7.5 16.5L5 19"/></svg>
+            </span>
+            <span class="name">Tailwind + shadcn/ui</span>
+          </div>
+          <span class="tech">Tailwind 4 · New York</span>
+          <p class="desc">Sistema de diseño con tokens. 40+ componentes accesibles (Radix primitives).</p>
+          <div class="tags">
+            <span class="tag">New York</span><span class="tag">Radix UI</span><span class="tag">a11y</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h18"/><circle cx="6" cy="7" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="6" cy="17" r="1.2" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <span class="name">TanStack Query</span>
+          </div>
+          <span class="tech">v5 · server state</span>
+          <p class="desc">Cache declarativa, refetch en background, mutaciones optimistas.</p>
+          <div class="tags">
+            <span class="tag">Cache</span><span class="tag hi">stale-while-revalidate</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+            </span>
+            <span class="name">Zustand</span>
+          </div>
+          <span class="tech">v5 · client state</span>
+          <p class="desc">Estado UI y sesión en cliente. Stores ligeros sin boilerplate.</p>
+          <div class="tags">
+            <span class="tag">UI store</span><span class="tag">Auth store</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>
+            </span>
+            <span class="name">Socket.io Client</span>
+          </div>
+          <span class="tech">v4 · tiempo real</span>
+          <p class="desc">Conexión WebSocket con reconexión automática y fallback a polling.</p>
+          <div class="tags">
+            <span class="tag hi">WS</span><span class="tag">Polling fallback</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-4-3-9-9-9z"/><path d="M12 3v18M3 12h18"/></svg>
+            </span>
+            <span class="name">next-themes</span>
+          </div>
+          <span class="tech">dark / light</span>
+          <p class="desc">Conmutación de tema sin flash (FOUC-free). Persistencia en localStorage.</p>
+          <div class="tags">
+            <span class="tag">Dark</span><span class="tag">Light</span><span class="tag">System</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===================== CONNECTOR 1 → 2 ===================== -->
+    <div class="connector">
+      <div class="line"></div>
+      <span class="label">HTTPS · 443 → 81</span>
+    </div>
+
+    <!-- ===================== BAND 2 · GATEWAY ===================== -->
+    <section class="band layer-gateway">
+      <div class="band-label">
+        <span class="num">2</span>
+        <div class="name">Gateway / Edge</div>
+        <div class="role">Reverse Proxy</div>
+        <p class="desc">Terminación TLS, enrutado HTTP/WebSocket y cabeceras de seguridad.</p>
+        <div class="host"><strong>Host:</strong> Caddy · puerto 81 (prod) / bypass en Vercel</div>
+      </div>
+      <div class="band-cards cols-3">
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>
+            </span>
+            <span class="name">Caddy Server</span>
+          </div>
+          <span class="tech">v2 · reverse proxy</span>
+          <p class="desc">Proxy inverso con HTTPS automático (Let's Encrypt) y reconfiguración en caliente.</p>
+          <div class="tags">
+            <span class="tag hi">Auto-TLS</span><span class="tag">HTTP/2</span><span class="tag">HTTP/3</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M4 12h16"/><path d="M8 8l-4 4 4 4M16 8l4 4-4 4"/></svg>
+            </span>
+            <span class="name">WebSocket Routing</span>
+          </div>
+          <span class="tech">XTransformPort=3003</span>
+          <p class="desc">Reescribe cabecera para enrutar /socket.io al mini-service en Railway/puerto 3003.</p>
+          <div class="tags">
+            <span class="tag hi">WS upgrade</span><span class="tag">Header rewrite</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            </span>
+            <span class="name">TLS Termination</span>
+          </div>
+          <span class="tech">AES-128-GCM · TLS 1.3</span>
+          <p class="desc">Descifra TLS en el borde; comunicación interna en texto firmado. HSTS habilitado.</p>
+          <div class="tags">
+            <span class="tag">HSTS</span><span class="tag">OCSP stapling</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===================== CONNECTOR 2 → 3 ===================== -->
+    <div class="connector">
+      <div class="line"></div>
+      <span class="label">HTTP/WS · 3000 / 3003</span>
+    </div>
+
+    <!-- ===================== BAND 3 · APP NEXT.JS ===================== -->
+    <section class="band layer-app">
+      <div class="band-label">
+        <span class="num">3</span>
+        <div class="name">App Next.js</div>
+        <div class="role">Serverless · Vercel</div>
+        <p class="desc">Capa de aplicación: API REST, RBAC, ORM y render. Ejecuta como funciones serverless.</p>
+        <div class="host"><strong>Host:</strong> Vercel · región iad1 (US East)</div>
+      </div>
+      <div class="band-cards cols-5">
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/></svg>
+            </span>
+            <span class="name">App Router</span>
+          </div>
+          <span class="tech">RSC + Route Handlers</span>
+          <p class="desc">Render híbrido SSR/SSG/ISR. Layouts anidados y route handlers tipados.</p>
+          <div class="tags">
+            <span class="tag hi">RSC</span><span class="tag">ISR</span><span class="tag">Edge-ready</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+            </span>
+            <span class="name">API REST</span>
+          </div>
+          <span class="tech">53 Route Handlers</span>
+          <p class="desc">Endpoints REST bajo /api/*. Validación Zod, manejo de errores centralizado.</p>
+          <div class="tags">
+            <span class="tag hi">REST</span><span class="tag">Zod</span><span class="tag">Edge runtime</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><circle cx="12" cy="15" r="1.5" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <span class="name">NextAuth.js v4</span>
+          </div>
+          <span class="tech">JWT AES-256-GCM · MFA TOTP</span>
+          <p class="desc">Sesiones stateless firmadas y cifradas. MFA TOTP (RFC 6238) opcional.</p>
+          <div class="tags">
+            <span class="tag hi">JWE</span><span class="tag">TOTP</span><span class="tag">RFC 6238</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+            </span>
+            <span class="name">Middleware RBAC</span>
+          </div>
+          <span class="tech">4 roles · edge</span>
+          <p class="desc">Valida JWT y roles en runtime de Edge antes de cada ruta protegida.</p>
+          <div class="tags">
+            <span class="tag">GENERAL_ADMIN</span><span class="tag">SUCURSAL_ADMIN</span><span class="tag">SUPERVISOR</span><span class="tag">EMPLOYEE</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+            </span>
+            <span class="name">Prisma Client</span>
+          </div>
+          <span class="tech">ORM · type-safe</span>
+          <p class="desc">Consultas tipadas, migraciones versionadas y pooling de conexiones.</p>
+          <div class="tags">
+            <span class="tag hi">Type-safe</span><span class="tag">Migrations</span><span class="tag">Pooled</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===================== CONNECTOR 3 → 4 (bidirectional) ===================== -->
+    <div class="connector bi">
+      <div class="line"></div>
+      <span class="label">POST /emit · JWT-signed</span>
+    </div>
+
+    <!-- ===================== BAND 4 · MINI-SERVICE REALTIME ===================== -->
+    <section class="band layer-realtime">
+      <div class="band-label">
+        <span class="num">4</span>
+        <div class="name">Mini-service Realtime</div>
+        <div class="role">Socket.io · Railway</div>
+        <p class="desc">Servicio independiente para difusión tiempo real. Recibe eventos vía /emit y los propaga a salas.</p>
+        <div class="host"><strong>Host:</strong> Railway · Docker (oven/bun:1) · --hot reload</div>
+      </div>
+      <div class="band-cards cols-4">
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>
+            </span>
+            <span class="name">Socket.io Server</span>
+          </div>
+          <span class="tech">v4 · puerto 3003</span>
+          <p class="desc">Engine.io con upgrade WS + polling. Heartbeat configurable.</p>
+          <div class="tags">
+            <span class="tag hi">WS</span><span class="tag">EIO4</span><span class="tag">Sticky</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
+            </span>
+            <span class="name">Salas (Rooms)</span>
+          </div>
+          <span class="tech">3 namespaces</span>
+          <p class="desc">admin:global · admin:sucursal:&lt;id&gt; · employee:sucursal:&lt;id&gt;</p>
+          <div class="tags">
+            <span class="tag hi">admin:global</span><span class="tag">admin:sucursal</span><span class="tag">employee:sucursal</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M4 4h16v12H4z"/><path d="M4 8h16M8 20h8M12 16v4"/></svg>
+            </span>
+            <span class="name">Endpoint /emit</span>
+          </div>
+          <span class="tech">POST · internal</span>
+          <p class="desc">Recibe eventos desde Next.js (check-in/out, vacaciones) y los propaga a salas.</p>
+          <div class="tags">
+            <span class="tag hi">REST ingest</span><span class="tag">Fire-and-forget</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            </span>
+            <span class="name">Auth JWT NextAuth</span>
+          </div>
+          <span class="tech">shared secret</span>
+          <p class="desc">Valida el mismo JWT JWE de NextAuth. CORS configurable por variable de entorno.</p>
+          <div class="tags">
+            <span class="tag hi">JWT verify</span><span class="tag">CORS_ORIGIN</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===================== CONNECTOR 3 → 5 (App to DB) ===================== -->
+    <div class="connector">
+      <div class="line"></div>
+      <span class="label">Prisma · TLS · psql</span>
+    </div>
+
+    <!-- ===================== BAND 5 · BASE DE DATOS ===================== -->
+    <section class="band layer-db">
+      <div class="band-label">
+        <span class="num">5</span>
+        <div class="name">Base de Datos</div>
+        <div class="role">PostgreSQL · Supabase</div>
+        <p class="desc">Almacén persistente. Esquema relacional normalizado y scopeo por sucursal.</p>
+        <div class="host"><strong>Host:</strong> Supabase · PostgreSQL 15 · pooler PgBouncer</div>
+      </div>
+      <div class="band-cards cols-5">
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+            </span>
+            <span class="name">PostgreSQL 15</span>
+          </div>
+          <span class="tech">Supabase · RLS-ready</span>
+          <p class="desc">Base de datos gestionada con backups automáticos y PITR.</p>
+          <div class="tags">
+            <span class="tag hi">ACID</span><span class="tag">PITR</span><span class="tag">Backups</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+            </span>
+            <span class="name">9 Modelos</span>
+          </div>
+          <span class="tech">Prisma schema</span>
+          <p class="desc">Company · User · Sucursal · Employee · WorkSchedule · AttendanceRecord · Vacation · Holiday · AuditLog · DynamicQR</p>
+          <div class="tags">
+            <span class="tag hi">9 entidades</span><span class="tag">Relacional</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>
+            </span>
+            <span class="name">Connection Pooling</span>
+          </div>
+          <span class="tech">DIRECT_URL · PgBouncer</span>
+          <p class="desc">Pool transaccional para serverless. Conexión directa para migraciones.</p>
+          <div class="tags">
+            <span class="tag hi">Pooler</span><span class="tag">Tx mode</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg>
+            </span>
+            <span class="name">Row-Level Scoping</span>
+          </div>
+          <span class="tech">sucursalId</span>
+          <p class="desc">Filtrado por sucursal en cada query. Admins global acceden a todo.</p>
+          <div class="tags">
+            <span class="tag hi">Multi-tenant</span><span class="tag">Scope</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 3v3M15 3v3M8 11h8M8 15h6"/><path d="M10 19l2-2 2 2"/></svg>
+            </span>
+            <span class="name">AuditLog</span>
+          </div>
+          <span class="tech">NOM-037 · inmutable</span>
+          <p class="desc">Bitácora append-only. Registros de asistencia con isLocked tras cierre.</p>
+          <div class="tags">
+            <span class="tag hi">isLocked</span><span class="tag">Append-only</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===================== CONNECTOR 3/4 → 6 (side flows to externals) ===================== -->
+    <div class="connector">
+      <div class="line"></div>
+      <span class="label">Integraciones HTTP · lib/qr.ts · lib/geo.ts</span>
+    </div>
+
+    <!-- ===================== BAND 6 · SERVICIOS EXTERNOS ===================== -->
+    <section class="band layer-extern">
+      <div class="band-label">
+        <span class="num">6</span>
+        <div class="name">Servicios Externos</div>
+        <div class="role">Cumplimiento NOM-037</div>
+        <p class="desc">Capacidades auxiliares: MFA TOTP, generación de QR firmado y geofence por sucursal.</p>
+        <div class="host"><strong>Host:</strong> SaaS externos + APIs nativas del navegador</div>
+      </div>
+      <div class="band-cards cols-3">
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2M20 14v.01M14 20h6v-6"/></svg>
+            </span>
+            <span class="name">TOTP MFA</span>
+          </div>
+          <span class="tech">RFC 6238 · 30s</span>
+          <p class="desc">Google Authenticator / Authy. Secreto Base32 por usuario, ventana ±1.</p>
+          <div class="tags">
+            <span class="tag hi">TOTP</span><span class="tag">Base32</span><span class="tag">2FA</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><path d="M10 6h4M6 10v4M18 10v4M10 18h4"/></svg>
+            </span>
+            <span class="name">Generador QR</span>
+          </div>
+          <span class="tech">HMAC-SHA256 firmado</span>
+          <p class="desc">QR dinámico por empleado con TTL. Verificación server-side anti-replay.</p>
+          <div class="tags">
+            <span class="tag hi">HMAC</span><span class="tag">TTL 60s</span><span class="tag">Anti-replay</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="icon">
+              <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            </span>
+            <span class="name">Geolocalización HTML5</span>
+          </div>
+          <span class="tech">Geolocation API</span>
+          <p class="desc">Captura GPS en check-in. Geofence circular por sucursal (lat/lng + radio).</p>
+          <div class="tags">
+            <span class="tag hi">Geofence</span><span class="tag">Haversine</span><span class="tag">NOM-037</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ===================== CROSS-CUTTING FLOWS ===================== -->
+  <section class="flows-section">
+    <div class="flows-header">
+      <span class="badge">
+        <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+      </span>
+      <span class="title">Flujos transversales del sistema</span>
+      <span class="hint">Recorridos que cruzan múltiples capas</span>
+    </div>
+    <div class="flows-grid">
+
+      <div class="flow">
+        <div class="flow-head">
+          <span class="flow-num">A</span>
+          <span class="flow-title">Autenticación</span>
+        </div>
+        <div class="flow-trace">
+          <span class="step">Browser</span><span class="arr">→</span>
+          <span class="step">Caddy</span><span class="arr">→</span>
+          <span class="step">Next.js</span><span class="arr">→</span>
+          <span class="step">NextAuth</span><span class="arr">→</span>
+          <span class="step">JWT</span><span class="arr">→</span>
+          <span class="step">DB</span>
+        </div>
+        <p class="flow-note">Cookie <code>next-auth.session-token</code> (JWE AES-256-GCM). MFA TOTP opcional tras validación de credenciales.</p>
+      </div>
+
+      <div class="flow">
+        <div class="flow-head">
+          <span class="flow-num">B</span>
+          <span class="flow-title">Check-in tiempo real</span>
+        </div>
+        <div class="flow-trace">
+          <span class="step">Browser</span><span class="arr">→</span>
+          <span class="step">API</span><span class="arr">→</span>
+          <span class="step">DB</span> + <span class="step">AuditLog</span> + <span class="step">/emit</span><span class="arr">→</span>
+          <span class="step">WebSocket</span><span class="arr">→</span>
+          <span class="step">Dashboard admins</span>
+        </div>
+        <p class="flow-note">Cada check-in/out/break dispara <code>emit*</code> (fire-and-forget) hacia el mini-service para difusión a salas.</p>
+      </div>
+
+      <div class="flow">
+        <div class="flow-head">
+          <span class="flow-num">C</span>
+          <span class="flow-title">Cumplimiento NOM-037</span>
+        </div>
+        <div class="flow-trace">
+          <span class="step">Geofence</span> + <span class="step">QR HMAC</span> + <span class="step">MFA TOTP</span><span class="arr">→</span>
+          <span class="step">API</span><span class="arr">→</span>
+          <span class="step">AttendanceRecord (isLocked)</span> + <span class="step">AuditLog</span>
+        </div>
+        <p class="flow-note">Registros inmutables tras cierre. Auditoría completa append-only. Identidad verificada por triple factor.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================== LEGEND ===================== -->
+  <div class="legend">
+    <span class="legend-title">Leyenda</span>
+    <div class="item"><span class="swatch sw-client"></span> Cliente</div>
+    <div class="item"><span class="swatch sw-gateway"></span> Gateway / Edge</div>
+    <div class="item"><span class="swatch sw-app"></span> App Next.js</div>
+    <div class="item"><span class="swatch sw-realtime"></span> Realtime</div>
+    <div class="item"><span class="swatch sw-db"></span> Base de datos</div>
+    <div class="item"><span class="swatch sw-extern"></span> Externos</div>
+    <span class="sep"></span>
+    <div class="item arrow-glyph"><span class="line"></span> Flujo entre capas</div>
+    <div class="item"><span class="tag hi">etiqueta</span> Highlight de característica clave</div>
+  </div>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer class="footer">
+    <div class="left">
+      <span>Control de Asistencia NOM-037 v2.2.0</span>
+      <span class="dot"></span>
+      <span>Diagrama de Arquitectura</span>
+      <span class="dot"></span>
+      <span>Generado: 2025-01-30</span>
+    </div>
+    <div class="right">DIAG-1-ARQUITECTURA · tech-cyan-gray-v1</div>
+  </footer>
+
+</div>
+</body>
+</html>
