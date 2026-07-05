@@ -8,6 +8,7 @@ import { useAttendanceToday, type TodayResponse } from '@/hooks/queries/use-atte
 import { useDynamicQR } from '@/hooks/queries/use-dynamic-qr';
 import { FreshnessIndicator } from '@/components/shared/freshness-indicator';
 import { PollingToast } from '@/components/shared/polling-toast';
+import { NotificationBell } from '@/components/admin/notification-bell';
 import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
 import type { AuthUser } from '@/lib/auth';
 import { useRealtime } from '@/hooks/use-realtime';
@@ -252,6 +253,7 @@ const ACTION_LABELS: Record<string, string> = {
   HOLIDAY_DELETE: 'Eliminar feriado',
   QR_DYNAMIC_GENERATE: 'Generar QR dinámico',
   JUSTIFY_SUBMIT: 'Enviar justificación',
+  NOM035_ALERT_WEEKLY_OVERTIME: 'Alerta NOM-035 horas extra',
 };
 
 function actionLabel(a: string): string {
@@ -345,6 +347,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'vacations', label: 'Vacaciones y Permisos', icon: CalendarCheck, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'history', label: 'Historial', icon: HistoryIcon, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'reports', label: 'Reportes', icon: FileBarChart, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
+  { id: 'nom-035', label: 'Alertas NOM-035', icon: ShieldAlert, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'qr-terminal', label: 'Terminal QR', icon: QrCode, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'company', label: 'Empresa y Feriados', icon: Building, roles: ['GENERAL_ADMIN'] },
@@ -369,6 +372,7 @@ const VIEW_TITLES: Record<AdminView, string> = {
   company: 'Empresa y Feriados',
   documentation: 'Documentación',
   settings: 'Configuración',
+  'nom-035': 'Alertas NOM-035',
 };
 
 
@@ -3197,6 +3201,199 @@ function ComparativeReportBody({ data }: { data: any }) {
 
 
 // ============================================================
+// NOM-035 VIEW — Factores de riesgo psicosocial por jornadas excesivas
+// ============================================================
+
+interface NOM035AlertRow {
+  employeeId: string;
+  employeeName: string;
+  employeeNumber: string;
+  sucursalId: string;
+  sucursalName: string;
+  sucursalCodigoLocal: string | null;
+  type: 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST';
+  level: 'HIGH' | 'MEDIUM' | 'LOW';
+  title: string;
+  description: string;
+  metric: {
+    weeklyOvertimeMinutes: number;
+    weeklyOvertimeCapMinutes: number;
+    maxDailyOvertimeMinutes: number;
+    consecutiveLongDays: number;
+  };
+  recommendation: string;
+  legalReference: string;
+}
+
+const NOM035_TYPE_LABELS: Record<NOM035AlertRow['type'], string> = {
+  WEEKLY_OVERTIME_EXCEEDED: 'Tope semanal excedido',
+  DAILY_OVERTIME_EXCEEDED: 'Tope diario excedido',
+  CONSECUTIVE_LONG_DAYS: 'Sobrecarga sostenida',
+  NO_WEEKLY_REST: 'Sin descanso semanal',
+};
+
+function NOM035View({ role }: { role: Role }) {
+  const isGA = role === 'GENERAL_ADMIN';
+  const [alerts, setAlerts] = useState<NOM035AlertRow[]>([]);
+  const [summary, setSummary] = useState<{
+    total: number;
+    high: number;
+    medium: number;
+    low: number;
+    weekStart?: string;
+    weekEnd?: string;
+    weeklyOvertimeCapMinutes?: number;
+    employeesChecked?: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [week, setWeek] = useState<'current' | 'last'>('current');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const data = await apiGet<{ alerts: NOM035AlertRow[]; summary: any }>(
+        `/api/alerts/nom-035?week=${week}`
+      );
+      setAlerts(data.alerts || []);
+      setSummary(data.summary || null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [week]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const total = summary?.total || 0;
+  const high = summary?.high || 0;
+  const medium = summary?.medium || 0;
+  const low = summary?.low || 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Resumen */}
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Total alertas</p>
+            <p className="text-2xl font-bold mt-1">{total}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-red-200">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Altas</p>
+            <p className="text-2xl font-bold text-red-600 mt-1">{high}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-200">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Medias</p>
+            <p className="text-2xl font-bold text-amber-600 mt-1">{medium}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Bajas</p>
+            <p className="text-2xl font-bold text-zinc-600 mt-1">{low}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-amber-500" />
+                Factores de riesgo psicosocial (NOM-035-STPS-2018)
+              </CardTitle>
+              <CardDescription className="mt-1">
+                {summary?.weekStart && summary?.weekEnd
+                  ? `Semana ${summary.weekStart} → ${summary.weekEnd} · `
+                  : ''}
+                {summary?.employeesChecked != null && `${summary.employeesChecked} empleados revisados · `}
+                Tope semanal: {summary?.weeklyOvertimeCapMinutes ? (summary.weeklyOvertimeCapMinutes / 60).toFixed(0) : 9}h
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Select value={week} onValueChange={(v) => setWeek(v as 'current' | 'last')}>
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="current">Semana actual</SelectItem>
+                  <SelectItem value="last">Semana anterior</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="icon" onClick={load} disabled={loading} aria-label="Actualizar">
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-4"><LoadingState rows={4} /></div>
+          ) : error ? (
+            <ErrorState message={error} />
+          ) : alerts.length === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="Sin alertas NOM-035 en esta semana"
+              subtitle="Ningún empleado supera los topes de horas extra ni presenta sobrecarga."
+            />
+          ) : (
+            <div className={`max-h-[60vh] overflow-y-auto divide-y divide-zinc-100 ${SCROLLBAR_CLASS}`}>
+              {alerts.map((a, i) => {
+                const isHigh = a.level === 'HIGH';
+                const isMed = a.level === 'MEDIUM';
+                return (
+                  <div
+                    key={`${a.employeeId}-${a.type}-${i}`}
+                    className={cn(
+                      'p-4 border-l-4',
+                      isHigh ? 'border-l-red-500 bg-red-50/40' : isMed ? 'border-l-amber-500 bg-amber-50/40' : 'border-l-zinc-300'
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                              isHigh ? 'bg-red-100 text-red-700' : isMed ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-700'
+                            )}
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            {a.level}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{NOM035_TYPE_LABELS[a.type]}</span>
+                        </div>
+                        <p className="text-sm font-semibold text-zinc-900 mt-1.5">{a.title}</p>
+                        <p className="text-sm text-zinc-600 mt-0.5">{a.description}</p>
+                        <p className="text-xs text-muted-foreground mt-1.5">
+                          <span className="font-medium">Recomendación:</span> {a.recommendation}
+                        </p>
+                        <p className="text-[11px] text-zinc-400 mt-1">{a.legalReference}</p>
+                      </div>
+                      <div className="text-right text-xs text-muted-foreground flex-shrink-0">
+                        {isGA && <span className="block">{a.sucursalName}</span>}
+                        <span className="block mt-0.5">#{a.employeeNumber}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
+// ============================================================
 // AUDIT VIEW
 // ============================================================
 
@@ -4445,7 +4642,7 @@ export function AdminLayout() {
     // view (e.g. via devtools), restrict them to the read-only subset
     // (dashboard, history, reports, audit). Everything else renders a
     // ForbiddenView so no mutation UI is exposed.
-    const supervisorAllowedViews: AdminView[] = ['dashboard', 'history', 'reports', 'audit', 'documentation'];
+    const supervisorAllowedViews: AdminView[] = ['dashboard', 'history', 'reports', 'audit', 'documentation', 'nom-035'];
     if (role === 'SUPERVISOR' && !supervisorAllowedViews.includes(adminView)) {
       return <ForbiddenView />;
     }
@@ -4466,6 +4663,8 @@ export function AdminLayout() {
         return <ReportsView role={role} />;
       case 'audit':
         return <AuditView role={role} />;
+      case 'nom-035':
+        return <NOM035View role={role} />;
       case 'qr-terminal':
         return <QRTerminalView />;
       case 'company':
@@ -4498,6 +4697,7 @@ export function AdminLayout() {
               {user?.sucursalName && !isGA && ` · ${sucursalLabel(user.sucursalName, user.sucursalCodigoLocal)}`}
             </p>
           </div>
+          <NotificationBell onViewAll={() => setAdminView('nom-035')} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 px-2">

@@ -15,7 +15,7 @@ import {
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { getMexicoTodayDate } from '@/lib/timezone';
-import { calculateOvertime, findScheduleForDate, computeWeeklyAccumulatedOvertime } from '@/lib/overtime-calculator';
+import { calculateOvertime, findScheduleForDate, computeWeeklyAccumulatedOvertime, getWeeklyOvertimeCapMinutes } from '@/lib/overtime-calculator';
 import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
 
 export async function POST(req: NextRequest) {
@@ -199,6 +199,38 @@ export async function POST(req: NextRequest) {
         performedBy: user.email,
       },
     });
+
+    // --- NOM-035 — Alerta automática al cruzar el tope semanal de horas extra ---
+    // Si este checkout hizo que el acumulado semanal del empleado supere el tope
+    // (9h en 2027, escalando a 12h en 2030 per Transitorio Cuarto DOF 1-may-2026),
+    // registramos una alerta NOM-035 en el audit log para evidencia y para que
+    // aparezca en el badge de notificaciones del admin.
+    const weeklyCap = getWeeklyOvertimeCapMinutes(now.getFullYear());
+    if (calc.overtimeWeeklyTotal > weeklyCap && calc.overtimeTripleMinutes > 0) {
+      const excessMinutes = calc.overtimeWeeklyTotal - weeklyCap;
+      await auditLog({
+        userId: user.id,
+        action: 'NOM035_ALERT_WEEKLY_OVERTIME',
+        entityType: 'ATTENDANCE_RECORD',
+        entityId: updated.id,
+        sucursalId: record.employee.sucursalId,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          employeeId,
+          employeeName: record.employee.user.name,
+          employeeNumber: record.employee.employeeNumber,
+          weeklyOvertimeMinutes: calc.overtimeWeeklyTotal,
+          weeklyOvertimeCapMinutes: weeklyCap,
+          excessMinutes,
+          tripleMinutes: calc.overtimeTripleMinutes,
+          doubleMinutes: calc.overtimeDoubleMinutes,
+          alertLevel: excessMinutes > 180 ? 'HIGH' : 'MEDIUM', // >3h exceso = HIGH
+          legalReference: 'LFT art. 66/68 + Transitorio Cuarto DOF 1-may-2026; NOM-035-STPS-2018 A.5',
+          triggeredBy: 'CHECK_OUT',
+        },
+      }).catch(() => {}); // no bloquear el checkout si falla el log
+    }
 
     return NextResponse.json({
       record: updated,

@@ -9,6 +9,13 @@
 //
 // El JWT NO puede ser falsificado porque está firmado con
 // NEXTAUTH_SECRET (HMAC-SHA512 via jose).
+//
+// Seguridad (gap #15 — OWASP session security):
+// AMBAS cookies son httpOnly:true. La cookie legacy también es
+// httpOnly aunque sea de transición, porque NUNCA se lee desde
+// JavaScript del cliente — solo se decodifica server-side en
+// getAuthUser() y middleware. Así, un ataque XSS no podría
+// robarla. SameSite=strict previene CSRF. Secure=true en prod.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -221,12 +228,13 @@ export async function buildSessionCookies(payload: any): Promise<CookiePair[]> {
   };
 
   // 2. Legacy (base64 sin firma, transición — 1h para forzar migración)
+  //    httpOnly:true porque NUNCA se lee desde JS del cliente (gap #15).
   const legacyToken = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
   const legacyCookie: CookiePair = {
     name: LEGACY_COOKIE,
     value: legacyToken,
     options: {
-      httpOnly: false,
+      httpOnly: true,
       sameSite: 'strict',
       secure: isProd,
       maxAge: 3600,
@@ -274,7 +282,7 @@ export function buildClearCookies(): CookiePair[] {
       name: LEGACY_COOKIE,
       value: '',
       options: {
-        httpOnly: false,
+        httpOnly: true,
         sameSite: 'strict',
         secure: process.env.NODE_ENV === 'production',
         maxAge: 0,
