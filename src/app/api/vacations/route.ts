@@ -11,6 +11,15 @@
 //          EMPLOYEE solo puede crear para sí mismo. Calcula `days`
 //          = nº de días naturales entre startDate y endDate inclusive.
 //          Log VACATION_REQUEST audit.
+//
+//          ADMIN puede "otorgar" directamente pasando grantMode:
+//            ADMIN_GRANTED  → la solicitud nace APPROVED y, si type=VACACIONES
+//                             y no es parcial, descuenta automáticamente los
+//                             días del saldo (vacationBalanceDays).
+//            EMPLOYEE_REQUEST (default) → nace PENDING, requiere aprobación.
+//          Los permisos pariales (isPartial=true con startTime/endTime)
+//          NO descuentan saldo (art. 76 LFT se aplica solo a vacaciones
+//          completas por día natural).
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,6 +28,7 @@ import {
   getAuthUser,
   unauthorizedResponse,
   forbiddenResponse,
+  isAdmin,
   type AuthUser,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
@@ -139,12 +149,28 @@ export async function POST(req: NextRequest) {
     if (!user) return unauthorizedResponse();
 
     const body = await req.json().catch(() => ({}));
-    const { employeeId, type, startDate, endDate, reason } = body as {
+    const {
+      employeeId,
+      type,
+      startDate,
+      endDate,
+      reason,
+      grantMode,
+      isPartial,
+      startTime,
+      endTime,
+      partialHours,
+    } = body as {
       employeeId?: string;
       type?: string;
       startDate?: string;
       endDate?: string;
       reason?: string | null;
+      grantMode?: string;
+      isPartial?: boolean;
+      startTime?: string;
+      endTime?: string;
+      partialHours?: number;
     };
 
     // -----------------------------------------------------
@@ -230,35 +256,98 @@ export async function POST(req: NextRequest) {
     }
 
     // -----------------------------------------------------
-    // Crear
+    // Modo de otorgamiento
+    //   EMPLOYEE_REQUEST (default) → nace PENDING, requiere aprobación.
+    //   ADMIN_GRANTED (solo ADMIN)  → nace APPROVED y descuenta saldo
+    //                                  si type=VACACIONES y no es parcial.
     // -----------------------------------------------------
-    const vacation = await db.vacation.create({
-      data: {
-        employeeId,
-        type: type as any,
-        startDate: start,
-        endDate: end,
-        days,
-        reason: reason ?? null,
-        status: 'PENDING',
-        requestedById: user.id,
-      },
-      include: {
-        employee: {
-          select: {
-            id: true,
-            employeeNumber: true,
-            user: { select: { id: true, name: true } },
-            sucursal: { select: { id: true, name: true } },
+    const isGrant = grantMode === 'ADMIN_GRANTED';
+    if (isGrant && !isAdmin(user)) {
+      return forbiddenResponse(); // solo admin puede otorgar directamente
+    }
+    const isPartialFlag = isPartial === true;
+
+    // Para permisos parciales, startTime es obligatorio.
+    if (isPartialFlag && !startTime) {
+      return NextResponse.json(
+        { error: 'Los permisos parciales requieren hora de inicio (startTime).' },
+        { status: 400 }
+      );
+    }
+
+    // Parsear horas parciales (opcional).
+    let parsedStart: Date | null = null;
+    let parsedEnd: Date | null = null;
+    if (isPartialFlag && startTime) {
+      parsedStart = new Date(`${startDate}T${startTime}:00`);
+      if (isNaN(parsedStart.getTime())) {
+        return NextResponse.json({ error: 'startTime inválido (HH:mm)' }, { status: 400 });
+      }
+      if (endTime) {
+        parsedEnd = new Date(`${startDate}T${endTime}:00`);
+        if (isNaN(parsedEnd.getTime())) {
+          return NextResponse.json({ error: 'endTime inválido (HH:mm)' }, { status: 400 });
+        }
+      }
+    }
+
+    // Si es otorgamiento admin, descuenta saldo en la misma transacción
+    // (solo VACACIONES completas, no parciales, no permisos).
+    const shouldDeduct = isGrant && type === 'VACACIONES' && !isPartialFlag;
+
+    // -----------------------------------------------------
+    // Crear (transacción si descuenta saldo)
+    // -----------------------------------------------------
+    const vacation = await db.$transaction(async (tx) => {
+      if (shouldDeduct) {
+        // Recargar saldo actual del empleado para evitar carreras.
+        const emp = await tx.employee.findUnique({
+          where: { id: employeeId },
+          select: { vacationBalanceDays: true },
+        });
+        if (!emp) throw new Error('Empleado no encontrado');
+        const newBalance = Math.max(0, emp.vacationBalanceDays - days);
+        await tx.employee.update({
+          where: { id: employeeId },
+          data: { vacationBalanceDays: newBalance },
+        });
+      }
+
+      return tx.vacation.create({
+        data: {
+          employeeId,
+          type: type as any,
+          startDate: start,
+          endDate: end,
+          days: isPartialFlag ? 0 : days, // permiso parcial = 0 días naturales
+          reason: reason ?? null,
+          status: isGrant ? 'APPROVED' : 'PENDING',
+          grantMode: isGrant ? 'ADMIN_GRANTED' : 'EMPLOYEE_REQUEST',
+          isPartial: isPartialFlag,
+          startTime: parsedStart,
+          endTime: parsedEnd,
+          partialHours: isPartialFlag ? (partialHours ?? null) : null,
+          requestedById: user.id,
+          approvedById: isGrant ? user.id : null,
+          approvedAt: isGrant ? new Date() : null,
+        },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              employeeNumber: true,
+              user: { select: { id: true, name: true } },
+              sucursal: { select: { id: true, name: true } },
+            },
           },
         },
-      },
+      });
     });
 
     const { ip, ua } = getIpAndUA(req);
     await auditLog({
       userId: user.id,
-      action: 'VACATION_REQUEST',
+      action: isGrant ? 'VACATION_GRANT' : 'VACATION_REQUEST',
       entityType: 'VACATION',
       entityId: vacation.id,
       sucursalId: employee.sucursalId,
@@ -270,22 +359,28 @@ export async function POST(req: NextRequest) {
         type,
         startDate: toISODate(start),
         endDate: toISODate(end),
-        days,
+        days: isPartialFlag ? 0 : days,
         reason: reason ?? null,
+        grantMode: isGrant ? 'ADMIN_GRANTED' : 'EMPLOYEE_REQUEST',
+        isPartial: isPartialFlag,
+        partialHours: isPartialFlag ? (partialHours ?? null) : null,
+        deductedBalance: shouldDeduct,
       },
     });
 
     // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
-    emitVacationRequested({
-      vacationId: vacation.id,
-      employeeId,
-      employeeName: employee.user.name,
-      type,
-      startDate: toISODate(start),
-      endDate: toISODate(end),
-      days,
-      sucursalId: employee.sucursalId ?? undefined,
-    }).catch(() => {});
+    if (!isGrant) {
+      emitVacationRequested({
+        vacationId: vacation.id,
+        employeeId,
+        employeeName: employee.user.name,
+        type,
+        startDate: toISODate(start),
+        endDate: toISODate(end),
+        days: isPartialFlag ? 0 : days,
+        sucursalId: employee.sucursalId ?? undefined,
+      }).catch(() => {});
+    }
 
     return NextResponse.json({ vacation }, { status: 201 });
   } catch (error) {

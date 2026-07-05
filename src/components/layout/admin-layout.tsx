@@ -116,6 +116,11 @@ interface VacationRow {
   approvedById: string | null;
   approvedAt: string | null;
   createdAt: string;
+  grantMode: string; // EMPLOYEE_REQUEST | ADMIN_GRANTED
+  isPartial: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  partialHours: number | null;
   employee: {
     id: string;
     employeeNumber: string;
@@ -1247,8 +1252,9 @@ function EmployeesView({ role, userSucursalId, preselectedEmployeeId, setPresele
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setQrTarget(emp)} title="Ver QR">
                             <QrCode className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setScheduleTarget(emp)} title="Editar horario">
+                          <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50" onClick={() => setScheduleTarget(emp)} title="Editar horario semanal">
                             <Clock className="h-3.5 w-3.5" />
+                            <span className="text-xs font-medium">Horario</span>
                           </Button>
                           {isGA && (
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setTransferTarget(emp)} title="Transferir">
@@ -2425,6 +2431,7 @@ function VacationsView() {
   const [filterStart, setFilterStart] = useState('');
   const [filterEnd, setFilterEnd] = useState('');
   const [rejectTarget, setRejectTarget] = useState<VacationRow | null>(null);
+  const [grantOpen, setGrantOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -2475,6 +2482,18 @@ function VacationsView() {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Vacaciones y permisos</h2>
+          <p className="text-sm text-muted-foreground">
+            Aprueba solicitudes pendientes u otorga permisos/vacaciones directamente a un empleado.
+          </p>
+        </div>
+        <Button onClick={() => setGrantOpen(true)} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+          <Plus className="h-4 w-4" />
+          Otorgar permiso / vacaciones
+        </Button>
+      </div>
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <TabsList>
           <TabsTrigger value="pending" className="gap-1.5">
@@ -2586,10 +2605,11 @@ function VacationsView() {
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-[200px] whitespace-nowrap">Empleado</TableHead>
-                        <TableHead className="w-[100px] whitespace-nowrap">Tipo</TableHead>
+                        <TableHead className="w-[110px] whitespace-nowrap">Tipo</TableHead>
                         <TableHead className="w-[180px] whitespace-nowrap">Periodo</TableHead>
-                        <TableHead className="w-[60px] whitespace-nowrap">Días</TableHead>
+                        <TableHead className="w-[70px] whitespace-nowrap">Días</TableHead>
                         <TableHead className="w-[110px] whitespace-nowrap">Estado</TableHead>
+                        <TableHead className="w-[100px] whitespace-nowrap">Origen</TableHead>
                         <TableHead className="w-[140px] whitespace-nowrap">Solicitado</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -2598,10 +2618,22 @@ function VacationsView() {
                         <TableRow key={v.id} className="hover:bg-muted/40">
                           <TableCell className="whitespace-nowrap font-medium">{v.employee.user.name}</TableCell>
                           <TableCell className="whitespace-nowrap">{VACATION_TYPE_LABEL[v.type] || v.type}</TableCell>
-                          <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateInMexico(v.startDate)} → {formatDateInMexico(v.endDate)}</TableCell>
-                          <TableCell className="whitespace-nowrap">{v.days}</TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">
+                            {v.isPartial && v.startTime
+                              ? `${formatDateInMexico(v.startDate)} · ${formatTimeInMexico(v.startTime)}${v.endTime ? `→${formatTimeInMexico(v.endTime)}` : ''}`
+                              : `${formatDateInMexico(v.startDate)} → ${formatDateInMexico(v.endDate)}`}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {v.isPartial ? `${v.partialHours ?? 0}h` : v.days}
+                          </TableCell>
                           <TableCell className="whitespace-nowrap">
                             <Badge variant={VACATION_STATUS_VARIANT[v.status] || 'outline'}>{VACATION_STATUS_LABEL[v.status] || v.status}</Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {v.grantMode === 'ADMIN_GRANTED'
+                              ? <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">Otorgado</Badge>
+                              : <span className="text-xs text-muted-foreground">Solicitud</span>}
+                            {v.isPartial && <Badge variant="outline" className="ml-1">Parcial</Badge>}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTimeInMexico(v.createdAt)}</TableCell>
                         </TableRow>
@@ -2627,28 +2659,37 @@ function VacationsView() {
           onReject={handleReject}
         />
       )}
+
+      {grantOpen && (
+        <GrantVacationDialog
+          onClose={() => setGrantOpen(false)}
+          onGranted={() => { setGrantOpen(false); load(); }}
+        />
+      )}
     </div>
   );
 }
 
 function VacationBalancesTab() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
-  const [balances, setBalances] = useState<Record<string, { totalDays: number; usedDays: number; remainingDays: number; pendingDays: number }>>({});
+  const [balances, setBalances] = useState<Record<string, { totalDays: number; usedDays: number; remainingDays: number; pendingDays: number; availableDays: number }>>({});
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     (async () => {
       try {
-        const d = await apiGet<{ employees: EmployeeRow[] }>('/api/employees');
+        setLoading(true);
+        const d = await apiGet<{ employees: EmployeeRow[] }>('/api/employees?isActive=true');
         setEmployees(d.employees);
         // Fetch balances in parallel
         const entries = await Promise.all(
           d.employees.map(async (e) => {
             try {
-              const b = await apiGet<{ totalDays: number; usedDays: number; remainingDays: number; pendingDays: number }>(`/api/vacations/balance/${e.id}`);
+              const b = await apiGet<{ totalDays: number; usedDays: number; remainingDays: number; pendingDays: number; availableDays: number }>(`/api/vacations/balance/${e.id}`);
               return [e.id, b] as const;
             } catch {
-              return [e.id, { totalDays: e.vacationBalanceDays ?? 0, usedDays: 0, remainingDays: e.vacationBalanceDays ?? 0, pendingDays: 0 }] as const;
+              return [e.id, { totalDays: e.vacationBalanceDays ?? 0, usedDays: 0, remainingDays: e.vacationBalanceDays ?? 0, pendingDays: 0, availableDays: e.vacationBalanceDays ?? 0 }] as const;
             }
           })
         );
@@ -2659,40 +2700,43 @@ function VacationBalancesTab() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [reloadKey]);
 
   if (loading) return <LoadingState rows={5} />;
 
   return (
     <Card>
       <CardContent className="p-0">
-        {employees.length === 0 ? <EmptyState icon={CalendarDays} title="Sin empleados" /> : (
+        {employees.length === 0 ? <EmptyState icon={CalendarDays} title="Sin empleados activos" /> : (
           <div className={`max-h-[60vh] overflow-y-auto overflow-x-auto ${SCROLLBAR_CLASS}`}>
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="w-[260px] whitespace-nowrap">Empleado</TableHead>
-                  <TableHead className="w-[100px] whitespace-nowrap">Total</TableHead>
+                  <TableHead className="w-[100px] whitespace-nowrap">Saldo</TableHead>
                   <TableHead className="w-[100px] whitespace-nowrap">Usados</TableHead>
                   <TableHead className="w-[100px] whitespace-nowrap">Pendientes</TableHead>
-                  <TableHead className="w-[120px] whitespace-nowrap">Disponibles</TableHead>
+                  <TableHead className="w-[130px] whitespace-nowrap">Disponibles</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {employees.map((e) => {
-                  const b = balances[e.id] || { totalDays: 0, usedDays: 0, remainingDays: 0, pendingDays: 0 };
-                  const pct = b.totalDays > 0 ? Math.round((b.usedDays / b.totalDays) * 100) : 0;
+                  const b = balances[e.id] || { totalDays: 0, usedDays: 0, remainingDays: 0, pendingDays: 0, availableDays: 0 };
+                  const usedPct = b.totalDays > 0 ? Math.round((b.usedDays / b.totalDays) * 100) : 0;
                   return (
                     <TableRow key={e.id} className="hover:bg-muted/40">
-                      <TableCell className="whitespace-nowrap font-medium">{e.user.name}</TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {e.user.name}
+                        <p className="text-xs text-muted-foreground font-normal">#{e.employeeNumber}</p>
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">{b.totalDays} d</TableCell>
-                      <TableCell className="whitespace-nowrap">{b.usedDays} d</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{b.usedDays} d</TableCell>
                       <TableCell className="whitespace-nowrap">
                         {b.pendingDays > 0 ? <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">{b.pendingDays} d</Badge> : '—'}
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
-                        <span className={b.remainingDays > 0 ? 'text-emerald-700 font-medium' : 'text-muted-foreground'}>
-                          {b.remainingDays} d ({pct}%)
+                        <span className={b.availableDays > 0 ? 'text-emerald-700 font-medium' : 'text-muted-foreground'}>
+                          {b.availableDays} d {usedPct > 0 && `(${usedPct}% usado)`}
                         </span>
                       </TableCell>
                     </TableRow>
@@ -2704,6 +2748,192 @@ function VacationBalancesTab() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function GrantVacationDialog({ onClose, onGranted }: { onClose: () => void; onGranted: () => void }) {
+  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [employeeId, setEmployeeId] = useState('');
+  const [type, setType] = useState('VACACIONES');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [reason, setReason] = useState('');
+  const [isPartial, setIsPartial] = useState(false);
+  const [partialDate, setPartialDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await apiGet<{ employees: EmployeeRow[] }>('/api/employees?isActive=true');
+        setEmployees(d.employees);
+      } catch (e) {
+        toast.error('Error al cargar empleados', { description: (e as Error).message });
+      }
+    })();
+  }, []);
+
+  // Para permisos parciales, sincroniza fechas.
+  useEffect(() => {
+    if (isPartial && partialDate && !startDate) setStartDate(partialDate);
+    if (isPartial && partialDate && !endDate) setEndDate(partialDate);
+  }, [isPartial, partialDate, startDate, endDate]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!employeeId) { toast.error('Selecciona un empleado'); return; }
+    if (!type) { toast.error('Selecciona un tipo'); return; }
+
+    const body: Record<string, unknown> = {
+      employeeId,
+      type,
+      grantMode: 'ADMIN_GRANTED',
+      reason: reason.trim() || null,
+    };
+
+    if (isPartial) {
+      if (!partialDate) { toast.error('Indica la fecha del permiso parcial'); return; }
+      if (!startTime) { toast.error('Indica la hora de inicio del permiso'); return; }
+      body.startDate = partialDate;
+      body.endDate = partialDate;
+      body.isPartial = true;
+      body.startTime = startTime;
+      if (endTime) body.endTime = endTime;
+      // Calcular partialHours si no se provee.
+      const [sh, sm] = startTime.split(':').map(Number);
+      const [eh, em] = (endTime || startTime).split(':').map(Number);
+      const mins = (eh * 60 + em) - (sh * 60 + sm);
+      body.partialHours = Math.round((mins / 60) * 10) / 10;
+    } else {
+      if (!startDate || !endDate) { toast.error('Indica fecha de inicio y fin'); return; }
+      if (new Date(startDate) > new Date(endDate)) {
+        toast.error('La fecha de inicio no puede ser posterior a la de fin');
+        return;
+      }
+      body.startDate = startDate;
+      body.endDate = endDate;
+    }
+
+    setSaving(true);
+    try {
+      await apiSend('/api/vacations', 'POST', body);
+      toast.success(isPartial && type === 'PERMISO'
+        ? 'Permiso otorgado'
+        : type === 'VACACIONES'
+          ? 'Vacaciones otorgadas y saldo descontado'
+          : 'Otorgado correctamente');
+      onGranted();
+    } catch (e) {
+      toast.error('Error al otorgar', { description: (e as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const selectedEmp = employees.find((e) => e.id === employeeId);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Otorgar permiso / vacaciones</DialogTitle>
+          <DialogDescription>
+            Crea y aprueba directamente. Las vacaciones completas descuentan automáticamente el saldo del empleado.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="g-emp">Empleado *</Label>
+            <Select value={employeeId} onValueChange={setEmployeeId}>
+              <SelectTrigger id="g-emp"><SelectValue placeholder="Selecciona…" /></SelectTrigger>
+              <SelectContent>
+                {employees.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.user.name} · #{e.employeeNumber} {e.sucursal ? `· ${sucursalLabel(e.sucursal.name, e.sucursal.codigoLocal)}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {employees.length === 0 && (
+              <p className="text-xs text-amber-600">No hay empleados activos. Da de alta empleados primero.</p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="g-type">Tipo *</Label>
+            <Select value={type} onValueChange={setType}>
+              <SelectTrigger id="g-type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(VACATION_TYPE_LABEL).map(([k, lbl]) => (
+                  <SelectItem key={k} value={k}>{lbl}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5 sm:col-span-2">
+            <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-2.5">
+              <Switch checked={isPartial} onCheckedChange={setIsPartial} id="g-partial" />
+              <Label htmlFor="g-partial" className="text-sm font-medium cursor-pointer">
+                Permiso parcial (por horas, dentro de un día)
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Los permisos parciales <strong>no descuentan</strong> días de vacaciones (art. 76 LFT aplica a días completos).
+            </p>
+          </div>
+
+          {isPartial ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="g-pdate">Fecha *</Label>
+                <Input id="g-pdate" type="date" value={partialDate} onChange={(e) => setPartialDate(e.target.value)} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="g-pstart">Hora de salida *</Label>
+                <Input id="g-pstart" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="g-pend">Hora de regreso (opcional)</Label>
+                <Input id="g-pend" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="g-start">Fecha de inicio *</Label>
+                <Input id="g-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="g-end">Fecha de fin *</Label>
+                <Input id="g-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+              </div>
+              {type === 'VACACIONES' && startDate && endDate && (
+                <p className="sm:col-span-2 text-xs text-emerald-700 dark:text-emerald-400">
+                  Se descontarán <strong>{Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} día(s)</strong> del saldo de {selectedEmp?.user.name ?? 'el empleado'}.
+                </p>
+              )}
+            </>
+          )}
+
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="g-reason">Motivo / notas (opcional)</Label>
+            <Textarea id="g-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Ej. Vacaciones por año completado, permiso por asunto familiar…" />
+          </div>
+
+          <DialogFooter className="sm:col-span-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+            <Button type="submit" disabled={saving} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Otorgar
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
