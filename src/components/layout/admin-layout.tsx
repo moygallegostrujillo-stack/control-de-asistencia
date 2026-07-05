@@ -47,7 +47,7 @@ import {
   LogIn,
   Shield, ShieldAlert, Copy, ArrowLeft, Check,
   Maximize2, Minimize2,
-  FileDown, FileText, ExternalLink, BookOpen, FileType,
+  FileDown, FileText, ExternalLink, BookOpen, FileType, Scale,
 } from 'lucide-react';
 
 // ============================================================
@@ -5483,6 +5483,51 @@ function DocumentationView() {
             </div>
           </div>
         </CardHeader>
+      </Card>
+
+      {/* Documento de cumplimiento LFT 2027 — descargable */}
+      <Card className="border-emerald-200 bg-emerald-50/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                <Scale className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Documento de Cumplimiento Legal — Reforma LFT 2027</CardTitle>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  Mapea cada función del sistema con el artículo de ley que cumple (LFT, NOM-035, NOM-037).
+                </p>
+              </div>
+            </div>
+            <Badge variant="outline" className="shrink-0 border-emerald-300 text-emerald-700 bg-white">
+              Cumplimiento
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-sm text-zinc-600 leading-relaxed">
+            Documento en español claro (no técnico) que explica cómo el sistema cumple con la
+            <strong> Reforma LFT vigente desde el 1 de enero de 2027</strong>: registro electrónico
+            de asistencia, retención de 12 meses, pago de horas extras (doble y triple), descanso
+            semanal, inmutabilidad de registros y más. <strong>Ideal para auditorías de la STPS.</strong>
+          </p>
+          <Button
+            asChild
+            size="sm"
+            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 shrink-0"
+          >
+            <a
+              href="/cumplimiento-lft-2027.pdf"
+              download="Cumplimiento_LFT_2027_Control_de_Asistencia.pdf"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <FileDown className="h-4 w-4" />
+              <span>Descargar PDF</span>
+            </a>
+          </Button>
+        </CardContent>
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2">
