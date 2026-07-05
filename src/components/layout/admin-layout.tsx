@@ -40,7 +40,7 @@ import {
   LogOut, Menu, Clock, UserPlus, Download, Search,
   CheckCircle2, XCircle, AlertTriangle, Timer, MapPin,
   ChevronLeft, ChevronRight, RefreshCw, Plus, Trash2, Pencil,
-  ArrowRightLeft, Eye, Lock, Unlock, KeyRound, Power,
+  ArrowRightLeft, Eye, EyeOff, Lock, Unlock, KeyRound, Power,
   CalendarDays, Briefcase, Hash, Mail, Phone, IdCard,
   ChevronDown, ChevronUp, Loader2, Image as ImageIcon, Save,
   Coffee, Utensils, X, FileSpreadsheet, Printer, Hourglass, UserCheck, UserX,
@@ -217,6 +217,179 @@ const VACATION_STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destruc
 };
 
 const WEEKDAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+// ============================================================
+// Editor de horario semanal (asignación manual)
+// Cumple art. 132 XXXIV LFT (registro electrónico) y
+// art. 71 LFT (mínimo 1 descanso semanal).
+// ============================================================
+
+type DayState = 'work' | 'rest' | 'off';
+
+interface DayConfig {
+  dayOfWeek: number; // 0=Domingo ... 6=Sábado
+  state: DayState;
+  startTime: string; // "HH:mm"
+  endTime: string; // "HH:mm"
+  toleranceMinutes: number;
+}
+
+// Pre-llenado inicial al dar de alta (editable por el admin).
+// L-V 9-18, Domingo descanso, Sábado no laborable.
+const DEFAULT_DAY_CONFIGS: DayConfig[] = [
+  { dayOfWeek: 0, state: 'rest', startTime: '00:00', endTime: '00:00', toleranceMinutes: 0 },
+  { dayOfWeek: 1, state: 'work', startTime: '09:00', endTime: '18:00', toleranceMinutes: 10 },
+  { dayOfWeek: 2, state: 'work', startTime: '09:00', endTime: '18:00', toleranceMinutes: 10 },
+  { dayOfWeek: 3, state: 'work', startTime: '09:00', endTime: '18:00', toleranceMinutes: 10 },
+  { dayOfWeek: 4, state: 'work', startTime: '09:00', endTime: '18:00', toleranceMinutes: 10 },
+  { dayOfWeek: 5, state: 'work', startTime: '09:00', endTime: '18:00', toleranceMinutes: 10 },
+  { dayOfWeek: 6, state: 'off', startTime: '09:00', endTime: '18:00', toleranceMinutes: 10 },
+];
+
+/** Convierte las filas WorkSchedule de la BD a 7 DayConfigs (días faltantes = 'off'). */
+function schedulesToDayConfigs(ws: EmployeeRow['workSchedules']): DayConfig[] {
+  const map = new Map<number, DayConfig>();
+  for (const s of ws || []) {
+    map.set(s.dayOfWeek, {
+      dayOfWeek: s.dayOfWeek,
+      state: s.isWeeklyRest ? 'rest' : 'work',
+      startTime: s.startTime,
+      endTime: s.endTime,
+      toleranceMinutes: s.toleranceMinutes,
+    });
+  }
+  const result: DayConfig[] = [];
+  for (let d = 0; d <= 6; d++) {
+    if (map.has(d)) {
+      result.push(map.get(d)!);
+    } else {
+      result.push({
+        dayOfWeek: d,
+        state: 'off',
+        startTime: '09:00',
+        endTime: '18:00',
+        toleranceMinutes: 10,
+      });
+    }
+  }
+  return result;
+}
+
+/** Convierte 7 DayConfigs al formato que espera la API (omitiendo días 'off'). */
+function dayConfigsToSchedules(configs: DayConfig[]) {
+  return configs
+    .filter((c) => c.state !== 'off')
+    .map((c) => ({
+      dayOfWeek: c.dayOfWeek,
+      startTime: c.state === 'rest' ? '00:00' : c.startTime,
+      endTime: c.state === 'rest' ? '00:00' : c.endTime,
+      toleranceMinutes: c.state === 'rest' ? 0 : c.toleranceMinutes,
+      isWeeklyRest: c.state === 'rest',
+    }));
+}
+
+function ScheduleEditor({ value, onChange }: { value: DayConfig[]; onChange: (v: DayConfig[]) => void }) {
+  function update(dayOfWeek: number, patch: Partial<DayConfig>) {
+    onChange(value.map((c) => (c.dayOfWeek === dayOfWeek ? { ...c, ...patch } : c)));
+  }
+
+  return (
+    <div className="space-y-1.5 max-h-[20rem] overflow-y-auto pr-1">
+      {value.map((c) => (
+        <div key={c.dayOfWeek} className="rounded-md border border-border bg-muted/30 p-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 min-w-[7rem]">
+              <CalendarDays className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span className="font-medium text-sm">{WEEKDAYS[c.dayOfWeek]}</span>
+            </div>
+            {/* Control segmentado de 3 estados */}
+            <div className="inline-flex rounded-md border border-border overflow-hidden">
+              <button
+                type="button"
+                onClick={() => update(c.dayOfWeek, { state: 'work' })}
+                className={cn(
+                  'px-2.5 py-1 text-xs font-medium transition-colors',
+                  c.state === 'work'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-background text-muted-foreground hover:bg-muted'
+                )}
+              >
+                Trabaja
+              </button>
+              <button
+                type="button"
+                onClick={() => update(c.dayOfWeek, { state: 'rest' })}
+                className={cn(
+                  'px-2.5 py-1 text-xs font-medium transition-colors border-l border-border',
+                  c.state === 'rest'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-background text-muted-foreground hover:bg-muted'
+                )}
+              >
+                Descanso
+              </button>
+              <button
+                type="button"
+                onClick={() => update(c.dayOfWeek, { state: 'off' })}
+                className={cn(
+                  'px-2.5 py-1 text-xs font-medium transition-colors border-l border-border',
+                  c.state === 'off'
+                    ? 'bg-zinc-500 text-white'
+                    : 'bg-background text-muted-foreground hover:bg-muted'
+                )}
+              >
+                No laborable
+              </button>
+            </div>
+          </div>
+          {c.state === 'work' && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2 pl-1">
+              <div className="flex items-center gap-1">
+                <Label className="text-xs text-muted-foreground">Entrada</Label>
+                <Input
+                  type="time"
+                  value={c.startTime}
+                  onChange={(e) => update(c.dayOfWeek, { startTime: e.target.value })}
+                  className="h-8 w-[5.5rem] text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <Label className="text-xs text-muted-foreground">Salida</Label>
+                <Input
+                  type="time"
+                  value={c.endTime}
+                  onChange={(e) => update(c.dayOfWeek, { endTime: e.target.value })}
+                  className="h-8 w-[5.5rem] text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <Label className="text-xs text-muted-foreground">Tolerancia</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={c.toleranceMinutes}
+                  onChange={(e) => update(c.dayOfWeek, { toleranceMinutes: parseInt(e.target.value) || 0 })}
+                  className="h-8 w-[3.5rem] text-xs"
+                />
+                <span className="text-xs text-muted-foreground">min</span>
+              </div>
+            </div>
+          )}
+          {c.state === 'rest' && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-2 pl-1 flex items-center gap-1">
+              <Coffee className="h-3 w-3" />
+              Día de descanso semanal (art. 71 LFT)
+            </p>
+          )}
+          {c.state === 'off' && (
+            <p className="text-xs text-muted-foreground mt-2 pl-1">No trabaja este día</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const ACTION_LABELS: Record<string, string> = {
   LOGIN: 'Inicio de sesión',
@@ -1074,7 +1247,7 @@ function EmployeesView({ role, userSucursalId, preselectedEmployeeId, setPresele
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setQrTarget(emp)} title="Ver QR">
                             <QrCode className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setScheduleTarget(emp)} title="Ver horario">
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setScheduleTarget(emp)} title="Editar horario">
                             <Clock className="h-3.5 w-3.5" />
                           </Button>
                           {isGA && (
@@ -1128,7 +1301,7 @@ function EmployeesView({ role, userSucursalId, preselectedEmployeeId, setPresele
 
       {/* Schedule dialog */}
       {scheduleTarget && (
-        <ScheduleDialog employee={scheduleTarget} onClose={() => setScheduleTarget(null)} />
+        <ScheduleDialog employee={scheduleTarget} onClose={() => setScheduleTarget(null)} onSaved={loadEmployees} />
       )}
 
       {/* Transfer dialog */}
@@ -1182,10 +1355,18 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
   const [name, setName] = useState(employee?.user.name || '');
   const [email, setEmail] = useState(employee?.user.email || '');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [employeeNumber, setEmployeeNumber] = useState(employee?.employeeNumber || '');
   const [position, setPosition] = useState(employee?.position || '');
   const [department, setDepartment] = useState(employee?.department || '');
   const [sucursalId, setSucursalId] = useState(employee?.sucursalId || userSucursalId || '');
+  const [dayConfigs, setDayConfigs] = useState<DayConfig[]>(
+    isEdit && employee?.workSchedules
+      ? schedulesToDayConfigs(employee.workSchedules)
+      : DEFAULT_DAY_CONFIGS
+  );
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -1198,6 +1379,14 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
       toast.error('La contraseña es requerida');
       return;
     }
+    if (!isEdit && password.length < 6) {
+      toast.error('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    if (!isEdit && password !== confirmPassword) {
+      toast.error('Las contraseñas no coinciden', { description: 'Verifica la contraseña y su confirmación.' });
+      return;
+    }
     if (!isEdit && !employeeNumber) {
       toast.error('El número de empleado es requerido');
       return;
@@ -1206,15 +1395,32 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
       toast.error('Selecciona una sucursal');
       return;
     }
+    // Validar horario semanal (art. 71 LFT — mínimo 1 descanso).
+    const schedules = dayConfigsToSchedules(dayConfigs);
+    if (schedules.length === 0) {
+      toast.error('Asigna el horario semanal', { description: 'Marca al menos un día de trabajo o descanso.' });
+      return;
+    }
+    const hasRest = schedules.some((s) => s.isWeeklyRest);
+    if (!hasRest) {
+      toast.error('Falta día de descanso', { description: 'El horario debe incluir al menos 1 día de descanso semanal (art. 71 LFT).' });
+      return;
+    }
+    const workDaysMissingTime = schedules.some((s) => !s.isWeeklyRest && (!s.startTime || !s.endTime));
+    if (workDaysMissingTime) {
+      toast.error('Horario incompleto', { description: 'Todos los días marcados como "Trabaja" deben tener hora de entrada y salida.' });
+      return;
+    }
+
     setSaving(true);
     try {
       if (isEdit && employee) {
-        const body: Record<string, unknown> = { name, email, position, department };
+        const body: Record<string, unknown> = { name, email, position, department, schedules };
         if (isGA) body.sucursalId = sucursalId;
         await apiSend(`/api/employees/${employee.id}`, 'PUT', body);
         toast.success('Empleado actualizado');
       } else {
-        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId });
+        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId, schedules });
         toast.success('Empleado creado');
       }
       onSaved();
@@ -1227,11 +1433,13 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Editar empleado' : 'Nuevo empleado'}</DialogTitle>
           <DialogDescription>
-            {isEdit ? 'Actualiza los datos del empleado.' : 'Crea un nuevo empleado con horario L-V 9-18 por defecto.'}
+            {isEdit
+              ? 'Actualiza los datos y el horario semanal del empleado.'
+              : 'Crea un nuevo empleado y asigna su horario semanal manualmente (incluyendo día de descanso, art. 71 LFT).'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
@@ -1269,11 +1477,76 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
             </Select>
           </div>
           {!isEdit && (
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="f-pass">Contraseña *</Label>
-              <Input id="f-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
-            </div>
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="f-pass">Contraseña *</Label>
+                <div className="relative">
+                  <Input
+                    id="f-pass"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="f-pass2">Confirmar contraseña *</Label>
+                <div className="relative">
+                  <Input
+                    id="f-pass2"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className={cn('pr-9', confirmPassword && confirmPassword !== password && 'border-red-400 focus-visible:ring-red-400')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                    aria-label={showConfirmPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {confirmPassword && confirmPassword !== password && (
+                  <p className="text-xs text-red-500">Las contraseñas no coinciden</p>
+                )}
+              </div>
+            </>
           )}
+
+          {/* Horario semanal — asignación manual */}
+          <div className="sm:col-span-2 space-y-1.5 mt-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-emerald-600" />
+                Horario semanal *
+              </Label>
+              <span className="text-xs text-muted-foreground">Art. 71 LFT: mínimo 1 día de descanso</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Para cada día elige: <strong className="text-emerald-700 dark:text-emerald-400">Trabaja</strong> (con horario),
+              <strong className="text-amber-600 dark:text-amber-400"> Descanso</strong> semanal, o
+              <strong> No laborable</strong>. Útil para turnos rotativos (ej. lunes 9-17, martes 11-19).
+            </p>
+            <ScheduleEditor value={dayConfigs} onChange={setDayConfigs} />
+          </div>
+
           <DialogFooter className="sm:col-span-2 mt-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
             <Button type="submit" disabled={saving} className="gap-2">
@@ -1341,32 +1614,64 @@ function QrDialog({ employee, onClose }: { employee: EmployeeRow; onClose: () =>
   );
 }
 
-function ScheduleDialog({ employee, onClose }: { employee: EmployeeRow; onClose: () => void }) {
+function ScheduleDialog({ employee, onClose, onSaved }: { employee: EmployeeRow; onClose: () => void; onSaved?: () => void }) {
+  const [dayConfigs, setDayConfigs] = useState<DayConfig[]>(
+    schedulesToDayConfigs(employee.workSchedules)
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    const schedules = dayConfigsToSchedules(dayConfigs);
+    if (schedules.length === 0) {
+      toast.error('Asigna al menos un día de trabajo o descanso');
+      return;
+    }
+    const hasRest = schedules.some((s) => s.isWeeklyRest);
+    if (!hasRest) {
+      toast.error('Falta día de descanso', { description: 'El horario debe incluir al menos 1 día de descanso semanal (art. 71 LFT).' });
+      return;
+    }
+    const workDaysMissingTime = schedules.some((s) => !s.isWeeklyRest && (!s.startTime || !s.endTime));
+    if (workDaysMissingTime) {
+      toast.error('Horario incompleto', { description: 'Todos los días marcados como "Trabaja" deben tener hora de entrada y salida.' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiSend(`/api/employees/${employee.id}`, 'PUT', { schedules });
+      toast.success('Horario actualizado');
+      onSaved?.();
+      onClose();
+    } catch (e) {
+      toast.error('Error al guardar el horario', { description: (e as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Horario semanal</DialogTitle>
+          <DialogTitle>Editar horario semanal</DialogTitle>
           <DialogDescription>{employee.user.name} · #{employee.employeeNumber}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2 py-2">
-          {(employee.workSchedules || []).length === 0 ? (
-            <EmptyState icon={Clock} title="Sin horario asignado" subtitle="Se usará el horario por defecto L-V 9-18." />
-          ) : (
-            (employee.workSchedules || []).sort((a, b) => a.dayOfWeek - b.dayOfWeek).map((s) => (
-              <div key={s.id} className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/30">
-                <div className="flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-emerald-600" />
-                  <span className="font-medium">{WEEKDAYS[s.dayOfWeek]}</span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {s.startTime} - {s.endTime}
-                  {s.isWeeklyRest && <Badge variant="outline" className="ml-2">Descanso</Badge>}
-                </div>
-              </div>
-            ))
-          )}
+          <p className="text-xs text-muted-foreground">
+            Para cada día elige: <strong className="text-emerald-700 dark:text-emerald-400">Trabaja</strong> (con horario),
+            <strong className="text-amber-600 dark:text-amber-400"> Descanso</strong> semanal, o
+            <strong> No laborable</strong>. Útil para turnos rotativos (ej. lunes 9-17, martes 11-19).
+          </p>
+          <ScheduleEditor value={dayConfigs} onChange={setDayConfigs} />
         </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button type="button" onClick={handleSave} disabled={saving} className="gap-2">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            <Save className="h-3.5 w-3.5" />
+            Guardar horario
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -3,8 +3,9 @@
 //   GET  — Lista de empleados (fix #8 orderBy user.name asc).
 //          SUCURSAL_ADMIN: solo su sucursal (getSucursalFilter).
 //          GENERAL_ADMIN: ?sucursalId=&search=&department=&isActive=
-//   POST — Crea empleado + user + WorkSchedules L-V 9-18 por defecto.
-//          Requiere ADMIN (SUCURSAL_ADMIN o GENERAL_ADMIN).
+//   POST — Crea empleado + user + WorkSchedules.
+//          El horario se asigna MANUALMENTE desde el formulario
+//          (no hay horario por defecto automático). Requiere ADMIN.
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,31 +20,7 @@ import {
   isGeneralAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
-
-// Horario por defecto: Lunes a Viernes (1-5), 09:00-18:00, tolerancia 10 min.
-// Domingo (0) marcado como descanso semanal obligatorio (art. 71 LFT).
-const DEFAULT_SCHEDULES = [
-  { dayOfWeek: 0, startTime: '00:00', endTime: '00:00', toleranceMinutes: 0, isWeeklyRest: true },
-  { dayOfWeek: 1, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
-  { dayOfWeek: 2, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
-  { dayOfWeek: 3, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
-  { dayOfWeek: 4, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
-  { dayOfWeek: 5, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
-];
-
-/**
- * Valida que el conjunto de horarios cumpla con el art. 71 LFT:
- * mínimo 1 día de descanso semanal (isWeeklyRest=true).
- * Retorna null si OK, o un mensaje de error si no cumple.
- */
-function validateWeeklyRest(schedules: any[]): string | null {
-  if (!schedules || schedules.length === 0) return null; // sin horarios = sin validación
-  const hasRest = schedules.some((s) => s.isWeeklyRest === true);
-  if (!hasRest) {
-    return 'El horario debe incluir al menos 1 día de descanso semanal (art. 71 LFT). Marca un día con "Descanso".';
-  }
-  return null;
-}
+import { validateWorkSchedules } from '@/lib/work-schedule';
 
 export async function GET(req: NextRequest) {
   try {
@@ -214,18 +191,18 @@ export async function POST(req: NextRequest) {
     }
 
     // -----------------------------------------------------
-    // Transacción: User + Employee + WorkSchedules
+    // Horario semanal — asignación MANUAL obligatoria.
+    // El frontend envía el array `schedules` con los días
+    // laborales y de descanso definidos por el admin.
+    // Cumple art. 132 XXXIV LFT (registro electrónico) y
+    // art. 71 LFT (mínimo 1 descanso semanal).
     // -----------------------------------------------------
     const passwordHash = await bcrypt.hash(password, 12);
-    const scheds = (schedules && Array.isArray(schedules) && schedules.length > 0)
-      ? schedules
-      : DEFAULT_SCHEDULES;
-
-    // Reforma LFT 2027 — art. 71 LFT: mínimo 1 día de descanso semanal.
-    const restError = validateWeeklyRest(scheds);
-    if (restError) {
-      return NextResponse.json({ error: restError }, { status: 400 });
+    const schedError = validateWorkSchedules(schedules);
+    if (schedError) {
+      return NextResponse.json({ error: schedError }, { status: 400 });
     }
+    const scheds = schedules!;
 
     const created = await db.$transaction(async (tx) => {
       const newUser = await tx.user.create({
@@ -265,6 +242,8 @@ export async function POST(req: NextRequest) {
           isWeeklyRest: s.isWeeklyRest ?? false,
         })),
       });
+      // Nota: los días "no laborables" simplemente no se insertan
+      // (ausencia de fila = no trabaja ese día, no es descanso).
 
       return { newUser, newEmployee };
     });
