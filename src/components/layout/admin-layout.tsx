@@ -4026,7 +4026,7 @@ function QRTerminalView() {
 
         <div className="flex flex-col items-center gap-6">
           <div className="text-center">
-            <h1 className="text-2xl font-bold tracking-tight">Terminal QR NOM-037</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Terminal QR</h1>
             <p className="text-muted-foreground text-sm mt-1">
               Escanea este código con la app de empleado para registrar asistencia.
             </p>
@@ -4402,7 +4402,7 @@ function SettingsView() {
   const downloadBackupCodes = () => {
     if (!setupData?.backupCodes?.length) return;
     const lines = [
-      'Control de Asistencia NOM-037 — Códigos de respaldo MFA',
+      'Control de Asistencia — Códigos de respaldo MFA',
       `Generados: ${new Date().toLocaleString('es-MX')}`,
       '',
       'Instrucciones:',
@@ -5129,7 +5129,7 @@ export function AdminLayout() {
       {/* Footer */}
       <footer className="mt-auto border-t border-zinc-200 bg-white px-4 py-3">
         <div className="flex items-center justify-between text-xs text-zinc-500">
-          <span>Control de Asistencia NOM-037 v2.2</span>
+          <span>Control de Asistencia v2.2</span>
           <span>{new Date().getFullYear()}</span>
         </div>
       </footer>
@@ -5245,7 +5245,7 @@ function DocumentationView() {
             <div>
               <CardTitle className="text-lg">Documentación del sistema</CardTitle>
               <CardDescription className="mt-1">
-                Diagramas y guías técnicas del proyecto Control de Asistencia NOM-037 v2.2.0.
+                Diagramas y guías técnicas del proyecto Control de Asistencia v2.2.0.
                 Disponibles en tres formatos: <strong>HTML</strong> (vista rápida en el navegador),
                 <strong> PNG</strong> (imagen de alta resolución para incluir en documentos) y
                 <strong> PDF</strong> (para imprimir o compartir).

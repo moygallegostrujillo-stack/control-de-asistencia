@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(pdfBuffer, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'attachment; filename="Manual_Usuario_Control_Asistencia_NOM037.pdf"',
+        'Content-Disposition': 'attachment; filename="Manual_Usuario_Control_Asistencia.pdf"',
         'Cache-Control': 'no-cache',
       },
     });

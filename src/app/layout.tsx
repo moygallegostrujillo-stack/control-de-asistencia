@@ -16,9 +16,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Control de Asistencia NOM-037",
-  description: "Sistema de control de asistencia laboral multi-sucursal conforme a la NOM-037-STPS-2023.",
-  keywords: ["asistencia", "control", "registro", "nom-037", "horas extra", "nómina"],
+  title: "Control de Asistencia",
+  description: "Sistema de control de asistencia laboral multi-sucursal conforme a la NOM-037-STPS-2023 y la Reforma LFT 2027.",
+  keywords: ["asistencia", "control", "registro", "nom-037", "horas extra", "nómina", "lft 2027"],
   authors: [{ name: "Control de Asistencia" }],
 };
 

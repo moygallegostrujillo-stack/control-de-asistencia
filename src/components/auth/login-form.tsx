@@ -197,7 +197,7 @@ export function LoginForm() {
             <p className="text-sm text-zinc-500">
               {needsMfa
                 ? 'Ingresa el código de tu app autenticadora'
-                : 'NOM-037-STPS-2023'}
+                : 'Cumple con NOM-037-STPS-2023 y Reforma LFT 2027'}
             </p>
           </CardHeader>
           <CardContent>
@@ -410,7 +410,7 @@ export function LoginForm() {
           </CardContent>
         </Card>
         <p className="mt-4 text-center text-xs text-zinc-400">
-          v2.2 · {new Date().getFullYear()} · Control de Asistencia NOM-037
+          v2.2 · {new Date().getFullYear()} · Control de Asistencia
         </p>
       </motion.div>
     </div>

@@ -210,7 +210,7 @@ export function UserManual() {
             <div>
               <h1 className="text-xl font-bold">Manual del Administrador</h1>
               <p className="text-sm text-muted-foreground">
-                Sistema de Control de Asistencia — Cumplimiento NOM-037
+                Control de Asistencia — Cumple NOM-037-STPS-2023 y Reforma LFT 2027
               </p>
             </div>
           </div>
@@ -1473,7 +1473,7 @@ export function UserManual() {
               Sistema de Control de Asistencia — Manual del Administrador
             </p>
             <p>
-              Cumplimiento NOM-037-STPS-2023 · Registros Inalterables ·
+              Cumple NOM-037-STPS-2023 y Reforma LFT 2027 · Registros Inalterables ·
               Autenticación Dual · Geolocalización GPS · Multi-Sucursal
             </p>
             <p className="text-xs">

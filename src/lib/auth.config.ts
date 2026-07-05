@@ -241,7 +241,7 @@ export function verifyMfaToken(token: string, secret: string): boolean {
  * Construye el otpauth:// URI para QR code.
  */
 export function buildOtpauthUri(email: string, secret: string): string {
-  const issuer = encodeURIComponent('Control de Asistencia NOM-037');
+  const issuer = encodeURIComponent('Control de Asistencia');
   const label = encodeURIComponent(`Control de Asistencia:${email}`);
   return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
 }
