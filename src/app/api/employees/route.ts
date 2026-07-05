@@ -21,13 +21,29 @@ import {
 import { auditLog, getIpAndUA } from '@/lib/audit';
 
 // Horario por defecto: Lunes a Viernes (1-5), 09:00-18:00, tolerancia 10 min.
+// Domingo (0) marcado como descanso semanal obligatorio (art. 71 LFT).
 const DEFAULT_SCHEDULES = [
+  { dayOfWeek: 0, startTime: '00:00', endTime: '00:00', toleranceMinutes: 0, isWeeklyRest: true },
   { dayOfWeek: 1, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
   { dayOfWeek: 2, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
   { dayOfWeek: 3, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
   { dayOfWeek: 4, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
   { dayOfWeek: 5, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
 ];
+
+/**
+ * Valida que el conjunto de horarios cumpla con el art. 71 LFT:
+ * mínimo 1 día de descanso semanal (isWeeklyRest=true).
+ * Retorna null si OK, o un mensaje de error si no cumple.
+ */
+function validateWeeklyRest(schedules: any[]): string | null {
+  if (!schedules || schedules.length === 0) return null; // sin horarios = sin validación
+  const hasRest = schedules.some((s) => s.isWeeklyRest === true);
+  if (!hasRest) {
+    return 'El horario debe incluir al menos 1 día de descanso semanal (art. 71 LFT). Marca un día con "Descanso".';
+  }
+  return null;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -204,6 +220,12 @@ export async function POST(req: NextRequest) {
     const scheds = (schedules && Array.isArray(schedules) && schedules.length > 0)
       ? schedules
       : DEFAULT_SCHEDULES;
+
+    // Reforma LFT 2027 — art. 71 LFT: mínimo 1 día de descanso semanal.
+    const restError = validateWeeklyRest(scheds);
+    if (restError) {
+      return NextResponse.json({ error: restError }, { status: 400 });
+    }
 
     const created = await db.$transaction(async (tx) => {
       const newUser = await tx.user.create({

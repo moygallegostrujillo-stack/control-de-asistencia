@@ -20,6 +20,18 @@ import { auditLog, getIpAndUA } from '@/lib/audit';
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * Valida mínimo 1 día de descanso semanal (art. 71 LFT).
+ */
+function validateWeeklyRest(schedules: any[]): string | null {
+  if (!schedules || schedules.length === 0) return null;
+  const hasRest = schedules.some((s) => s.isWeeklyRest === true);
+  if (!hasRest) {
+    return 'El horario debe incluir al menos 1 día de descanso semanal (art. 71 LFT). Marca un día con "Descanso".';
+  }
+  return null;
+}
+
 export async function GET(req: NextRequest, { params }: Ctx) {
   try {
     const user = await getAuthUser(req);
@@ -122,6 +134,14 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     // SUCURSAL_ADMIN no puede mover empleados a otra sucursal.
     if (!isGeneralAdmin(user) && sucursalId && sucursalId !== existing.sucursalId) {
       return forbiddenResponse();
+    }
+
+    // Reforma LFT 2027 — art. 71 LFT: mínimo 1 día de descanso semanal.
+    if (schedules && Array.isArray(schedules) && schedules.length > 0) {
+      const restError = validateWeeklyRest(schedules);
+      if (restError) {
+        return NextResponse.json({ error: restError }, { status: 400 });
+      }
     }
 
     // Unicidad de email si se cambia.

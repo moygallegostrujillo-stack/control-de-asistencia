@@ -21,7 +21,7 @@ import {
   toISODate,
   minutesBetween,
 } from '@/lib/timezone';
-import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
+import { calculateOvertime, findScheduleForDate, computeWeeklyAccumulatedOvertime } from '@/lib/overtime-calculator';
 
 export async function GET(
   req: NextRequest,
@@ -83,10 +83,12 @@ export async function PUT(
 
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
-    const { checkInTime, checkOutTime, notes } = body as {
+    const { checkInTime, checkOutTime, notes, correctionReason, forceUnlock } = body as {
       checkInTime?: string; // 'HH:mm'
       checkOutTime?: string; // 'HH:mm'
       notes?: string;
+      correctionReason?: string;
+      forceUnlock?: boolean;
     };
 
     // Cargar registro
@@ -116,6 +118,26 @@ export async function PUT(
       user.sucursalId !== record.employee.sucursalId
     ) {
       return forbiddenResponse();
+    }
+
+    // ----- Reforma LFT 2027 — Inmutabilidad -----
+    // Si el registro está bloqueado (default true), exigir motivo de corrección.
+    // Solo GENERAL_ADMIN puede forzar desbloqueo; SUCURSAL_ADMIN necesita razón.
+    if (record.isLocked && !forceUnlock) {
+      return NextResponse.json(
+        {
+          error:
+            'El registro está bloqueado (inmutable). Para corregirlo, proporcione un motivo de corrección y forceUnlock=true.',
+          isLocked: true,
+        },
+        { status: 423 }
+      );
+    }
+    if (record.isLocked && forceUnlock && !correctionReason?.trim()) {
+      return NextResponse.json(
+        { error: 'Se requiere un motivo de corrección para desbloquear el registro.' },
+        { status: 400 }
+      );
     }
 
     // ----- FIX #10 -----
@@ -169,10 +191,22 @@ export async function PUT(
     );
     const sucursal = record.employee.sucursal;
 
+    // Reforma LFT 2027 — calcular acumulado semanal previo
+    const weeklyAcc = await computeWeeklyAccumulatedOvertime(
+      record.employeeId,
+      record.date,
+      async (empId, from, to) => {
+        return db.attendanceRecord.findMany({
+          where: { employeeId: empId, date: { gte: from, lte: to }, id: { not: record.id } },
+        });
+      }
+    );
+
     const calc = calculateOvertime({
       record: virtualRecord,
       schedule,
       sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes },
+      weeklyAccumulatedMinutes: weeklyAcc,
     });
 
     // Estado: preservar LATE si ya estaba, sino usar calc
@@ -200,6 +234,11 @@ export async function PUT(
 
     const { ip, ua } = getIpAndUA(req);
 
+    // Reforma LFT 2027 — Preservar valores originales (no sobreescribibles)
+    // Si es la primera corrección, guardar el valor original antes de pisarlo.
+    const originalCheckInTime = record.originalCheckInTime ?? record.checkInTime ?? null;
+    const originalCheckOutTime = record.originalCheckOutTime ?? record.checkOutTime ?? null;
+
     const updated = await db.attendanceRecord.update({
       where: { id },
       data: {
@@ -209,6 +248,8 @@ export async function PUT(
               checkInMethod: record.checkInMethod || 'MANUAL',
               checkInIp: ip,
               checkInUserAgent: ua,
+              // Preservar original solo la primera vez
+              originalCheckInTime,
             }
           : {}),
         ...(newCheckOut
@@ -217,13 +258,23 @@ export async function PUT(
               checkOutMethod: record.checkOutMethod || 'MANUAL',
               checkOutIp: ip,
               checkOutUserAgent: ua,
+              // Preservar original solo la primera vez
+              originalCheckOutTime,
             }
           : {}),
         ...(notes !== undefined ? { notes } : {}),
         workedMinutes,
         overtimeMinutes: calc.overtimeMinutes,
+        // Reforma LFT 2027 — persistir dobles/triples
+        overtimeDoubleMinutes: calc.overtimeDoubleMinutes,
+        overtimeTripleMinutes: calc.overtimeTripleMinutes,
+        overtimeWeeklyAccumulated: calc.overtimeWeeklyAccumulated,
         status: finalStatus,
         justificationStatus: 'PENDING', // corrección manual requiere justificación posterior
+        // Reforma LFT 2027 — registrar la corrección
+        correctionReason: correctionReason?.trim() || record.correctionReason || null,
+        correctedById: user.id,
+        correctedAt: new Date(),
       },
     });
 
@@ -242,12 +293,17 @@ export async function PUT(
         recordDate: toISODate(record.date),
         previousCheckIn: record.checkInTime?.toISOString() || null,
         previousCheckOut: record.checkOutTime?.toISOString() || null,
+        originalCheckIn: originalCheckInTime?.toISOString() || null,
+        originalCheckOut: originalCheckOutTime?.toISOString() || null,
         newCheckIn: newCheckIn?.toISOString() || null,
         newCheckOut: newCheckOut?.toISOString() || null,
         previousStatus: record.status,
         newStatus: finalStatus,
         workedMinutes,
         overtimeMinutes: calc.overtimeMinutes,
+        overtimeDoubleMinutes: calc.overtimeDoubleMinutes,
+        overtimeTripleMinutes: calc.overtimeTripleMinutes,
+        correctionReason: correctionReason || null,
         notes: notes || null,
         performedBy: user.email,
       },

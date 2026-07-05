@@ -40,7 +40,10 @@ import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculato
 import type { WorkSchedule } from '@prisma/client';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 
-const MAX_RANGE_DAYS = 90;
+// Reforma LFT 2027 — art. 804 LFT: conservación mínima 12 meses.
+// Permitimos hasta 366 días (año bisiesto) por export para no obligar a
+// múltiples descargas al patrón cuando la STPS solicite el registro anual.
+const MAX_RANGE_DAYS = 366;
 
 // Mapeo de estados a español
 const STATUS_ES: Record<string, string> = {
@@ -64,11 +67,9 @@ export async function GET(req: NextRequest) {
     const requestedSucursalId = searchParams.get('sucursalId');
     const format = (searchParams.get('format') || 'csv').toLowerCase();
 
-    // SUCURSAL_ADMIN / SUPERVISOR: forzar su sucursal
+    // SUCURSAL_ADMIN: forzar su sucursal
     const sucursalId =
-      user.role === 'SUCURSAL_ADMIN' || user.role === 'SUPERVISOR'
-        ? user.sucursalId
-        : requestedSucursalId;
+      user.role === 'SUCURSAL_ADMIN' ? user.sucursalId : requestedSucursalId;
 
     // Validar formato
     if (!['csv', 'xlsx'].includes(format)) {

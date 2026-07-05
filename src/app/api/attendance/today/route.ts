@@ -103,6 +103,8 @@ export async function GET(req: NextRequest) {
     let breakExceeded = 0;
     let breakTotalMinutes = 0;
     let overtimeMinutesTotal = 0;
+    let overtimeDoubleMinutesTotal = 0;
+    let overtimeTripleMinutesTotal = 0;
 
     for (const r of records) {
       if (r.status === 'PRESENT') present++;
@@ -117,6 +119,9 @@ export async function GET(req: NextRequest) {
       if (r.mealDurationMinutes) breakTotalMinutes += r.mealDurationMinutes;
       if (r.restDurationMinutes) breakTotalMinutes += r.restDurationMinutes;
       if (r.overtimeMinutes) overtimeMinutesTotal += r.overtimeMinutes;
+      // Reforma LFT 2027 — dobles/triples
+      if (r.overtimeDoubleMinutes) overtimeDoubleMinutesTotal += r.overtimeDoubleMinutes;
+      if (r.overtimeTripleMinutes) overtimeTripleMinutesTotal += r.overtimeTripleMinutes;
     }
 
     return NextResponse.json({
@@ -134,6 +139,11 @@ export async function GET(req: NextRequest) {
         breakTotalMinutes,
         overtimeMinutes: overtimeMinutesTotal,
         overtimeHours: minutesToHours(overtimeMinutesTotal),
+        // Reforma LFT 2027
+        overtimeDoubleMinutes: overtimeDoubleMinutesTotal,
+        overtimeTripleMinutes: overtimeTripleMinutesTotal,
+        overtimeDoubleHours: minutesToHours(overtimeDoubleMinutesTotal),
+        overtimeTripleHours: minutesToHours(overtimeTripleMinutesTotal),
         checkedIn: records.filter((r) => r.checkInTime).length,
         checkedOut: records.filter((r) => r.checkOutTime).length,
       },

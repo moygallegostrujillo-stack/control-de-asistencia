@@ -14,9 +14,8 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
-import { emitCheckOut } from '@/lib/realtime';
 import { getMexicoTodayDate } from '@/lib/timezone';
-import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
+import { calculateOvertime, findScheduleForDate, computeWeeklyAccumulatedOvertime } from '@/lib/overtime-calculator';
 import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
 
 export async function POST(req: NextRequest) {
@@ -116,7 +115,20 @@ export async function POST(req: NextRequest) {
     const sucursal = record.employee.sucursal;
     const schedule = findScheduleForDate(record.employee.workSchedules, record.date);
 
-    // fix #2 — calcular workedMinutes, overtimeMinutes, status con tolerancia de salida
+    // Reforma LFT 2027 — calcular acumulado semanal previo (lun..ayer) para
+    // distribuir correctamente horas extra dobles vs triples.
+    const weeklyAcc = await computeWeeklyAccumulatedOvertime(
+      employeeId,
+      todayDate,
+      async (empId, from, to) => {
+        return db.attendanceRecord.findMany({
+          where: { employeeId: empId, date: { gte: from, lte: to } },
+        });
+      }
+    );
+
+    // fix #2 + reforma LFT 2027 — calcular workedMinutes, overtimeMinutes,
+    // dobles/triples y status con tolerancia de salida.
     const updatedForCalc = {
       ...record,
       checkOutTime: now,
@@ -126,6 +138,7 @@ export async function POST(req: NextRequest) {
       record: updatedForCalc,
       schedule,
       sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes },
+      weeklyAccumulatedMinutes: weeklyAcc,
     });
 
     const { ip, ua } = getIpAndUA(req);
@@ -153,6 +166,10 @@ export async function POST(req: NextRequest) {
         checkOutUserAgent: ua,
         workedMinutes: calc.workedMinutes,
         overtimeMinutes: calc.overtimeMinutes,
+        // Reforma LFT 2027 — persistir dobles/triples y acumulado semanal
+        overtimeDoubleMinutes: calc.overtimeDoubleMinutes,
+        overtimeTripleMinutes: calc.overtimeTripleMinutes,
+        overtimeWeeklyAccumulated: calc.overtimeWeeklyAccumulated,
         status: finalStatus,
       },
     });
@@ -174,27 +191,24 @@ export async function POST(req: NextRequest) {
         long,
         workedMinutes: calc.workedMinutes,
         overtimeMinutes: calc.overtimeMinutes,
+        overtimeDoubleMinutes: calc.overtimeDoubleMinutes,
+        overtimeTripleMinutes: calc.overtimeTripleMinutes,
+        overtimeWeeklyAccumulated: calc.overtimeWeeklyAccumulated,
+        overtimeWeeklyTotal: calc.overtimeWeeklyTotal,
         status: finalStatus,
         performedBy: user.email,
       },
     });
-
-    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
-    emitCheckOut({
-      employeeId,
-      employeeName: record.employee.user.name,
-      employeeNumber: record.employee.employeeNumber,
-      sucursalId: record.employee.sucursalId,
-      time: now.toISOString(),
-      method: checkMethod,
-      workedMinutes: calc.workedMinutes,
-    }).catch(() => {});
 
     return NextResponse.json({
       record: updated,
       workedMinutes: calc.workedMinutes,
       overtimeMinutes: calc.overtimeMinutes,
       overtimeHours: calc.overtimeHours,
+      overtimeDoubleMinutes: calc.overtimeDoubleMinutes,
+      overtimeTripleMinutes: calc.overtimeTripleMinutes,
+      overtimeWeeklyAccumulated: calc.overtimeWeeklyAccumulated,
+      overtimeWeeklyTotal: calc.overtimeWeeklyTotal,
       status: finalStatus,
     });
   } catch (error) {

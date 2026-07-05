@@ -1,12 +1,12 @@
 // ============================================================
-// Control de Asistencia NOM-037 — Schema v2.2 (PostgreSQL)
+// Control de Asistencia NOM-037 — Schema v2.2 (SQLite dev)
 // ============================================================
-// ESTE ARCHIVO ES PARA PRODUCCIÓN (Vercel + Supabase).
-// Para desarrollo local, usar `schema.prisma` (SQLite).
+
+
 //
-// Cambiar entre los dos con:
-//   ./scripts/switch-schema.sh postgres   ← producción
-//   ./scripts/switch-schema.sh sqlite     ← dev local
+
+
+
 // ============================================================
 
 generator client {
@@ -14,9 +14,9 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "sqlite"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  
 }
 
 // ============================================================
@@ -66,6 +66,7 @@ model User {
   vacationsRequested      Vacation[]           @relation("VacationRequester")
   vacationsApproved       Vacation[]           @relation("VacationApprover")
   justificationsResolved  AttendanceRecord[]  @relation("JustificationResolver")
+  attendanceCorrections   AttendanceRecord[]  @relation("AttendanceCorrector")
   dynamicQRs              DynamicQR[]          @relation("DynamicQRCreator")
 
   @@index([sucursalId])
@@ -175,18 +176,34 @@ model AttendanceRecord {
   restExceeded              Boolean  @default(false)
   status                    String   @default("PRESENT") // PRESENT|ABSENT|LATE|EARLY_LEAVE
   workedMinutes             Int?
-  overtimeMinutes           Int?
+  overtimeMinutes           Int?     // total de minutos extra (legacy/agregado)
+  // --- Reforma LFT 2027 (art. 66 y 68) — distinguir dobles vs triples ---
+  // Primeras 9h/semana (2027) → doble. Excedente → triple. Tope diario: 4h.
+  overtimeDoubleMinutes     Int?     // minutos extra pagados al DOBLE (art. 66)
+  overtimeTripleMinutes     Int?     // minutos extra pagados al TRIPLE (art. 68, excedente semanal)
+  overtimeWeeklyAccumulated Int?     // acumulado semanal previo al registro (para tope)
   notes                     String?
   justification             String?
   justificationStatus       String?  // PENDING / APPROVED / REJECTED
   justificationResolvedById String?
+  // --- Inmutabilidad (reforma LFT art. 132 XXXIV — trazabilidad probatoria) ---
   isLocked                  Boolean  @default(true)
+  originalCheckInTime       DateTime? // valor original no sobreescribible
+  originalCheckOutTime      DateTime? // valor original no sobreescribible
+  correctionReason          String?   // motivo de la corrección (si isLocked=false)
+  correctedById             String?   // quién corrigió
+  correctedAt               DateTime? // cuándo corrigió
+  // --- Prueba plena (art. 132 XXXIV: "hará prueba plena si fue acordado") ---
+  employeeSignedAt          DateTime? // fecha en que el empleado aceptó el registro
+  employeeSignatureHash     String?   // hash del contenido firmado (HMAC)
+  employeeSignedIp          String?   // IP desde la que firmó
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
   employee            Employee @relation(fields: [employeeId], references: [id])
   sucursal            Sucursal @relation(fields: [sucursalId], references: [id])
   justificationResolver User?  @relation("JustificationResolver", fields: [justificationResolvedById], references: [id])
+  correctedBy         User?    @relation("AttendanceCorrector", fields: [correctedById], references: [id])
 
   @@unique([employeeId, date])
   @@index([sucursalId, date])
@@ -213,6 +230,16 @@ model Vacation {
   rejectionReason String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  // --- Nuevos campos: permisos parciales y otorgamiento directo por admin ---
+  // grantMode: EMPLOYEE_REQUEST (solicitud del empleado, queda PENDING)
+  //            ADMIN_GRANTED     (otorgado directamente por admin, nace APPROVED)
+  grantMode       String   @default("EMPLOYEE_REQUEST")
+  // isPartial: true = permiso por horas dentro de un día (no descuenta saldo).
+  isPartial       Boolean  @default(false)
+  startTime       DateTime? // hora de salida (permiso parcial)
+  endTime         DateTime? // hora de regreso opcional (permiso parcial)
+  partialHours    Int?      // duración en horas (calculada o ingresada)
 
   employee    Employee @relation(fields: [employeeId], references: [id])
   requestedBy User     @relation("VacationRequester", fields: [requestedById], references: [id])
