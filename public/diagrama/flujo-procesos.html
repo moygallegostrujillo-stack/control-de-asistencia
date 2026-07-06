@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Flujo de Procesos - Control de Asistencia NOM-037</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #ffffff;
+    padding: 40px;
+    color: #1a1a1a;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+  h1 {
+    text-align: center;
+    font-size: 32px;
+    color: #18181b;
+    margin-bottom: 8px;
+    font-weight: 800;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 16px;
+    color: #71717a;
+    margin-bottom: 40px;
+  }
+  .flow-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .phase {
+    background: #fafafa;
+    border: 1px solid #e4e4e7;
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+  }
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #18181b;
+  }
+  .phase-number {
+    width: 40px;
+    height: 40px;
+    background: #18181b;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .phase-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #18181b;
+  }
+  .phase-actor {
+    margin-left: auto;
+    font-size: 13px;
+    color: #71717a;
+    background: #f4f4f5;
+    padding: 4px 12px;
+    border-radius: 20px;
+    border: 1px solid #e4e4e7;
+  }
+  .steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .step {
+    background: white;
+    border: 1px solid #d4d4d8;
+    border-radius: 8px;
+    padding: 12px 16px;
+    flex: 1;
+    min-width: 200px;
+    position: relative;
+  }
+  .step-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #18181b;
+    margin-bottom: 4px;
+  }
+  .step-desc {
+    font-size: 12px;
+    color: #71717a;
+    line-height: 1.4;
+  }
+  .step.action { border-left: 4px solid #3b82f6; }
+  .step.decision { border-left: 4px solid #f59e0b; }
+  .step.output { border-left: 4px solid #10b981; }
+  .step.error { border-left: 4px solid #ef4444; }
+  .arrow-down {
+    text-align: center;
+    font-size: 24px;
+    color: #a1a1aa;
+    margin: -8px 0;
+  }
+  .legend {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    margin-top: 32px;
+    padding: 16px;
+    background: #fafafa;
+    border-radius: 8px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #52525b;
+  }
+  .legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid #d4d4d8;
+  }
+  .legend-color.action { background: #dbeafe; border-color: #3b82f6; }
+  .legend-color.decision { background: #fef3c7; border-color: #f59e0b; }
+  .legend-color.output { background: #d1fae5; border-color: #10b981; }
+  .legend-color.error { background: #fee2e2; border-color: #ef4444; }
+  .footer {
+    text-align: center;
+    margin-top: 32px;
+    font-size: 12px;
+    color: #a1a1aa;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Flujo de Procesos — Control de Asistencia NOM-037</h1>
+  <p class="subtitle">Sistema v2.2 · Diagrama completo de procesos del sistema</p>
+
+  <div class="flow-grid">
+
+    <!-- FASE 1: Autenticación -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-number">1</div>
+        <div class="phase-title">Autenticación y Acceso</div>
+        <div class="phase-actor">Todos los roles</div>
+      </div>
+      <div class="steps">
+        <div class="step action">
+          <div class="step-title">Ingreso de credenciales</div>
+          <div class="step-desc">Email + contraseña en pantalla de login</div>
+        </div>
+        <div class="step decision">
+          <div class="step-title">¿MFA activo?</div>
+          <div class="step-desc">Verifica mfaEnabled en DB</div>
+        </div>
+        <div class="step action">
+          <div class="step-title">Validar TOTP / Backup code</div>
+          <div class="step-desc">Segundo factor con app autenticadora</div>
+        </div>
+        <div class="step output">
+          <div class="step-title">Sesión JWT emitida</div>
+          <div class="step-desc">Cookie next-auth.session-token (8h)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down">▼</div>
+
+    <!-- FASE 2: Check-in / Check-out Empleado -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-number">2</div>
+        <div class="phase-title">Registro de Asistencia (Empleado)</div>
+        <div class="phase-actor">EMPLOYEE</div>
+      </div>
+      <div class="steps">
+        <div class="step action">
+          <div class="step-title">Escanear QR dinámico</div>
+          <div class="step-desc">QR rotatorio en terminal/kiosco</div>
+        </div>
+        <div class="step decision">
+          <div class="step-title">¿QR válido y vigente?</div>
+          <div class="step-desc">Valida DynamicQR (30s expiry)</div>
+        </div>
+        <div class="step action">
+          <div class="step-title">Registrar ubicación GPS</div>
+          <div class="step-desc">Geofencing vs sucursal asignada</div>
+        </div>
+        <div class="step decision">
+          <div class="step-title">¿Dentro del radio permitido?</div>
+          <div class="step-desc">100m de la sucursal</div>
+        </div>
+        <div class="step output">
+          <div class="step-title">Registrar entrada/salida</div>
+          <div class="step-desc">Timestamp CDMX, tipo check-in/out</div>
+        </div>
+        <div class="step error">
+          <div class="step-title">Marcar incidencia</div>
+          <div class="step-desc">Fuera de radio → justificación pendiente</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down">▼</div>
+
+    <!-- FASE 3: Justificaciones -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-number">3</div>
+        <div class="phase-title">Justificación de Incidencias</div>
+        <div class="phase-actor">SUCURSAL_ADMIN / GENERAL_ADMIN</div>
+      </div>
+      <div class="steps">
+        <div class="step action">
+          <div class="step-title">Revisar incidencias</div>
+          <div class="step-desc">Panel de incidencias del día/semana</div>
+        </div>
+        <div class="step decision">
+          <div class="step-title">¿Aplica justificación?</div>
+          <div class="step-desc">Permiso, enfermedad, comisión, etc.</div>
+        </div>
+        <div class="step action">
+          <div class="step-title">Registrar justificación</div>
+          <div class="step-desc">Tipo + evidencia + observaciones</div>
+        </div>
+        <div class="step output">
+          <div class="step-title">Actualizar estado incidencia</div>
+          <div class="step-desc">JUSTIFICADA en audit log</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down">▼</div>
+
+    <!-- FASE 4: Reportes -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-number">4</div>
+        <div class="phase-title">Generación de Reportes</div>
+        <div class="phase-actor">GENERAL_ADMIN / SUCURSAL_ADMIN</div>
+      </div>
+      <div class="steps">
+        <div class="step action">
+          <div class="step-title">Seleccionar filtros</div>
+          <div class="step-desc">Rango fechas, sucursal, empleado</div>
+        </div>
+        <div class="step action">
+          <div class="step-title">Calcular métricas</div>
+          <div class="step-desc">Asistencia, retardos, tiempo extra, incidencias</div>
+        </div>
+        <div class="step output">
+          <div class="step-title">Exportar reporte</div>
+          <div class="step-desc">PDF / Excel / CSV</div>
+        </div>
+        <div class="step output">
+          <div class="step-title">Reporte comparativo</div>
+          <div class="step-desc">Multi-sucursal (solo GENERAL_ADMIN)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down">▼</div>
+
+    <!-- FASE 5: Vacaciones y Permisos -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-number">5</div>
+        <div class="phase-title">Gestión de Vacaciones y Permisos</div>
+        <div class="phase-actor">EMPLOYEE → ADMIN</div>
+      </div>
+      <div class="steps">
+        <div class="step action">
+          <div class="step-title">Solicitar vacaciones</div>
+          <div class="step-desc">Empleado envía rango de fechas</div>
+        </div>
+        <div class="step decision">
+          <div class="step-title">¿Saldo disponible?</div>
+          <div class="step-desc">Verifica días acumulados</div>
+        </div>
+        <div class="step action">
+          <div class="step-title">Aprobar / Rechazar</div>
+          <div class="step-desc">Admin revisa y decide</div>
+        </div>
+        <div class="step output">
+          <div class="step-title">Actualizar saldo</div>
+          <div class="step-desc">Descuenta días aprobados</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down">▼</div>
+
+    <!-- FASE 6: Auditoría -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-number">6</div>
+        <div class="phase-title">Auditoría y Seguridad</div>
+        <div class="phase-actor">GENERAL_ADMIN</div>
+      </div>
+      <div class="steps">
+        <div class="step action">
+          <div class="step-title">Registro automático</div>
+          <div class="step-desc">Todas las acciones → AuditLog</div>
+        </div>
+        <div class="step action">
+          <div class="step-title">Consulta de logs</div>
+          <div class="step-desc">Filtro por usuario, acción, fecha</div>
+        </div>
+        <div class="step output">
+          <div class="step-title">Trazabilidad completa</div>
+          <div class="step-desc">IP, UA, timestamp CDMX</div>
+        </div>
+        <div class="step error">
+          <div class="step-title">Bloqueo por intentos</div>
+          <div class="step-desc">5 intentos fallidos → 15 min lock</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-color action"></div> Acción</div>
+    <div class="legend-item"><div class="legend-color decision"></div> Decisión</div>
+    <div class="legend-item"><div class="legend-color output"></div> Resultado</div>
+    <div class="legend-item"><div class="legend-color error"></div> Error / Incidencia</div>
+  </div>
+
+  <div class="footer">
+    Control de Asistencia NOM-037 · v2.2 · Rev. 2 · 2026
+  </div>
+</div>
+</body>
+</html>
