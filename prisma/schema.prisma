@@ -1,5 +1,12 @@
 // ============================================================
-// Control de Asistencia NOM-037 — Schema v2.2 (SQLite dev)
+// Control de Asistencia NOM-037 — Schema v2.2 (PostgreSQL)
+// ============================================================
+// ESTE ARCHIVO ES PARA PRODUCCIÓN (Vercel + Supabase).
+// Para desarrollo local, usar `schema.prisma` (SQLite).
+//
+// Cambiar entre los dos con:
+//   ./scripts/switch-schema.sh postgres   ← producción
+//   ./scripts/switch-schema.sh sqlite     ← dev local
 // ============================================================
 
 generator client {
@@ -7,10 +14,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider  = "postgresql"
   url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
-
 
 // ============================================================
 // MODELO: Company (singleton) — datos de la empresa

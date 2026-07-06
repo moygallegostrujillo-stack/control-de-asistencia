@@ -13,7 +13,7 @@ import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
 import type { AuthUser } from '@/lib/auth';
 import { useRealtime } from '@/hooks/use-realtime';
 import { cn } from '@/lib/utils';
-import { formatTimeInMexico, formatDateInMexico, formatMinutes, formatDateTimeInMexico, getMexicoTodayISO } from '@/lib/timezone';
+import { formatTimeInMexico, formatDateInMexico, formatMinutes, formatDateTimeInMexico, getMexicoTodayISO, toISODate } from '@/lib/timezone';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -47,7 +47,7 @@ import {
   LogIn,
   Shield, ShieldAlert, Copy, ArrowLeft, Check,
   Maximize2, Minimize2,
-  FileDown, FileText, ExternalLink, BookOpen, FileType, Scale,
+  FileDown, FileText, ExternalLink, BookOpen, FileType, Scale, Sparkles,
 } from 'lucide-react';
 
 // ============================================================
@@ -4370,6 +4370,19 @@ function QRTerminalView() {
 // COMPANY VIEW
 // ============================================================
 
+// Feriados oficiales de México 2027 según art. 74 LFT.
+// Fuente: Ley Federal del Trabajo, art. 74 fracciones I-VII.
+// Los que caen en día festivo se mueven al lunes (art. 74 párrafo segundo).
+const MEXICO_OFFICIAL_HOLIDAYS_2027: Array<{ date: string; name: string; law: string }> = [
+  { date: '2027-01-01', name: 'Año Nuevo', law: 'Art. 74 frac. I LFT' },
+  { date: '2027-02-01', name: 'Día de la Constitución', law: 'Art. 74 frac. II LFT (primer lunes de febrero)' },
+  { date: '2027-03-15', name: 'Natalicio de Benito Juárez', law: 'Art. 74 frac. III LFT (tercer lunes de marzo)' },
+  { date: '2027-05-01', name: 'Día del Trabajo', law: 'Art. 74 frac. IV LFT' },
+  { date: '2027-09-16', name: 'Día de la Independencia', law: 'Art. 74 frac. V LFT' },
+  { date: '2027-11-15', name: 'Día de la Revolución', law: 'Art. 74 frac. VI LFT (tercer lunes de noviembre)' },
+  { date: '2027-12-25', name: 'Navidad', law: 'Art. 74 frac. VII LFT' },
+];
+
 function CompanyView() {
   const [company, setCompany] = useState<any>(null);
   const [holidays, setHolidays] = useState<any[]>([]);
@@ -4384,6 +4397,18 @@ function CompanyView() {
     email: '',
     representanteLegal: '',
   });
+
+  // --- Estados para feriados ---
+  const [holidayDialogOpen, setHolidayDialogOpen] = useState(false);
+  const [holidaySaving, setHolidaySaving] = useState(false);
+  const [holidayForm, setHolidayForm] = useState({
+    date: '',
+    name: '',
+    description: '',
+    isOfficial: true,
+  });
+  const [showOfficialDialog, setShowOfficialDialog] = useState(false);
+  const [officialLoading, setOfficialLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -4434,6 +4459,95 @@ function CompanyView() {
       toast.error('Error de conexión');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // --- Handler: guardar feriado manual ---
+  const handleSaveHoliday = async () => {
+    if (!holidayForm.date || !holidayForm.name) {
+      toast.error('Fecha y nombre son obligatorios');
+      return;
+    }
+    setHolidaySaving(true);
+    try {
+      const res = await authFetch('/api/holidays', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: holidayForm.date,
+          name: holidayForm.name.trim(),
+          description: holidayForm.description.trim() || null,
+          isOfficial: holidayForm.isOfficial,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Error al guardar feriado');
+        return;
+      }
+      toast.success(`Feriado "${holidayForm.name}" agregado`);
+      setHolidayDialogOpen(false);
+      load();
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setHolidaySaving(false);
+    }
+  };
+
+  // --- Handler: eliminar feriado ---
+  const handleDeleteHoliday = async (h: any) => {
+    if (!confirm(`¿Eliminar el feriado "${h.name}" del ${formatDateInMexico(h.date)}?`)) return;
+    try {
+      const res = await authFetch(`/api/holidays/${h.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Error al eliminar');
+        return;
+      }
+      toast.success('Feriado eliminado');
+      load();
+    } catch {
+      toast.error('Error de conexión');
+    }
+  };
+
+  // --- Handler: cargar feriados oficiales 2027 en lote ---
+  const handleLoadOfficialHolidays = async () => {
+    setOfficialLoading(true);
+    let created = 0;
+    let skipped = 0;
+    try {
+      for (const h of MEXICO_OFFICIAL_HOLIDAYS_2027) {
+        // Verificar si ya existe (comparar por fecha formateada)
+        const exists = holidays.some(
+          (eh) => toISODate(eh.date) === h.date
+        );
+        if (exists) {
+          skipped++;
+          continue;
+        }
+        const res = await authFetch('/api/holidays', {
+          method: 'POST',
+          body: JSON.stringify({
+            date: h.date,
+            name: h.name,
+            description: h.law,
+            isOfficial: true,
+          }),
+        });
+        if (res.ok) created++;
+      }
+      if (created > 0) {
+        toast.success(`${created} feriado(s) oficial(es) cargado(s)${skipped > 0 ? ` · ${skipped} ya existían` : ''}`);
+      } else if (skipped > 0) {
+        toast.info(`Todos los feriados oficiales ya estaban registrados (${skipped})`);
+      }
+      setShowOfficialDialog(false);
+      load();
+    } catch {
+      toast.error('Error de conexión al cargar feriados');
+    } finally {
+      setOfficialLoading(false);
     }
   };
 
@@ -4488,39 +4602,220 @@ function CompanyView() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5" /> Días Feriados Oficiales
-          </CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5" /> Días Feriados Oficiales
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Días no laborables según art. 74 LFT. Los feriados oficiales son obligatorios.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowOfficialDialog(true)}
+                className="gap-1.5"
+                title="Cargar automáticamente los 7 feriados oficiales de México 2027 (art. 74 LFT)"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span className="hidden sm:inline">Cargar oficiales 2027</span>
+                <span className="sm:hidden">Oficiales</span>
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setHolidayForm({ date: '', name: '', description: '', isOfficial: true });
+                  setHolidayDialogOpen(true);
+                }}
+                className="gap-1.5"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Agregar feriado</span>
+                <span className="sm:hidden">Agregar</span>
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="max-h-96 overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Descripción</TableHead>
-                  <TableHead>Oficial</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {holidays.map((h) => (
-                  <TableRow key={h.id}>
-                    <TableCell className="whitespace-nowrap">{formatDateInMexico(h.date)}</TableCell>
-                    <TableCell className="font-medium">{h.name}</TableCell>
-                    <TableCell className="text-zinc-500 text-sm">{h.description || '-'}</TableCell>
-                    <TableCell>
-                      <Badge variant={h.isOfficial ? 'default' : 'secondary'}>
-                        {h.isOfficial ? 'Oficial' : 'Opcional'}
-                      </Badge>
-                    </TableCell>
+          {holidays.length === 0 ? (
+            <div className="text-center py-8 text-zinc-500">
+              <CalendarDays className="mx-auto mb-2 h-8 w-8 text-zinc-300" />
+              <p className="text-sm">No hay días feriados registrados.</p>
+              <p className="text-xs mt-1">
+                Agrega feriados manualmente o usa <strong>"Cargar oficiales 2027"</strong> para
+                precargar los 7 días festivos obligatorios de México.
+              </p>
+            </div>
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Descripción</TableHead>
+                    <TableHead>Oficial</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {holidays.map((h) => (
+                    <TableRow key={h.id}>
+                      <TableCell className="whitespace-nowrap">{formatDateInMexico(h.date)}</TableCell>
+                      <TableCell className="font-medium">{h.name}</TableCell>
+                      <TableCell className="text-zinc-500 text-sm">{h.description || '-'}</TableCell>
+                      <TableCell>
+                        <Badge variant={h.isOfficial ? 'default' : 'secondary'}>
+                          {h.isOfficial ? 'Oficial' : 'Opcional'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteHoliday(h)}
+                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          title="Eliminar feriado"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Dialog: Agregar feriado manualmente */}
+      <Dialog open={holidayDialogOpen} onOpenChange={setHolidayDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Agregar día feriado</DialogTitle>
+            <DialogDescription>
+              Registra un día no laborable. Los feriados oficiales (art. 74 LFT) son obligatorios
+              para todos los empleados.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="holiday-date">Fecha</Label>
+              <Input
+                id="holiday-date"
+                type="date"
+                value={holidayForm.date}
+                onChange={(e) => setHolidayForm({ ...holidayForm, date: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="holiday-name">Nombre</Label>
+              <Input
+                id="holiday-name"
+                placeholder="Ej: Año Nuevo, Día del Trabajo, Navidad…"
+                value={holidayForm.name}
+                onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="holiday-desc">Descripción (opcional)</Label>
+              <Input
+                id="holiday-desc"
+                placeholder="Ej: Festividad oficial according to art. 74 LFT frac. I"
+                value={holidayForm.description}
+                onChange={(e) => setHolidayForm({ ...holidayForm, description: e.target.value })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="holiday-official" className="cursor-pointer">Feriado oficial</Label>
+                <p className="text-xs text-muted-foreground">
+                  Marca si es un día festivo oficial según el art. 74 LFT.
+                </p>
+              </div>
+              <Switch
+                id="holiday-official"
+                checked={holidayForm.isOfficial}
+                onCheckedChange={(v) => setHolidayForm({ ...holidayForm, isOfficial: v })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHolidayDialogOpen(false)} disabled={holidaySaving}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveHoliday} disabled={holidaySaving || !holidayForm.date || !holidayForm.name}>
+              {holidaySaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}
+              Guardar feriado
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Cargar feriados oficiales 2027 */}
+      <Dialog open={showOfficialDialog} onOpenChange={setShowOfficialDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Cargar feriados oficiales de México 2027</DialogTitle>
+            <DialogDescription>
+              Se cargarán los 7 días festivos obligatorios según el <strong>art. 74 LFT</strong>.
+              Si alguno ya existe en esa fecha, se omitirá.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2 max-h-72 overflow-y-auto">
+            {MEXICO_OFFICIAL_HOLIDAYS_2027.map((h) => {
+              const exists = holidays.some(
+                (eh) => toISODate(eh.date) === h.date
+              );
+              return (
+                <div
+                  key={h.date}
+                  className={`flex items-center justify-between rounded-lg border p-2.5 text-sm ${
+                    exists ? 'opacity-60 bg-muted/40' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <div>
+                      <p className="font-medium">{h.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {h.date.split('-').reverse().join('/')} · {h.law}
+                      </p>
+                    </div>
+                  </div>
+                  {exists ? (
+                    <Badge variant="secondary">Ya existe</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-emerald-700 border-emerald-300">
+                      Se cargará
+                    </Badge>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowOfficialDialog(false)} disabled={officialLoading}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleLoadOfficialHolidays}
+              disabled={officialLoading}
+              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+            >
+              {officialLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Cargar feriados
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

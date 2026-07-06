@@ -58,7 +58,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Parseo de fecha (formato YYYY-MM-DD).
-    const parsed = new Date(date);
+    // Usamos T12:00:00Z (mediodía UTC) para que el cambio de zona horaria
+    // (ej. Mexico UTC-6) no mueva la fecha al día anterior.
+    const parsed = new Date(date + 'T12:00:00Z');
     if (isNaN(parsed.getTime())) {
       return NextResponse.json(
         { error: 'Formato de fecha inválido (usar YYYY-MM-DD)' },
