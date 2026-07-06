@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Puesta en Marcha — Sistema de Control de Asistencia</title>
+<style>
+  :root {
+    --bg: #F8FAFC;
+    --surface: #FFFFFF;
+    --border: #E2E8F0;
+    --text: #1E293B;
+    --text-sub: #475569;
+    --text-muted: #64748B;
+    --accent: #4A6B8A;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', 'Helvetica Neue', 'Segoe UI', Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 48px 40px;
+    -webkit-font-smoothing: antialiased;
+  }
+  #root {
+    width: fit-content;
+    min-width: 900px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .hero-header {
+    background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+    border-radius: 16px;
+    padding: 36px 40px;
+    color: #FFFFFF;
+    margin-bottom: 28px;
+  }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(74, 107, 138, 0.25);
+    color: #BFD2E5;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 5px 14px;
+    border-radius: 20px;
+    margin-bottom: 14px;
+  }
+  .hero-header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    letter-spacing: -0.3px;
+  }
+  .hero-header p {
+    font-size: 14px;
+    color: #94A3B8;
+    line-height: 1.6;
+    max-width: 760px;
+  }
+
+  /* Phase groups — Layout C: Phased Vertical */
+  .phase-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 28px 24px;
+    margin-bottom: 18px;
+  }
+  .phase-title {
+    font-size: 16px;
+    font-weight: 700;
+    padding: 11px 18px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .phase-title .phase-num {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    opacity: 0.7;
+    text-transform: uppercase;
+  }
+  .phase-title .phase-name {
+    font-weight: 700;
+  }
+  .phase-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-left: 6px;
+  }
+  .phase-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text);
+    padding: 11px 16px;
+    background: #F8FAFC;
+    border-radius: 8px;
+    border: 1px solid #EEF2F7;
+  }
+  .phase-step .step-num {
+    flex-shrink: 0;
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .phase-step .step-body {
+    flex: 1;
+  }
+  .phase-step .step-title {
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .phase-step .step-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .phase-step code {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    background: #EEF2F7;
+    color: #1E3A5F;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+  }
+  .phase-step .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .badge-optional {
+    background: #FEF3C7;
+    color: #92400E;
+  }
+  .badge-required {
+    background: #D1FAE5;
+    color: #065F46;
+  }
+
+  /* Phase colors — Scheme B: neutral gray base + blue accent progression (6 phases) */
+  .phase-1 .phase-title { background: #F8FAFC; color: #334155; border-left: 4px solid #94A3B8; }
+  .phase-1 .step-num   { background: #F1F5F9; color: #475569; }
+
+  .phase-2 .phase-title { background: #F1F5F9; color: #2D4156; border-left: 4px solid #7B8FA3; }
+  .phase-2 .step-num   { background: #E2E8F0; color: #2D4156; }
+
+  .phase-3 .phase-title { background: #E8EDF3; color: #283C52; border-left: 4px solid #6B809A; }
+  .phase-3 .step-num   { background: #DBEAFE; color: #283C52; }
+
+  .phase-4 .phase-title { background: #E2E8F0; color: #23364D; border-left: 4px solid #5B7590; }
+  .phase-4 .step-num   { background: #D0D9E4; color: #23364D; }
+
+  .phase-5 .phase-title { background: #DAE1EB; color: #1E3048; border-left: 4px solid #4B6A87; }
+  .phase-5 .step-num   { background: #C7D2E0; color: #1E3048; }
+
+  .phase-6 .phase-title { background: #D2DAE5; color: #192A3E; border-left: 4px solid #3B5F7D; }
+  .phase-6 .step-num   { background: #BFC9D8; color: #192A3E; }
+
+  /* Phase arrow */
+  .phase-arrow {
+    text-align: center;
+    color: #94A3B8;
+    font-size: 22px;
+    margin: 4px 0 4px;
+    line-height: 1;
+  }
+
+  /* Footer note */
+  .footer-note {
+    margin-top: 26px;
+    background: #FFF7ED;
+    border: 1px solid #FED7AA;
+    border-left: 4px solid #F59E0B;
+    border-radius: 10px;
+    padding: 18px 22px;
+    font-size: 13px;
+    color: #7C2D12;
+    line-height: 1.6;
+  }
+  .footer-note strong {
+    color: #7C2D12;
+    font-weight: 700;
+  }
+  .footer-note a {
+    color: #92400E;
+    text-decoration: none;
+    font-weight: 600;
+    border-bottom: 1px dashed #F59E0B;
+  }
+  .legend {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    margin-top: 16px;
+    padding: 12px 18px;
+    background: #F8FAFC;
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--text-sub);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  }
+</style>
+</head>
+<body>
+<div id="root">
+
+  <div class="hero-header">
+    <span class="hero-badge">GUÍA OPERATIVA · CONTROL DE ASISTENCIA</span>
+    <h1>Puesta en Marcha del Sistema en la Empresa</h1>
+    <p>Hoja de ruta de 6 fases para dejar el sistema listo para operación diaria. Cada fase debe completarse antes de avanzar a la siguiente. Duración estimada total: 1 a 2 días hábiles.</p>
+  </div>
+
+  <!-- FASE 1 -->
+  <div class="phase-group phase-1">
+    <div class="phase-title">
+      <span class="phase-num">FASE 1</span>
+      <span class="phase-name">Acceso Inicial y Seguridad del Administrador</span>
+    </div>
+    <div class="phase-steps">
+      <div class="phase-step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <div class="step-title">Iniciar sesión como administrador general</div>
+          <div class="step-desc">Entra a la URL de producción con <code>admin@control.com</code> / <code>Admin#2025</code>. Es el único usuario que existe ahora mismo.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <div class="step-title">Cambiar la contraseña del administrador <span class="badge badge-required">recomendado</span></div>
+          <div class="step-desc">Desde "Mi Perfil" sustituye <code>Admin#2025</code> por una contraseña robusta propia (mín. 12 caracteres, mayúsculas, números y símbolos).</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <div class="step-title">Activar MFA (doble factor) <span class="badge badge-optional">opcional pero sugerido</span></div>
+          <div class="step-desc">Escanea el código QR con Google Authenticator / Authy y guarda los códigos de respaldo. Protege el acceso de producción.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- FASE 2 -->
+  <div class="phase-group phase-2">
+    <div class="phase-title">
+      <span class="phase-num">FASE 2</span>
+      <span class="phase-name">Configuración de la Empresa y Días Feriados</span>
+    </div>
+    <div class="phase-steps">
+      <div class="phase-step">
+        <span class="step-num">4</span>
+        <div class="step-body">
+          <div class="step-title">Llenar datos fiscales de la empresa</div>
+          <div class="step-desc">En "Empresa y Feriados" captura: razón social, RFC, régimen fiscal, dirección fiscal, teléfono y correo de contacto. Estos datos aparecen en reportes y nómina.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">5</span>
+        <div class="step-body">
+          <div class="step-title">Cargar feriados oficiales 2027</div>
+          <div class="step-desc">Clic en <code>Cargar oficiales 2027</code> → se importan los 7 feriados obligatorios del art. 74 LFT (Año Nuevo, Constitución, Juárez, Trabajo, Independencia, Revolución, Navidad).</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">6</span>
+        <div class="step-body">
+          <div class="step-title">Agregar feriados locales o empresariales</div>
+          <div class="step-desc">Si tu empresa opera en una entidad con feriados locales (ej. aniversario de la ciudad) o tiene días libres corporativos, agrégalos con <code>+ Agregar feriado</code> y marca si son oficiales.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- FASE 3 -->
+  <div class="phase-group phase-3">
+    <div class="phase-title">
+      <span class="phase-num">FASE 3</span>
+      <span class="phase-name">Registro de Sucursales, Empleados y Horarios</span>
+    </div>
+    <div class="phase-steps">
+      <div class="phase-step">
+        <span class="step-num">7</span>
+        <div class="step-body">
+          <div class="step-title">Dar de alta las sucursales</div>
+          <div class="step-desc">En "Sucursales" registra cada centro de trabajo: nombre, dirección, zona horaria y responsable. Mínimo 1 sucursal es necesaria para poder registrar empleados.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">8</span>
+        <div class="step-body">
+          <div class="step-title">Registrar a los empleados</div>
+          <div class="step-desc">En "Empleados" captura por persona: nombre completo, CURP, NSS, puesto, sucursal asignada, salario/día y correo. El sistema genera su QR personal automáticamente.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">9</span>
+        <div class="step-body">
+          <div class="step-title">Configurar horarios semanales</div>
+          <div class="step-desc">Por cada empleado define horario de entrada y salida por día (lun–vie, sábado opcional). Marca días de descanso. Esto habilita el cálculo de retardos, horas extra y ausencias.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- FASE 4 -->
+  <div class="phase-group phase-4">
+    <div class="phase-title">
+      <span class="phase-num">FASE 4</span>
+      <span class="phase-name">Códigos QR de Sucursal y Usuarios Supervisores</span>
+    </div>
+    <div class="phase-steps">
+      <div class="phase-step">
+        <span class="step-num">10</span>
+        <div class="step-body">
+          <div class="step-title">Activar el QR dinámico de cada sucursal</div>
+          <div class="step-desc">Cada sucursal tiene un QR que rota automáticamente cada N segundos (anti-captura de pantalla). Imprímelo y colócalo en un punto visible junto a la entrada del personal.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">11</span>
+        <div class="step-body">
+          <div class="step-title">Crear usuarios supervisores <span class="badge badge-optional">si aplica</span></div>
+          <div class="step-desc">Si tendrás jefes de sucursal o RH, créales usuario con rol <code>SUCURSAL_ADMIN</code> y asígnales su sucursal. Solo verán a sus empleados y reportes de su sucursal.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">12</span>
+        <div class="step-body">
+          <div class="step-title">Verificar el QR personal de cada empleado</div>
+          <div class="step-desc">En "Empleados" abre cada ficha y revisa que el QR personal se genere correctamente. El empleado lo usará desde su celular para registrar entrada/salida.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- FASE 5 -->
+  <div class="phase-group phase-5">
+    <div class="phase-title">
+      <span class="phase-num">FASE 5</span>
+      <span class="phase-name">Capacitación y Prueba Piloto</span>
+    </div>
+    <div class="phase-steps">
+      <div class="phase-step">
+        <span class="step-num">13</span>
+        <div class="step-body">
+          <div class="step-title">Capacitar al personal</div>
+          <div class="step-desc">Reúne a los empleados y muéstrales: cómo escanear el QR de la sucursal al entrar y al salir, y cómo consultar su historial desde su cuenta. Entrega un instructivo impreso.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">14</span>
+        <div class="step-body">
+          <div class="step-title">Realizar prueba piloto (1–2 días)</div>
+          <div class="step-desc">Operen con registros reales en esos días. Verifica que las entradas/salidas se registren con hora y sucursal correcta. Ajusta horarios si hay diferencias.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">15</span>
+        <div class="step-body">
+          <div class="step-title">Validar reportes y alertas</div>
+          <div class="step-desc">Revisa la sección "Asistencia" y "Reportes": retardos, faltas, horas extra. Confirma que las alertas por llegada tarde o ausencia se disparen correctamente.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- FASE 6 -->
+  <div class="phase-group phase-6">
+    <div class="phase-title">
+      <span class="phase-num">FASE 6</span>
+      <span class="phase-name">Operación Diaria y Mantenimiento</span>
+    </div>
+    <div class="phase-steps">
+      <div class="phase-step">
+        <span class="step-num">16</span>
+        <div class="step-body">
+          <div class="step-title">Monitoreo diario de asistencia</div>
+          <div class="step-desc">Cada mañana revisa el dashboard: llegadas tardías, ausencias, empleados sin registro. Atiende las alertas pendientes antes de fin de jornada.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">17</span>
+        <div class="step-body">
+          <div class="step-title">Gestión de vacaciones e incidencias</div>
+          <div class="step-desc">Aprueba o rechaza solicitudes de vacaciones en "Vacaciones". Registra incidencias (permisos, incapacidades, faltas justificadas) para que no afecten el cálculo de nómina.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">18</span>
+        <div class="step-body">
+          <div class="step-title">Reportes mensuales para nómina</div>
+          <div class="step-desc">A fin de mes genera el reporte de asistencia por empleado/sucursal y expórtalo a Excel/PDF para enviarlo al área de nómina o contador.</div>
+        </div>
+      </div>
+      <div class="phase-step">
+        <span class="step-num">19</span>
+        <div class="step-body">
+          <div class="step-title">Auditoría periódica <span class="badge badge-required">solo admin</span></div>
+          <div class="step-desc">En "Auditoría" revisa el registro de acciones sensibles (logins, cambios de horario, eliminaciones). Limpia el log trimestralmente y mantén respaldos del backup mensual.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leyenda -->
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot" style="background:#D1FAE5;"></span> Recomendado / obligatorio</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#FEF3C7;"></span> Opcional según necesidad</span>
+    <span class="legend-item" style="margin-left:auto;color:#64748B;">Tiempo estimado total: 1–2 días hábiles</span>
+  </div>
+
+  <!-- Footer note -->
+  <div class="footer-note">
+    <strong>Nota importante:</strong> Las fases 1 a 4 son configuración inicial y se hacen una sola vez. La fase 5 (capacitación + prueba) es crítica: nunca pases a operación sin validar el registro de al menos una jornada completa real. La fase 6 es el ciclo permanente de operación.<br>
+    Si necesitas ayuda con alguna fase específica, dime el número de paso y te expando el detalle o lo configuramos juntos en el sistema.
+  </div>
+
+</div>
+</body>
+</html>

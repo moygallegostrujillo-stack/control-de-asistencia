@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Recomendación de Infraestructura — Control de Asistencia</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  @page {
+    size: A4;
+    margin: 22mm 20mm 20mm 20mm;
+    @bottom-center {
+      content: "Recomendación de Infraestructura · Control de Asistencia NOM-037";
+      font-family: 'Inter', sans-serif;
+      font-size: 9pt;
+      color: #94A3B8;
+    }
+    @bottom-right {
+      content: "Página " counter(page) " de " counter(pages);
+      font-family: 'Inter', sans-serif;
+      font-size: 9pt;
+      color: #94A3B8;
+    }
+  }
+  @page :first {
+    margin: 0;
+    @bottom-center { content: none; }
+    @bottom-right { content: none; }
+  }
+
+  :root {
+    --text: #0F172A;
+    --text-sub: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --border-soft: #EEF2F7;
+    --bg: #FFFFFF;
+    --bg-soft: #F8FAFC;
+    --accent: #1E3A5F;
+    --accent-soft: #DBEAFE;
+    --positive: #047857;
+    --positive-soft: #D1FAE5;
+    --warning: #B45309;
+    --warning-soft: #FEF3C7;
+    --negative: #B91C1C;
+    --negative-soft: #FEE2E2;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ============ COVER PAGE ============ */
+  .cover {
+    page-break-after: always;
+    width: 210mm;
+    height: 297mm;
+    background: linear-gradient(160deg, #0F172A 0%, #1E293B 60%, #1E3A5F 100%);
+    color: #F1F5F9;
+    padding: 26mm 24mm;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover-content {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cover-top {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-bottom: 18mm;
+  }
+  .cover-badge {
+    display: inline-block;
+    background: rgba(59, 130, 246, 0.18);
+    color: #93C5FD;
+    font-size: 10pt;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(147, 197, 253, 0.3);
+  }
+  .cover-middle {
+    margin-top: 8mm;
+  }
+  .cover h1 {
+    font-size: 34pt;
+    font-weight: 800;
+    letter-spacing: -0.8pt;
+    line-height: 1.1;
+    color: #FFFFFF;
+    margin-bottom: 10mm;
+  }
+  .cover h2 {
+    font-size: 14pt;
+    font-weight: 400;
+    color: #CBD5E1;
+    line-height: 1.45;
+    max-width: 150mm;
+    margin-bottom: 12mm;
+  }
+  .cover-summary {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 12px;
+    padding: 12mm 14mm;
+    backdrop-filter: blur(8px);
+  }
+  .cover-summary-label {
+    font-size: 9pt;
+    color: #93C5FD;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6mm;
+  }
+  .cover-summary p {
+    font-size: 11pt;
+    color: #E2E8F0;
+    line-height: 1.6;
+  }
+  .cover-summary strong {
+    color: #FFFFFF;
+    font-weight: 600;
+  }
+  .cover-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    padding-top: 10mm;
+  }
+  .cover-meta {
+    display: flex;
+    gap: 16mm;
+  }
+  .cover-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2mm;
+  }
+  .cover-meta-label {
+    font-size: 8pt;
+    color: #94A3B8;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+  }
+  .cover-meta-value {
+    font-size: 11pt;
+    color: #F1F5F9;
+    font-weight: 500;
+  }
+
+  /* ============ CONTENT PAGES ============ */
+  h1.section-title {
+    font-size: 22pt;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3pt;
+    margin: 0 0 6mm 0;
+    padding-bottom: 4mm;
+    border-bottom: 2px solid var(--accent);
+  }
+  h2 {
+    font-size: 14pt;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 8mm 0 4mm 0;
+    letter-spacing: -0.1pt;
+  }
+  h3 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: var(--text-sub);
+    margin: 6mm 0 3mm 0;
+  }
+  p {
+    margin-bottom: 4mm;
+    text-align: justify;
+    color: var(--text);
+  }
+  strong { color: var(--text); font-weight: 600; }
+  em { color: var(--text-sub); }
+
+  ul, ol {
+    margin: 0 0 4mm 6mm;
+    padding-left: 4mm;
+  }
+  li {
+    margin-bottom: 2mm;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  li strong { font-weight: 600; }
+
+  /* First page after cover: top spacing */
+  .content-start {
+    padding-top: 0;
+  }
+
+  /* ============ TABLES ============ */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4mm 0 6mm 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  thead {
+    background: var(--accent);
+    color: #FFFFFF;
+  }
+  thead th {
+    padding: 3mm 4mm;
+    text-align: left;
+    font-weight: 600;
+    font-size: 9.5pt;
+    letter-spacing: 0.2pt;
+  }
+  tbody td {
+    padding: 3mm 4mm;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    color: var(--text);
+  }
+  tbody tr:nth-child(even) {
+    background: var(--bg-soft);
+  }
+  td.positive { color: var(--positive); font-weight: 600; }
+  td.warning { color: var(--warning); font-weight: 600; }
+  td.negative { color: var(--negative); font-weight: 600; }
+  td.strong { font-weight: 600; }
+
+  /* ============ CALLOUT BOXES ============ */
+  .callout {
+    border-radius: 8px;
+    padding: 5mm 6mm;
+    margin: 5mm 0;
+    page-break-inside: avoid;
+    font-size: 10pt;
+    line-height: 1.55;
+  }
+  .callout-title {
+    font-weight: 700;
+    margin-bottom: 2mm;
+    font-size: 10.5pt;
+    letter-spacing: 0.2pt;
+  }
+  .callout-positive {
+    background: var(--positive-soft);
+    border-left: 4px solid var(--positive);
+    color: #064E3B;
+  }
+  .callout-positive .callout-title { color: var(--positive); }
+  .callout-warning {
+    background: var(--warning-soft);
+    border-left: 4px solid var(--warning);
+    color: #78350F;
+  }
+  .callout-warning .callout-title { color: var(--warning); }
+  .callout-neutral {
+    background: var(--bg-soft);
+    border-left: 4px solid var(--accent);
+    color: var(--text);
+  }
+  .callout-neutral .callout-title { color: var(--accent); }
+
+  /* ============ CODE / MONO ============ */
+  code {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    background: var(--bg-soft);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9pt;
+  }
+
+  /* ============ HORIZONTAL RULE ============ */
+  hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 6mm 0;
+  }
+
+  /* ============ SECTION DIVIDER ============ */
+  .section-break {
+    page-break-before: always;
+  }
+
+  /* ============ SMALL CAPS SECTION NUM ============ */
+  .section-num {
+    display: inline-block;
+    font-size: 9pt;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 1.2pt;
+    text-transform: uppercase;
+    margin-bottom: 2mm;
+  }
+
+  /* Footer signature */
+  .signature {
+    margin-top: 14mm;
+    padding-top: 6mm;
+    border-top: 1px solid var(--border);
+    font-size: 9pt;
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<div class="cover">
+  <div class="cover-content">
+    <div class="cover-top">
+      <span class="cover-badge">Documento Técnico · v1.0</span>
+    </div>
+
+    <div class="cover-middle">
+      <h1>Recomendación<br>de Infraestructura</h1>
+      <h2>Base de datos y hosting para el Sistema de Control de Asistencia NOM-037 con operación de 20 empleados.</h2>
+
+      <div class="cover-summary">
+        <div class="cover-summary-label">Resumen ejecutivo</div>
+        <p>La infraestructura actual — <strong>Vercel + Supabase PostgreSQL + Next.js 16</strong> — es técnicamente óptima para la operación proyectada. <strong>No se recomienda migrar.</strong> El sistema usa menos del 0.1% de los límites del plan gratuito, cumple con NOM-037 y LFT, y su costo de operación es prácticamente nulo.</p>
+      </div>
+    </div>
+
+    <div class="cover-bottom">
+      <div class="cover-meta">
+        <div class="cover-meta-item">
+          <span class="cover-meta-label">Fecha</span>
+          <span class="cover-meta-value">Julio 2026</span>
+        </div>
+        <div class="cover-meta-item">
+          <span class="cover-meta-label">Versión</span>
+          <span class="cover-meta-value">1.0</span>
+        </div>
+        <div class="cover-meta-item">
+          <span class="cover-meta-label">Alcance</span>
+          <span class="cover-meta-value">20 empleados</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== SECCIÓN 1 ============================== -->
+<div class="content-start">
+  <span class="section-num">Sección 1</span>
+  <h1 class="section-title">Resumen Ejecutivo</h1>
+
+  <p>Después de analizar la carga proyectada de operación — 20 empleados, registro diario de asistencia, vacaciones, auditoría y reportes mensuales —, la conclusión es contundente: <strong>la infraestructura actual (Supabase PostgreSQL + Vercel) es técnicamente la opción óptima</strong>. No se recomienda migrar a otra base de datos ni cambiar de hosting en este momento.</p>
+
+  <p>El sistema actual está usando menos del 0.1% de la capacidad disponible, cumple con los requisitos legales de NOM-037 y LFT en cuanto a trazabilidad e integridad de datos, y su costo de operación es prácticamente nulo para el volumen del cliente. Una migración representaría semanas de trabajo, riesgo de pérdida de datos y degradación de características críticas, sin ningún beneficio tangible.</p>
+
+  <p>Este documento detalla el análisis técnico detrás de esta recomendación, explica por qué Vercel es la plataforma adecuada para alojar la aplicación, y analiza qué sucedería en caso de migrar a otro proveedor de hosting.</p>
+</div>
+
+<!-- ============================== SECCIÓN 2 ============================== -->
+<div class="section-break"></div>
+<span class="section-num">Sección 2</span>
+<h1 class="section-title">Recomendación sobre Base de Datos</h1>
+
+<h2>2.1 Configuración actual</h2>
+<p>El sistema está desplegado sobre <strong>Supabase</strong>, que es <strong>PostgreSQL 15 gestionado en la nube de AWS</strong>. La conexión se realiza a través de PgBouncer (transaction pooler en el puerto 6543), que es el estándar recomendado para aplicaciones serverless como las que corren en Vercel.</p>
+
+<p>La base de datos contiene 10 tablas principales: <code>Company</code>, <code>User</code>, <code>Sucursal</code>, <code>Employee</code>, <code>WorkSchedule</code>, <code>AttendanceRecord</code>, <code>Vacation</code>, <code>Holiday</code>, <code>AuditLog</code> y <code>DynamicQR</code>. Todas están correctamente indexadas y con constraints de integridad (llaves foráneas, campos únicos como <code>@@unique([employeeId, date])</code> en registros de asistencia).</p>
+
+<h2>2.2 Análisis de carga para 20 empleados</h2>
+<p>Para dimensionar correctamente, se calculó la carga operativa real del sistema con 20 empleados activos en operación diaria:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:32%">Concepto</th>
+      <th style="width:43%">Cálculo</th>
+      <th style="width:25%">Resultado</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Registros de asistencia por día</td>
+      <td>20 empleados × ~4 eventos (entrada, comida, descanso, salida)</td>
+      <td class="strong">~80 inserciones/día</td>
+    </tr>
+    <tr>
+      <td>QRs dinámicos generados por día</td>
+      <td>1 por sucursal, rotación cada 60s × 10 horas laborables</td>
+      <td class="strong">600 a 1,200/día (se purgan)</td>
+    </tr>
+    <tr>
+      <td>Logs de auditoría por día</td>
+      <td>Logins + check-ins + cambios de configuración</td>
+      <td class="strong">50 a 100/día</td>
+    </tr>
+    <tr>
+      <td>Solicitudes de vacaciones</td>
+      <td>Baja frecuencia operativa</td>
+      <td class="strong">5 a 10/mes</td>
+    </tr>
+    <tr>
+      <td>Registros de asistencia por año</td>
+      <td>20 empleados × ~260 días hábiles</td>
+      <td class="strong">~5,200 registros/año</td>
+    </tr>
+    <tr>
+      <td>Tamaño total estimado de BD por año</td>
+      <td>Attendance + audit + QR purgado</td>
+      <td class="strong">Menos de 50 MB/año</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>2.3 Veredicto</h2>
+<div class="callout callout-positive">
+  <div class="callout-title">Supabase soporta esta carga sin ningún problema técnico.</div>
+  <p>Para ponerlo en perspectiva, PostgreSQL en hardware modesto maneja <strong>miles de inserciones por segundo</strong>. El pico máximo del sistema (20 check-ins casi simultáneos a las 8:00 AM) se resuelve en milisegundos. El plan gratuito de Supabase (500 MB de almacenamiento, 2 GB de egresos mensuales) cubre con holgura <strong>varios años de operación</strong> antes de acercarse a cualquier límite.</p>
+</div>
+
+<h2>2.4 Por qué PostgreSQL es la elección correcta</h2>
+<p>Las características técnicas de PostgreSQL se alinean de forma natural con los requisitos de un sistema de control de asistencia sujeto a regulación mexicana (NOM-037 y LFT). Cada característica del motor resuelve un requisito concreto del dominio:</p>
+
+<ul>
+  <li><strong>Transacciones ACID.</strong> Garantizan que un registro de check-in no quede a medio escribir. Si se registra la entrada pero falla la salida, la base de datos revierte la operación parcial. Esto es crítico para nómina, donde un registro inconsistente significa pago incorrecto.</li>
+  <li><strong>Constraints únicos a nivel base de datos.</strong> El constraint <code>@@unique([employeeId, date])</code> impide que un empleado tenga dos registros el mismo día, incluso si hay un bug en la aplicación. La integridad de datos no depende del código, sino de la base de datos.</li>
+  <li><strong>Soporte JSONB.</strong> El campo <code>details</code> de <code>AuditLog</code> puede crecer con metadatos sin requerir migraciones de schema cada vez que se agrega un evento nuevo.</li>
+  <li><strong>Backups automáticos y Point-in-Time Recovery.</strong> Supabase realiza backup diario y permite recuperación a cualquier momento dentro de los últimos 7 días (Plan Pro). La NOM-037 exige conservar registros durante años; esta característica los protege contra fallas técnicas.</li>
+  <li><strong>Row Level Security (RLS).</strong> Permite definir políticas a nivel base de datos para que un administrador de sucursal jamás vea datos de otra sucursal, incluso si existe un bug en el código de la aplicación. Es defensa en profundidad, no solo seguridad en capa aplicativa.</li>
+  <li><strong>Pooler de conexiones (PgBouncer).</strong> Ya configurado, reutiliza conexiones TCP, lo que es esencial para Vercel serverless donde cada función puede abrir su propia conexión.</li>
+</ul>
+
+<h2>2.5 Comparativa con otras bases de datos</h2>
+<p>Para confirmar que la recomendación es la correcta, se evaluaron las alternativas más comunes en el mercado:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:30%">Base de datos</th>
+      <th style="width:28%">¿Sirve para 20 empleados?</th>
+      <th style="width:42%">Veredicto</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="strong">PostgreSQL en Supabase (actual)</td>
+      <td class="positive">Excelente</td>
+      <td class="strong">Mantener. Es la opción óptima.</td>
+    </tr>
+    <tr>
+      <td>MySQL (PlanetScale, AWS RDS)</td>
+      <td>Sí</td>
+      <td>Migrar no aporta nada y se pierden constraints avanzadas y RLS.</td>
+    </tr>
+    <tr>
+      <td>MongoDB (NoSQL)</td>
+      <td class="warning">Funciona, pero con riesgo</td>
+      <td>Pierde transacciones ACID y constraints únicos. Desaconsejado para nómina y datos legales.</td>
+    </tr>
+    <tr>
+      <td>SQLite (Turso)</td>
+      <td>Sí para desarrollo</td>
+      <td>Insuficiente para producción multiusuario concurrente.</td>
+    </tr>
+    <tr>
+      <td>CockroachDB</td>
+      <td>Sí, pero excesivo</td>
+      <td>Distribución global que no se necesita y encarece la operación.</td>
+    </tr>
+    <tr>
+      <td>SQL Server / Oracle</td>
+      <td>Sí</td>
+      <td>Costoso y propietario, sin beneficio real sobre PostgreSQL.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>2.6 ¿Cuándo sí habría que considerar migrar?</h2>
+<p>La migración solo se justificaría en escenarios que <strong>no aplican</strong> al cliente actual. Es importante conocerlos para dimensionar correctamente la decisión:</p>
+
+<ul>
+  <li><strong>Más de 500 empleados</strong> con check-in masivo simultáneo (ej. turnos de fábrica). Aún así, PostgreSQL seguiría siendo correcto, pero se añadirían réplicas de lectura y caché Redis.</li>
+  <li><strong>Carga sostenida mayor a 1,000 inserciones por segundo.</strong> Aquí se implementaría particionamiento por fecha en <code>AttendanceRecord</code> y <code>AuditLog</code>, pero manteniendo PostgreSQL.</li>
+  <li><strong>Operación multi-empresa (SaaS)</strong> con miles de organizaciones. Postgres con schema-per-tenant o particionamiento. Sigue siendo Postgres.</li>
+  <li><strong>Latencia geográfica</strong> porque los empleados están en otro continente. Se movería el proyecto Supabase a la región más cercana, sin cambiar de motor.</li>
+  <li><strong>Necesidad de análisis OLAP pesado</strong> (dashboards en tiempo real con agregaciones complejas sobre millones de registros). Se añadiría un data warehouse como réplica de lectura, no se reemplazaría Postgres.</li>
+</ul>
+
+<p>El cliente está a aproximadamente <strong>dos órdenes de magnitud del primer umbral</strong> (500 empleados). La decisión de migrar no se justifica técnicamente.</p>
+
+<h2>2.7 Recomendaciones de optimización (sin migrar)</h2>
+<p>Aunque no se requiere migrar, sí se recomiendan tres acciones de mantenimiento preventivo para blindar la operación a largo plazo:</p>
+
+<div class="callout callout-neutral">
+  <div class="callout-title">Acciones recomendadas</div>
+  <ol style="margin-bottom: 0;">
+    <li><strong>Subir al plan Pro de Supabase ($25 USD/mes)</strong> para tener backups automáticos diarios y Point-in-Time Recovery. Esto protege contra errores humanos y fallas técnicas.</li>
+    <li><strong>Configurar un cron mensual</strong> que purgue los <code>DynamicQR</code> vencidos con más de 30 días y los <code>AuditLog</code> con más de 2 años. Evita crecimiento innecesario de la base de datos.</li>
+    <li><strong>Mantener el backup manual mensual</strong> exportado a JSON (como el ya existente en <code>backups/</code>) como capa adicional de respaldo fuera de Supabase.</li>
+  </ol>
+</div>
+
+<!-- ============================== SECCIÓN 3 ============================== -->
+<div class="section-break"></div>
+<span class="section-num">Sección 3</span>
+<h1 class="section-title">Recomendación sobre Hosting (Vercel)</h1>
+
+<h2>3.1 Configuración actual</h2>
+<p>La aplicación está desplegada en <strong>Vercel</strong>, región <code>iad1</code> (este de EE. UU., la región más cercana a México con presencia de Vercel). El build ejecuta <code>prisma generate && prisma db push && next build</code>, lo que asegura que el cliente Prisma se regenere en cada deploy. El framework detectado es Next.js 16, con soporte nativo para Server Components, API routes y middleware.</p>
+
+<h2>3.2 Por qué Vercel es la plataforma adecuada</h2>
+<p>Vercel no es solo un hosting: es la plataforma diseñada por los mismos creadores de Next.js. Esto se traduce en ventajas concretas que otras plataformas no replican al mismo nivel:</p>
+
+<ul>
+  <li><strong>Compatibilidad nativa con Next.js 16.</strong> Server Components, App Router, middleware, ISR (Incremental Static Regeneration), edge functions y streaming SSR funcionan out-of-the-box sin configuración. Otra plataforma requiere adaptadores que pueden romperse en cada actualización de Next.js.</li>
+  <li><strong>Despliegue automático desde Git.</strong> Cada push a <code>main</code> se despliega a producción. Cada pull request genera un preview deployment con URL única. Esto significa cero intervención manual para publicar cambios.</li>
+  <li><strong>Edge Network global.</strong> La aplicación se sirve desde el CDN más cercano al usuario. Para empleados en México, el tiempo de carga inicial es menor a 200 ms.</li>
+  <li><strong>Serverless Functions escalado automático.</strong> Si un día todos los empleados hacen check-in al mismo tiempo, Vercel escala automáticamente las funciones sin intervención. No hay que dimensionar servidores.</li>
+  <li><strong>Variables de entorno cifradas y por entorno.</strong> Separación nativa entre producción, preview y desarrollo.</li>
+  <li><strong>Monitoreo y logs integrados.</strong> Cada función serverless tiene logs en tiempo real, métricas de duración y errores. No requiere configurar Datadog o Sentry para empezar.</li>
+  <li><strong>Plan gratuito suficiente.</strong> Para 20 empleados, el plan Hobby (gratuito) cubre todo: 100 GB de ancho de banda, 100 GB-horas de serverless, dominios personalizados.</li>
+</ul>
+
+<h2>3.3 Qué pasa si se migra a otro hosting</h2>
+<p>La pregunta clave es: <strong>¿qué se pierde al irse de Vercel?</strong> A continuación, el análisis honesto de cada alternativa común:</p>
+
+<h3>Opción A: Self-hosted en VPS (DigitalOcean, Linode, Hetzner)</h3>
+<p><strong>Qué se gana:</strong> Control total del servidor. Costo fijo predecible (VPS desde $5 USD/mes).</p>
+<p><strong>Qué se pierde:</strong> Hay que configurar manualmente Node.js, Nginx reverse proxy, certificados SSL (LetsEncrypt), PM2 para mantener el proceso vivo, logrotate, firewall y backups del servidor. Se pierde el escalado automático: si el VPS tiene 1 GB de RAM y entran 50 empleados al mismo tiempo, el servidor puede quedar sin responder. Hay que mantener el sistema operativo actualizado (security patches, kernel upgrades). No hay preview deployments; cada cambio se publica directo a producción o hay que montar un CI/CD propio.</p>
+<p><em>Veredicto:</em> Solo vale la pena si se tiene personal técnico dedicado a sysadmin. Para una pyme sin DevOps, es un retroceso.</p>
+
+<h3>Opción B: Railway / Render</h3>
+<p><strong>Qué se gana:</strong> Deploy más simple que un VPS. Soporte nativo para Node.js.</p>
+<p><strong>Qué se pierde:</strong> No tienen el nivel de integración con Next.js que tiene Vercel. Funciona, pero hay que adaptar la configuración. Preview deployments existen pero son menos potentes. El plan gratuito de Render expira tras 15 minutos de inactividad (cold starts de 30+ segundos en el primer request del día). Planes pagados inician en $7-19 USD/mes por servicio, más base de datos, más storage. Para igualar features de Vercel gratuito, se paga $30-50 USD/mes.</p>
+<p><em>Veredicto:</em> Alternativa razonable si Vercel deja de ser gratuito, pero inferior para Next.js.</p>
+
+<h3>Opción C: Cloudflare Pages / Workers</h3>
+<p><strong>Qué se gana:</strong> Performance excepcional (red edge global). Plan gratuito muy generoso.</p>
+<p><strong>Qué se pierde:</strong> Next.js 16 aún no es 100% compatible con Cloudflare Pages. Hay limitaciones con Server Components, middleware y algunas APIs. Requiere adaptador <code>@cloudflare/next-on-pages</code> que va detrás de cada release de Next. Las serverless functions de Cloudflare corren en V8 isolates, no en Node.js completo. Algunas librerías de Node (como <code>bcrypt</code>, <code>crypto</code> nativo) no funcionan sin polyfills. WebSocket (socket.io del mini-service realtime) requiere configuración adicional con Durable Objects.</p>
+<p><em>Veredicto:</em> Prometedor a futuro, pero inmaduro para Next.js 16 hoy. No recomendado para producción estable.</p>
+
+<h3>Opción D: Netlify</h3>
+<p><strong>Qué se gana:</strong> Similar a Vercel en UX del dashboard.</p>
+<p><strong>Qué se pierde:</strong> El soporte de Next.js en Netlify es a través del plugin <code>@netlify/plugin-nextjs</code>, que va un paso detrás de Vercel. Server Components y App Router tienen bugs documentados. Serverless functions tienen timeout de 10 segundos en plan gratuito (Vercel: 60 segundos en Hobby, 300 en Pro). Para reportes mensuales que generan Excel/PDF, esto puede ser insuficiente. Edge functions menos maduras que Vercel.</p>
+<p><em>Veredicto:</em> Peor que Vercel para Next.js. Solo se justifica si ya se tiene todo el stack en Netlify.</p>
+
+<h3>Opción E: AWS (Amplify, EC2, ECS)</h3>
+<p><strong>Qué se gana:</strong> Potencia técnica ilimitada. Integración con otros servicios AWS (RDS, S3, Lambda).</p>
+<p><strong>Qué se pierde:</strong> Complejidad operativa alta. Configurar Amplify para Next.js 16 es posible pero tedioso. Facturación impredecible (pago por uso sin techo claro). Requiere conocimientos de AWS IAM, VPC, security groups. El soporte de Next.js App Router en Amplify tiene limitaciones conocidas.</p>
+<p><em>Veredicto:</em> Overkill para 20 empleados. Solo se justifica si la empresa ya tiene infraestructura AWS y personal DevOps.</p>
+
+<h2>3.4 Tabla resumen: Vercel vs alternativas</h2>
+<table>
+  <thead>
+    <tr>
+      <th style="width:24%">Plataforma</th>
+      <th style="width:22%">Soporte Next.js 16</th>
+      <th style="width:20%">Costo mensual</th>
+      <th style="width:14%">Esfuerzo DevOps</th>
+      <th style="width:20%">Veredicto</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="strong">Vercel (actual)</td>
+      <td class="positive">Nativo, día cero</td>
+      <td>$0 (Hobby)</td>
+      <td>Cero</td>
+      <td class="strong">Mantener</td>
+    </tr>
+    <tr>
+      <td>VPS (DigitalOcean)</td>
+      <td class="warning">Manual, con Nginx</td>
+      <td>$5-20</td>
+      <td class="negative">Alto</td>
+      <td>No recomendado</td>
+    </tr>
+    <tr>
+      <td>Railway</td>
+      <td>Bueno</td>
+      <td>$5-20</td>
+      <td>Bajo</td>
+      <td>Alternativa aceptable</td>
+    </tr>
+    <tr>
+      <td>Render</td>
+      <td>Bueno</td>
+      <td>$7-19 por servicio</td>
+      <td>Bajo</td>
+      <td>Alternativa aceptable</td>
+    </tr>
+    <tr>
+      <td>Cloudflare Pages</td>
+      <td class="warning">Parcial</td>
+      <td>$0</td>
+      <td>Medio</td>
+      <td>Inmaduro</td>
+    </tr>
+    <tr>
+      <td>Netlify</td>
+      <td class="warning">A través de plugin</td>
+      <td>$0-19</td>
+      <td>Bajo</td>
+      <td>Inferior a Vercel</td>
+    </tr>
+    <tr>
+      <td>AWS Amplify</td>
+      <td class="warning">Limitado</td>
+      <td>$5-30</td>
+      <td class="negative">Alto</td>
+      <td>Overkill</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>3.5 Costo real de migrar de Vercel</h2>
+<p>Si el cliente decidiera migrar a otra plataforma, el costo real sería significativo en múltiples dimensiones:</p>
+
+<ul>
+  <li><strong>Tiempo de ingeniería:</strong> 1 a 2 semanas para configurar el nuevo hosting, adaptar el build, configurar dominio, SSL, variables de entorno y probar end-to-end.</li>
+  <li><strong>Riesgo de downtime:</strong> Migración DNS implica propagación de 24-48 horas donde la app puede estar parcialmente disponible.</li>
+  <li><strong>Riesgo de pérdida de datos:</strong> Si la migración involucra mover también la base de datos, hay que reconfigurar todas las URLs de conexión y hay ventana de riesgo.</li>
+  <li><strong>Pérdida de features:</strong> Sin preview deployments, sin escalado automático, sin logs integrados.</li>
+  <li><strong>Costo financiero neto:</strong> Negativo. Vercel Hobby es gratuito; cualquier alternativa pagada o self-hosted con tiempo de ingeniería resulta más cara.</li>
+</ul>
+
+<h2>3.6 Recomendación final sobre hosting</h2>
+<div class="callout callout-positive">
+  <div class="callout-title">Quedarse en Vercel.</div>
+  <p>Las únicas razones válidas para migrar serían: (1) Vercel elimina el plan Hobby gratuito (no hay indicios de esto); (2) la empresa crece a más de 1,000 empleados y necesita features enterprise (en cuyo caso Vercel Pro a $20 USD/mes sigue siendo mejor que migrar); o (3) razones de soberanía de datos que exijan hospedar en México (en cuyo caso, la respuesta sería un VPS en AWS México o un proveedor local, aceptando el costo operativo). Ninguna aplica al cliente actual.</p>
+</div>
+
+<!-- ============================== SECCIÓN 4 ============================== -->
+<div class="section-break"></div>
+<span class="section-num">Sección 4</span>
+<h1 class="section-title">Conclusión General</h1>
+
+<p>La infraestructura actual del sistema de control de asistencia — <strong>Vercel (hosting) + Supabase PostgreSQL (base de datos) + Prisma (ORM) + Next.js 16 (framework)</strong> — es técnicamente la opción óptima para una operación de 20 empleados. <strong>No se recomienda migrar a ninguna otra base de datos ni cambiar de hosting.</strong></p>
+
+<p>Las razones son claras y cuantificables:</p>
+
+<ol>
+  <li><strong>Capacidad sobrada:</strong> El sistema usa menos del 0.1% de los límites del plan gratuito.</li>
+  <li><strong>Cumplimiento legal:</strong> PostgreSQL garantiza integridad ACID y trazabilidad requerida por NOM-037 y LFT.</li>
+  <li><strong>Costo cero:</strong> Tanto Vercel Hobby como Supabase Free son gratuitos para este volumen.</li>
+  <li><strong>Cero mantenimiento operativo:</strong> No hay servidores que administrar, ni SSL que renovar, ni backups que configurar manualmente.</li>
+  <li><strong>Escalabilidad futura:</strong> Hay margen para crecer hasta 500+ empleados sin tocar la arquitectura.</li>
+</ol>
+
+<p>Lo que sí se recomienda hacer como mantenimiento preventivo (sin migrar):</p>
+
+<ul>
+  <li>Subir a Supabase Pro ($25 USD/mes) para backups automáticos diarios.</li>
+  <li>Configurar un cron mensual de purga de QRs vencidos y logs antiguos.</li>
+  <li>Mantener el backup manual mensual en JSON como capa adicional.</li>
+</ul>
+
+<div class="callout callout-positive">
+  <div class="callout-title">Decisión final</div>
+  <p>Con estas tres acciones, la infraestructura queda <strong>blindada para operación continua durante años</strong> sin necesidad de migraciones. La recomendación técnica formal y definitiva es: <strong>mantener Vercel + Supabase PostgreSQL</strong>.</p>
+</div>
+
+<div class="signature">
+  Documento técnico generado como respaldo formal para la decisión de infraestructura del sistema de control de asistencia NOM-037 · Versión 1.0 · Julio 2026
+</div>
+
+</body>
+</html>

@@ -11,6 +11,7 @@ const ALLOWED_FILES = new Set<string>([
   'flujo-procesos',
   'activacion-mfa-totp',
   'uso-codigo-qr',
+  'puesta-en-marcha',
 ]);
 
 const ALLOWED_FORMATS: Record<string, { ext: string; mime: string; disposition: string }> = {

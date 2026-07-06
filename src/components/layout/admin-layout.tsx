@@ -48,6 +48,7 @@ import {
   Shield, ShieldAlert, Copy, ArrowLeft, Check,
   Maximize2, Minimize2,
   FileDown, FileText, ExternalLink, BookOpen, FileType, Scale, Sparkles,
+  Server, Database, Rocket,
 } from 'lucide-react';
 
 // ============================================================
@@ -5682,7 +5683,7 @@ interface DiagramMeta {
   slug: string;
   title: string;
   description: string;
-  category: 'Arquitectura' | 'Proceso' | 'Guía';
+  category: 'Arquitectura' | 'Proceso' | 'Guía' | 'Operación';
   updatedLabel: string;
   badgeColor: string;
 }
@@ -5723,6 +5724,15 @@ const DIAGRAMS: DiagramMeta[] = [
     category: 'Guía',
     updatedLabel: '2026-06-29',
     badgeColor: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  },
+  {
+    slug: 'puesta-en-marcha',
+    title: 'Puesta en Marcha del Sistema',
+    description:
+      'Hoja de ruta operativa en 6 fases / 19 pasos para dejar el sistema listo para operación diaria: acceso del admin, configuración de empresa y feriados, sucursales y empleados, QR y supervisores, capacitación y prueba piloto, operación diaria. Incluye badges de pasos recomendados vs opcionales.',
+    category: 'Operación',
+    updatedLabel: '2026-07-06',
+    badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200',
   },
 ];
 
@@ -5822,6 +5832,67 @@ function DocumentationView() {
               <span>Descargar PDF</span>
             </a>
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Documento de recomendación de infraestructura — descargable */}
+      <Card className="border-slate-300 bg-slate-50/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-white">
+                <Server className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Recomendación de Infraestructura — Base de Datos y Hosting</CardTitle>
+                <p className="text-xs text-slate-700 mt-0.5">
+                  Análisis técnico sobre Supabase (PostgreSQL) y Vercel: capacidad para 20 empleados, comparativa con alternativas, umbrales de migración y plan de optimización.
+                </p>
+              </div>
+            </div>
+            <Badge variant="outline" className="shrink-0 border-slate-400 text-slate-700 bg-white">
+              Infraestructura
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-sm text-zinc-600 leading-relaxed">
+            Documento formal (9 páginas) que responde a las preguntas: ¿Supabase soporta 20 empleados?,
+            ¿conviene migrar a otra base de datos?, ¿por qué quedarse en Vercel y qué pasa si se cambia de hosting?.
+            Incluye <strong>tabla comparativa de 6 alternativas</strong> de hosting y <strong>5 umbrales reales</strong> para migrar.
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+            >
+              <a
+                href="/documentos/recomendacion-infraestructura.html"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span>Ver HTML</span>
+              </a>
+            </Button>
+            <Button
+              asChild
+              size="sm"
+              className="gap-1.5 bg-slate-800 hover:bg-slate-900"
+            >
+              <a
+                href="/documentos/recomendacion-infraestructura.pdf"
+                download="Recomendacion_Infraestructura_Control_de_Asistencia.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <FileDown className="h-4 w-4" />
+                <span>Descargar PDF</span>
+              </a>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
