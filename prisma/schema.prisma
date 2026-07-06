@@ -2,13 +2,6 @@
 // Control de Asistencia NOM-037 — Schema v2.2 (SQLite dev)
 // ============================================================
 
-
-//
-
-
-
-// ============================================================
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -16,8 +9,8 @@ generator client {
 datasource db {
   provider = "sqlite"
   url       = env("DATABASE_URL")
-  
 }
+
 
 // ============================================================
 // MODELO: Company (singleton) — datos de la empresa
