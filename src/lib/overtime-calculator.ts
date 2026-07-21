@@ -93,7 +93,7 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
       overtimeWeeklyTotal: weeklyAccumulatedMinutes,
       isLate: false,
       isEarlyLeave: false,
-      status: record.status,
+      status: (record.status as 'PRESENT' | 'ABSENT' | 'LATE' | 'EARLY_LEAVE'),
       isRestDayWorked: false,
       restDayWorkedMinutes: 0,
       restDayPremiumMinutes: 0,

@@ -166,10 +166,23 @@ export async function GET(req: NextRequest) {
       breakExceeded: number;
       totalOvertimeMinutes: number;
       totalOvertimeHours: number;
+      // Reforma LFT 2027 — dobles/triples y prima descanso (art. 66/68/73)
+      totalOvertimeDoubleMinutes: number;
+      totalOvertimeTripleMinutes: number;
+      totalOvertimeDoubleHours: number;
+      totalOvertimeTripleHours: number;
+      restDayWorkedCount: number;
+      totalRestDayWorkedMinutes: number;
+      totalRestDayPremiumMinutes: number;
+      totalRestDayPremiumHours: number;
     }[] = [];
     for (const suc of sucursales) {
       const sucRecords = enrichedRecords.filter((r) => r.sucursalId === suc.id);
       const absents = await computeAbsentsForDate(dateStart, suc.id);
+      const sucDoubleMin = sucRecords.reduce((s, r) => s + (r.overtimeDoubleMinutes || 0), 0);
+      const sucTripleMin = sucRecords.reduce((s, r) => s + (r.overtimeTripleMinutes || 0), 0);
+      const sucRestWorkedMin = sucRecords.reduce((s, r) => s + (r.restDayWorkedMinutes || 0), 0);
+      const sucRestPremiumMin = sucRecords.reduce((s, r) => s + (r.restDayPremiumMinutes || 0), 0);
       bySucursal.push({
         sucursalId: suc.id,
         name: suc.name,
@@ -192,10 +205,21 @@ export async function GET(req: NextRequest) {
         totalOvertimeHours: minutesToHours(
           sucRecords.reduce((sum, r) => sum + (r.overtimeMinutes || 0), 0)
         ),
+        totalOvertimeDoubleMinutes: sucDoubleMin,
+        totalOvertimeTripleMinutes: sucTripleMin,
+        totalOvertimeDoubleHours: minutesToHours(sucDoubleMin),
+        totalOvertimeTripleHours: minutesToHours(sucTripleMin),
+        restDayWorkedCount: sucRecords.filter((r) => r.isRestDayWorked).length,
+        totalRestDayWorkedMinutes: sucRestWorkedMin,
+        totalRestDayPremiumMinutes: sucRestPremiumMin,
+        totalRestDayPremiumHours: minutesToHours(sucRestPremiumMin),
       });
     }
 
     // Resumen total
+    const totalDoubleMinutes = bySucursal.reduce((s, x) => s + x.totalOvertimeDoubleMinutes, 0);
+    const totalTripleMinutes = bySucursal.reduce((s, x) => s + x.totalOvertimeTripleMinutes, 0);
+    const totalRestPremiumMin = bySucursal.reduce((s, x) => s + x.totalRestDayPremiumMinutes, 0);
     const summary = {
       total: bySucursal.reduce((s, x) => s + x.total, 0),
       present: bySucursal.reduce((s, x) => s + x.present, 0),
@@ -211,6 +235,15 @@ export async function GET(req: NextRequest) {
       totalOvertimeHours: minutesToHours(
         bySucursal.reduce((s, x) => s + x.totalOvertimeMinutes, 0)
       ),
+      // Reforma LFT 2027 — art. 66 (dobles) / art. 68 (triples) / art. 73 (prima descanso)
+      totalOvertimeDoubleMinutes: totalDoubleMinutes,
+      totalOvertimeTripleMinutes: totalTripleMinutes,
+      totalOvertimeDoubleHours: minutesToHours(totalDoubleMinutes),
+      totalOvertimeTripleHours: minutesToHours(totalTripleMinutes),
+      totalRestDayWorkedCount: bySucursal.reduce((s, x) => s + x.restDayWorkedCount, 0),
+      totalRestDayWorkedMinutes: bySucursal.reduce((s, x) => s + x.totalRestDayWorkedMinutes, 0),
+      totalRestDayPremiumMinutes: totalRestPremiumMin,
+      totalRestDayPremiumHours: minutesToHours(totalRestPremiumMin),
     };
 
     // Datos de la empresa — fix #3
