@@ -16,8 +16,12 @@ import {
   isGeneralAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
+import { validateWorkSchedules, type ScheduleInput } from '@/lib/work-schedule';
 
-const DEFAULT_SCHEDULES = [
+// Horario por defecto: L-V 9-18 + domingo como descanso semanal (art. 71 LFT).
+// Si el front no envía `workSchedules`, se usa este default.
+const DEFAULT_SCHEDULES: ScheduleInput[] = [
+  { dayOfWeek: 0, startTime: '00:00', endTime: '00:00', toleranceMinutes: 0, isWeeklyRest: true }, // domingo — descanso
   { dayOfWeek: 1, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
   { dayOfWeek: 2, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
   { dayOfWeek: 3, startTime: '09:00', endTime: '18:00', toleranceMinutes: 10, isWeeklyRest: false },
@@ -103,6 +107,7 @@ export async function POST(req: NextRequest) {
       baseSalary,
       hireDate,
       vacationBalanceDays,
+      workSchedules,
     } = body as {
       email?: string;
       password?: string;
@@ -115,6 +120,7 @@ export async function POST(req: NextRequest) {
       baseSalary?: number;
       hireDate?: string;
       vacationBalanceDays?: number;
+      workSchedules?: ScheduleInput[];
     };
 
     if (!email || !password || !name || !role) {
@@ -150,6 +156,21 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+    }
+
+    // Validar horarios del empleado (art. 71 LFT — mínimo 1 día de descanso).
+    // Si el front no provee `workSchedules`, se usa DEFAULT_SCHEDULES (ya válido).
+    // Si los provee, se validan estrictamente antes de tocar la BD.
+    let schedulesToCreate: ScheduleInput[] = DEFAULT_SCHEDULES;
+    if (wantEmployee && workSchedules !== undefined) {
+      const validationError = validateWorkSchedules(workSchedules);
+      if (validationError) {
+        return NextResponse.json(
+          { error: validationError },
+          { status: 400 }
+        );
+      }
+      schedulesToCreate = workSchedules as ScheduleInput[];
     }
 
     // Unicidad de email.
@@ -226,13 +247,13 @@ export async function POST(req: NextRequest) {
         });
 
         await tx.workSchedule.createMany({
-          data: DEFAULT_SCHEDULES.map((s) => ({
+          data: schedulesToCreate.map((s) => ({
             employeeId: newEmployee!.id,
             dayOfWeek: s.dayOfWeek,
             startTime: s.startTime,
             endTime: s.endTime,
-            toleranceMinutes: s.toleranceMinutes,
-            isWeeklyRest: s.isWeeklyRest,
+            toleranceMinutes: s.toleranceMinutes ?? 0,
+            isWeeklyRest: s.isWeeklyRest ?? false,
           })),
         });
       }

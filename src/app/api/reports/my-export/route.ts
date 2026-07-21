@@ -152,6 +152,10 @@ export async function GET(req: NextRequest) {
       'Horas extra (min)': r.overtimeMinutes ?? 0,
       'Horas extra DOBLE (min)': r.overtimeDoubleMinutes ?? 0,
       'Horas extra TRIPLE (min)': r.overtimeTripleMinutes ?? 0,
+      // Prima por descanso trabajado (art. 73 LFT)
+      'Día de Descanso Trabajado': r.isRestDayWorked ? 'Sí' : 'No',
+      'Prima 100% (min)': r.restDayPremiumMinutes ?? 0,
+      'Domingo': r.isSunday ? 'Sí' : 'No',
       'Estado': STATUS_ES[r.status] || r.status,
       'Firmado': r.employeeSignedAt ? toISODate(r.employeeSignedAt) : 'No firmado',
       '¿Corregido?': r.correctedAt ? 'Sí' : 'No',

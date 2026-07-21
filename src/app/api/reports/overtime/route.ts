@@ -15,8 +15,6 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { toISODate, getMexicoTodayISO, minutesToHours } from '@/lib/timezone';
-import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
-import type { WorkSchedule } from '@prisma/client';
 
 const MAX_RANGE_DAYS = 90;
 
@@ -89,34 +87,19 @@ export async function GET(req: NextRequest) {
       orderBy: [{ date: 'asc' }, { employee: { employeeNumber: 'asc' } }],
     });
 
-    // Cargar schedules
-    const employeeIds = [...new Set(records.map((r) => r.employeeId))];
-    const schedules = employeeIds.length
-      ? await db.workSchedule.findMany({
-          where: { employeeId: { in: employeeIds } },
-        })
-      : [];
-    const schedulesByEmp: Record<string, WorkSchedule[]> = {};
-    for (const s of schedules) {
-      if (!schedulesByEmp[s.employeeId]) schedulesByEmp[s.employeeId] = [];
-      schedulesByEmp[s.employeeId].push(s);
-    }
+    // Los campos overtimeDoubleMinutes / overtimeTripleMinutes / isRestDayWorked /
+    // restDayWorkedMinutes / restDayPremiumMinutes / isSunday ya vienen persistidos
+    // por el check-out (reforma LFT 2027). NO se recalculan aquí.
 
-    // Enriquecer con overtime (fix #2). Sólo registros con check-in y check-out.
+    // Enriquecer registros: sólo los que tienen check-in y check-out.
     const enrichedRecords = records
       .filter((r) => r.checkInTime && r.checkOutTime)
       .map((r) => {
-        const sched = findScheduleForDate(
-          schedulesByEmp[r.employeeId] || [],
-          r.date
-        );
-        const ot = calculateOvertime({
-          record: r,
-          schedule: sched,
-          sucursal: {
-            checkoutToleranceMinutes: r.sucursal.checkoutToleranceMinutes,
-          },
-        });
+        const doubleMin = r.overtimeDoubleMinutes ?? 0;
+        const tripleMin = r.overtimeTripleMinutes ?? 0;
+        const restWorkedMin = r.restDayWorkedMinutes ?? 0;
+        const restPremiumMin = r.restDayPremiumMinutes ?? 0;
+        const otMin = r.overtimeMinutes ?? 0;
         return {
           id: r.id,
           employeeId: r.employeeId,
@@ -131,9 +114,19 @@ export async function GET(req: NextRequest) {
           checkInTime: r.checkInTime,
           checkOutTime: r.checkOutTime,
           status: r.status,
-          workedMinutes: ot.workedMinutes ?? 0,
-          overtimeMinutes: ot.overtimeMinutes,
-          overtimeHours: ot.overtimeHours,
+          workedMinutes: r.workedMinutes ?? 0,
+          overtimeMinutes: otMin,
+          overtimeHours: minutesToHours(otMin),
+          // Reforma LFT 2027 — art. 66 (dobles) / art. 68 (triples)
+          overtimeDoubleMinutes: doubleMin,
+          overtimeTripleMinutes: tripleMin,
+          overtimeDoubleHours: minutesToHours(doubleMin),
+          overtimeTripleHours: minutesToHours(tripleMin),
+          // Prima por descanso trabajado (art. 73 LFT)
+          isRestDayWorked: r.isRestDayWorked,
+          restDayWorkedMinutes: restWorkedMin,
+          restDayPremiumMinutes: restPremiumMin,
+          isSunday: r.isSunday,
         };
       });
 
@@ -148,6 +141,11 @@ export async function GET(req: NextRequest) {
         sucursalCodigoLocal: string | null;
         totalOvertimeMinutes: number;
         totalWorkedMinutes: number;
+        totalDoubleMinutes: number;
+        totalTripleMinutes: number;
+        restDayWorkedCount: number;
+        totalRestDayWorkedMinutes: number;
+        totalRestDayPremiumMinutes: number;
         days: number;
       }
     >();
@@ -162,12 +160,24 @@ export async function GET(req: NextRequest) {
           sucursalCodigoLocal: r.sucursalCodigoLocal,
           totalOvertimeMinutes: 0,
           totalWorkedMinutes: 0,
+          totalDoubleMinutes: 0,
+          totalTripleMinutes: 0,
+          restDayWorkedCount: 0,
+          totalRestDayWorkedMinutes: 0,
+          totalRestDayPremiumMinutes: 0,
           days: 0,
         });
       }
       const e = byEmployeeMap.get(key)!;
       e.totalOvertimeMinutes += r.overtimeMinutes;
       e.totalWorkedMinutes += r.workedMinutes;
+      e.totalDoubleMinutes += r.overtimeDoubleMinutes;
+      e.totalTripleMinutes += r.overtimeTripleMinutes;
+      if (r.isRestDayWorked) {
+        e.restDayWorkedCount += 1;
+        e.totalRestDayWorkedMinutes += r.restDayWorkedMinutes;
+        e.totalRestDayPremiumMinutes += r.restDayPremiumMinutes;
+      }
       e.days += 1;
     }
     const byEmployee = Array.from(byEmployeeMap.values())
@@ -175,6 +185,10 @@ export async function GET(req: NextRequest) {
         ...e,
         totalOvertimeHours: minutesToHours(e.totalOvertimeMinutes),
         totalWorkedHours: minutesToHours(e.totalWorkedMinutes),
+        totalDoubleHours: minutesToHours(e.totalDoubleMinutes),
+        totalTripleHours: minutesToHours(e.totalTripleMinutes),
+        totalRestDayWorkedHours: minutesToHours(e.totalRestDayWorkedMinutes),
+        totalRestDayPremiumHours: minutesToHours(e.totalRestDayPremiumMinutes),
       }))
       .sort((a, b) => b.totalOvertimeMinutes - a.totalOvertimeMinutes);
 
@@ -188,6 +202,10 @@ export async function GET(req: NextRequest) {
         totalRecords: number;
         totalWorkedMinutes: number;
         totalOvertimeMinutes: number;
+        totalDoubleMinutes: number;
+        totalTripleMinutes: number;
+        restDayWorkedCount: number;
+        totalRestDayPremiumMinutes: number;
       }
     >();
     for (const r of enrichedRecords) {
@@ -200,21 +218,49 @@ export async function GET(req: NextRequest) {
           totalRecords: 0,
           totalWorkedMinutes: 0,
           totalOvertimeMinutes: 0,
+          totalDoubleMinutes: 0,
+          totalTripleMinutes: 0,
+          restDayWorkedCount: 0,
+          totalRestDayPremiumMinutes: 0,
         });
       }
       const s = bySucursalMap.get(key)!;
       s.totalRecords += 1;
       s.totalWorkedMinutes += r.workedMinutes;
       s.totalOvertimeMinutes += r.overtimeMinutes;
+      s.totalDoubleMinutes += r.overtimeDoubleMinutes;
+      s.totalTripleMinutes += r.overtimeTripleMinutes;
+      if (r.isRestDayWorked) {
+        s.restDayWorkedCount += 1;
+        s.totalRestDayPremiumMinutes += r.restDayPremiumMinutes;
+      }
     }
     const bySucursal = Array.from(bySucursalMap.values()).map((s) => ({
       ...s,
       totalWorkedHours: minutesToHours(s.totalWorkedMinutes),
       totalOvertimeHours: minutesToHours(s.totalOvertimeMinutes),
+      totalDoubleHours: minutesToHours(s.totalDoubleMinutes),
+      totalTripleHours: minutesToHours(s.totalTripleMinutes),
+      totalRestDayPremiumHours: minutesToHours(s.totalRestDayPremiumMinutes),
     }));
 
     const totalOvertimeMinutes = enrichedRecords.reduce(
       (sum, r) => sum + r.overtimeMinutes,
+      0
+    );
+    const totalDoubleMinutes = enrichedRecords.reduce(
+      (sum, r) => sum + r.overtimeDoubleMinutes,
+      0
+    );
+    const totalTripleMinutes = enrichedRecords.reduce(
+      (sum, r) => sum + r.overtimeTripleMinutes,
+      0
+    );
+    const totalRestDayWorkedCount = enrichedRecords.filter(
+      (r) => r.isRestDayWorked
+    ).length;
+    const totalRestDayPremiumMinutes = enrichedRecords.reduce(
+      (sum, r) => sum + (r.isRestDayWorked ? r.restDayPremiumMinutes : 0),
       0
     );
     const totalEmployees = byEmployee.length;
@@ -233,6 +279,10 @@ export async function GET(req: NextRequest) {
         totalOvertimeHours,
         avgPerEmployee,
         totalRecords: enrichedRecords.length,
+        totalDoubleHours: minutesToHours(totalDoubleMinutes),
+        totalTripleHours: minutesToHours(totalTripleMinutes),
+        totalRestDayWorkedCount,
+        totalRestDayPremiumHours: minutesToHours(totalRestDayPremiumMinutes),
       },
       period: { start: startDateStr, end: endDateStr },
     });

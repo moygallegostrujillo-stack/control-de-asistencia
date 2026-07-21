@@ -1,9 +1,10 @@
 // ============================================================
-// OVERTIME CALCULATOR — fix #2 + Reforma LFT 2027 (art. 66/68)
+// OVERTIME CALCULATOR — fix #2 + Reforma LFT 2027 (art. 66/68) + Prima art. 73
 // Aplica checkoutToleranceMinutes antes de contar horas extra.
 // Distingue horas extra DOBLES (art. 66) de TRIPLES (art. 68).
 // Tope semanal gradual: 9h (2026-27) → 10h (2028) → 11h (2029) → 12h (2030).
 // Tope diario: 4h extra (art. 66).
+// Prima por descanso trabajado (art. 73 LFT): jornada completa con prima del 100%.
 // ============================================================
 
 import type { AttendanceRecord, Sucursal, WorkSchedule } from '@prisma/client';
@@ -29,6 +30,11 @@ export interface OvertimeResult {
   isLate: boolean;
   isEarlyLeave: boolean;
   status: 'PRESENT' | 'LATE' | 'EARLY_LEAVE' | 'ABSENT';
+  // --- Prima por descanso trabajado (art. 73 LFT) ---
+  isRestDayWorked: boolean; // true si la fecha es día de descanso semanal del empleado
+  restDayWorkedMinutes: number; // minutos trabajados en descanso (jornada completa, no overtime)
+  restDayPremiumMinutes: number; // prima del 100% adicional = restDayWorkedMinutes
+  isSunday: boolean; // true si la fecha cae en domingo (art. 71 LFT, prima dominical opcional)
 }
 
 /**
@@ -52,6 +58,11 @@ export const DAILY_OVERTIME_CAP_MINUTES = 4 * 60;
 /**
  * Calcula horas trabajadas, horas extra (con tolerancia aplicada — fix #2),
  * distinción dobles/triples (reforma LFT 2027), y estado (PRESENT/LATE/EARLY_LEAVE).
+ *
+ * Si la fecha del registro es día de descanso semanal del empleado, NO se calcula
+ * overtime (art. 66/68); en su lugar, la jornada completa se paga con prima del 100%
+ * (art. 73 LFT). El descanso trabajado NO es tiempo extra, es jornada ordinaria
+ * con recargo del 100%.
  *
  * Fórmula overtime con tolerancia (fix #2):
  *   overtimeMinutes = max(0, workedMinutes - scheduledMinutes - checkoutToleranceMinutes)
@@ -83,6 +94,10 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
       isLate: false,
       isEarlyLeave: false,
       status: record.status,
+      isRestDayWorked: false,
+      restDayWorkedMinutes: 0,
+      restDayPremiumMinutes: 0,
+      isSunday: getDayOfWeek(record.date) === 0,
     };
   }
 
@@ -98,13 +113,41 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
   }
   netWorkedMinutes = Math.max(0, netWorkedMinutes);
 
+  // Detectar si la fecha es día de descanso semanal del empleado.
+  // Si schedule es null porque hoy es descanso (isWeeklyRest=true), es descanso trabajado.
+  const dow = getDayOfWeek(record.date);
+  const isSunday = dow === 0;
+  // Si el schedule pasado es el de descanso (isWeeklyRest=true), marcamos isRestDayWorked=true.
+  // Si schedule es null, asumimos descanso solo si existe un WorkSchedule con isWeeklyRest para este dow.
+  const isRestDayWorked = schedule === null || (schedule?.isWeeklyRest === true);
+
+  // Caso especial: día de descanso trabajado (art. 73 LFT).
+  // La jornada completa se paga con prima del 100% (NO es overtime art. 66/68).
+  if (isRestDayWorked) {
+    return {
+      workedMinutes: netWorkedMinutes,
+      overtimeMinutes: 0,
+      overtimeHours: 0,
+      overtimeDoubleMinutes: 0,
+      overtimeTripleMinutes: 0,
+      overtimeWeeklyAccumulated: weeklyAccumulatedMinutes,
+      overtimeWeeklyTotal: weeklyAccumulatedMinutes, // el descanso no suma al tope semanal de overtime
+      isLate: false,
+      isEarlyLeave: false,
+      status: 'PRESENT',
+      isRestDayWorked: true,
+      restDayWorkedMinutes: netWorkedMinutes,
+      restDayPremiumMinutes: netWorkedMinutes, // prima del 100% = misma cantidad de minutos adicionales
+      isSunday,
+    };
+  }
+
   // Calcular minutos programados según el horario
   let scheduledMinutes = 0;
   let isLate = false;
   let isEarlyLeave = false;
 
   if (schedule && !schedule.isWeeklyRest) {
-    const dow = getDayOfWeek(record.date);
     if (schedule.dayOfWeek === dow) {
       const [sh, sm] = schedule.startTime.split(':').map(Number);
       const [eh, em] = schedule.endTime.split(':').map(Number);
@@ -164,11 +207,16 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
     isLate,
     isEarlyLeave,
     status,
+    isRestDayWorked: false,
+    restDayWorkedMinutes: 0,
+    restDayPremiumMinutes: 0,
+    isSunday,
   };
 }
 
 /**
- * Encuentra el schedule correspondiente al día de la semana del record.
+ * Encuentra el schedule correspondiente al día de la semana del record (día laboral).
+ * Excluye días marcados como descanso semanal (isWeeklyRest=true).
  */
 export function findScheduleForDate(
   schedules: WorkSchedule[],
@@ -179,8 +227,31 @@ export function findScheduleForDate(
 }
 
 /**
+ * Encuentra el schedule de descanso semanal correspondiente al día de la semana.
+ * Retorna el WorkSchedule con isWeeklyRest=true si existe para ese dow, o null.
+ */
+export function findRestScheduleForDate(
+  schedules: WorkSchedule[],
+  date: Date
+): WorkSchedule | null {
+  const dow = getDayOfWeek(date);
+  return schedules.find((s) => s.dayOfWeek === dow && s.isWeeklyRest) || null;
+}
+
+/**
+ * Indica si una fecha es día de descanso semanal del empleado.
+ * Útil para check-in y reportes.
+ */
+export function isRestDay(schedules: WorkSchedule[], date: Date): boolean {
+  return findRestScheduleForDate(schedules, date) !== null;
+}
+
+/**
  * Calcula el acumulado semanal de minutos extra previos al día del record.
  * Semana = lunes a domingo (Convención ISO, México).
+ *
+ * Nota: los minutos trabajados en día de descanso NO se acumulan como overtime
+ * (art. 73 LFT es prima independiente del art. 66/68).
  *
  * @param employeeId - ID del empleado
  * @param recordDate - fecha del registro actual
@@ -207,3 +278,7 @@ export async function computeWeeklyAccumulatedOvertime(
   const prevRecords = await fetchRecords(employeeId, monday, endYesterday);
   return prevRecords.reduce((sum, r) => sum + (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0), 0);
 }
+
+// toISODate re-exportado para compatibilidad con código existente
+export { toISODate };
+

@@ -25,7 +25,6 @@ import {
   loadApprovedVacations,
   loadHolidays,
 } from '@/lib/absence-calculator';
-import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
 
 export async function GET(req: NextRequest) {
   try {
@@ -86,31 +85,9 @@ export async function GET(req: NextRequest) {
         loadHolidays(start, end),
       ]);
 
-    // Cargar sucursales para checkoutToleranceMinutes (fix #2)
-    const sucursalIdsInEmployees = [
-      ...new Set(employees.map((e) => e.sucursalId)),
-    ];
-    const sucursalMap = new Map<
-      string,
-      {
-        id: string;
-        name: string;
-        codigoLocal: string | null;
-        checkoutToleranceMinutes: number;
-      }
-    >();
-    if (sucursalIdsInEmployees.length) {
-      const sucs = await db.sucursal.findMany({
-        where: { id: { in: sucursalIdsInEmployees } },
-        select: {
-          id: true,
-          name: true,
-          codigoLocal: true,
-          checkoutToleranceMinutes: true,
-        },
-      });
-      for (const s of sucs) sucursalMap.set(s.id, s);
-    }
+    // Reforma LFT 2027 — dobles/triples y prima descanso se leen directamente
+    // de la BD (persistidos por check-out). No se necesita checkoutToleranceMinutes
+    // aquí porque no se recalcula overtime.
 
     // Agrupar vacaciones por empleado (con tipo)
     const vacationsByEmp: Record<
@@ -133,7 +110,6 @@ export async function GET(req: NextRequest) {
       const empSchedules = schedulesByEmp[emp.id] || [];
       const empRecords = recordsByEmp[emp.id] || [];
       const empVacations = vacationsByEmp[emp.id] || [];
-      const sucursal = sucursalMap.get(emp.sucursalId);
 
       // Map de records por fecha ISO
       const recordsByDate: Record<string, (typeof empRecords)[0]> = {};
@@ -144,9 +120,13 @@ export async function GET(req: NextRequest) {
       let retardos = 0;
       let salidasAnticipadas = 0;
       let horasExtraMinutos = 0;
+      let horasExtraDobleMinutos = 0;
+      let horasExtraTripleMinutos = 0;
       let horasTrabajadasMinutos = 0;
       let diasVacaciones = 0;
       let diasIncapacidad = 0;
+      let diasDescansoTrabajado = 0;
+      let primaDescansoMinutos = 0;
 
       for (const day of days) {
         const dayISO = toISODate(day);
@@ -194,24 +174,26 @@ export async function GET(req: NextRequest) {
 
         if (!record) continue; // no trabajó (sunday/holiday/no_schedule)
 
-        // Calcular overtime (fix #2)
-        const sched = findScheduleForDate(empSchedules, day);
-        const ot = calculateOvertime({
-          record,
-          schedule: sched,
-          sucursal: {
-            checkoutToleranceMinutes:
-              sucursal?.checkoutToleranceMinutes ?? 0,
-          },
-        });
-
+        // Reforma LFT 2027 — dobles/triples y prima descanso ya persistidos
+        // por el check-out. Se leen directamente de la BD (no se recalcula).
         if (record.status === 'PRESENT' || record.status === 'LATE') {
           diasLaborados += 1;
         }
         if (record.status === 'LATE') retardos += 1;
         if (record.status === 'EARLY_LEAVE') salidasAnticipadas += 1;
-        horasExtraMinutos += ot.overtimeMinutes;
-        horasTrabajadasMinutos += ot.workedMinutes ?? 0;
+
+        const recOtMin = record.overtimeMinutes ?? 0;
+        const recDoubleMin = record.overtimeDoubleMinutes ?? 0;
+        const recTripleMin = record.overtimeTripleMinutes ?? 0;
+        horasExtraMinutos += recOtMin;
+        horasExtraDobleMinutos += recDoubleMin;
+        horasExtraTripleMinutos += recTripleMin;
+        horasTrabajadasMinutos += record.workedMinutes ?? 0;
+
+        if (record.isRestDayWorked) {
+          diasDescansoTrabajado += 1;
+          primaDescansoMinutos += record.restDayPremiumMinutes ?? 0;
+        }
       }
 
       byEmployee.push({
@@ -229,10 +211,19 @@ export async function GET(req: NextRequest) {
         salidasAnticipadas,
         horasExtraMinutos,
         horasExtraHoras: +(horasExtraMinutos / 60).toFixed(2),
+        // Reforma LFT 2027 — dobles (art. 66) / triples (art. 68)
+        horasExtraDobleMinutos,
+        horasExtraDobleHoras: +(horasExtraDobleMinutos / 60).toFixed(2),
+        horasExtraTripleMinutos,
+        horasExtraTripleHoras: +(horasExtraTripleMinutos / 60).toFixed(2),
         horasTrabajadasMinutos,
         horasTrabajadasHoras: +(horasTrabajadasMinutos / 60).toFixed(2),
         diasVacaciones,
         diasIncapacidad,
+        // Prima por descanso trabajado (art. 73 LFT)
+        diasDescansoTrabajado,
+        primaDescansoMinutos,
+        primaDescansoHoras: +(primaDescansoMinutos / 60).toFixed(2),
       });
     }
 
@@ -252,10 +243,18 @@ export async function GET(req: NextRequest) {
         retardos: acc.retardos + e.retardos,
         salidasAnticipadas: acc.salidasAnticipadas + e.salidasAnticipadas,
         horasExtraMinutos: acc.horasExtraMinutos + e.horasExtraMinutos,
+        horasExtraDobleMinutos:
+          acc.horasExtraDobleMinutos + e.horasExtraDobleMinutos,
+        horasExtraTripleMinutos:
+          acc.horasExtraTripleMinutos + e.horasExtraTripleMinutos,
         horasTrabajadasMinutos:
           acc.horasTrabajadasMinutos + e.horasTrabajadasMinutos,
         diasVacaciones: acc.diasVacaciones + e.diasVacaciones,
         diasIncapacidad: acc.diasIncapacidad + e.diasIncapacidad,
+        diasDescansoTrabajado:
+          acc.diasDescansoTrabajado + e.diasDescansoTrabajado,
+        primaDescansoMinutos:
+          acc.primaDescansoMinutos + e.primaDescansoMinutos,
       }),
       {
         diasLaborados: 0,
@@ -263,9 +262,13 @@ export async function GET(req: NextRequest) {
         retardos: 0,
         salidasAnticipadas: 0,
         horasExtraMinutos: 0,
+        horasExtraDobleMinutos: 0,
+        horasExtraTripleMinutos: 0,
         horasTrabajadasMinutos: 0,
         diasVacaciones: 0,
         diasIncapacidad: 0,
+        diasDescansoTrabajado: 0,
+        primaDescansoMinutos: 0,
       }
     );
 
@@ -274,7 +277,10 @@ export async function GET(req: NextRequest) {
       totals: {
         ...totals,
         horasExtraHoras: +(totals.horasExtraMinutos / 60).toFixed(2),
+        horasExtraDobleHoras: +(totals.horasExtraDobleMinutos / 60).toFixed(2),
+        horasExtraTripleHoras: +(totals.horasExtraTripleMinutos / 60).toFixed(2),
         horasTrabajadasHoras: +(totals.horasTrabajadasMinutos / 60).toFixed(2),
+        primaDescansoHoras: +(totals.primaDescansoMinutos / 60).toFixed(2),
         totalEmployees: byEmployee.length,
       },
       period: { start: startDateStr, end: effectiveEndStr },

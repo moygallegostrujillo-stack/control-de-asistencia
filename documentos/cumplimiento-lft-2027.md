@@ -114,19 +114,36 @@ El sistema tiene configurado el tope de 9 horas extra semanales para 2027. Si un
 
 ### Qué dice la ley
 - **Art. 69 LFT:** Todo trabajador tiene derecho a un día de descanso por cada seis de trabajo.
-- **Art. 71 LFT:** El día de descanso semanal es obligatorio; si el trabajador labora ese día, se paga con una prima del 100% adicional al salario ordinario.
+- **Art. 71 LFT:** El día de descanso semanal es obligatorio y preferentemente el domingo. Cuando el día de descanso sea domingo, el trabajador tiene derecho a una prima dominical adicional del 25% sobre el salario ordinario.
+- **Art. 73 LFT:** Si el trabajador labora en su día de descanso semanal, se paga con una **prima del 100% adicional** al salario ordinario (es decir, salario doble por ese día).
 
 ### Qué hace el sistema
 - Al crear o editar un empleado, el sistema **obliga** a marcar al menos un día de la semana como "Descanso".
 - Si el patrón intenta guardar el horario sin marcar un día de descanso, el sistema **bloquea el guardado** y muestra el mensaje:
   > "El horario debe incluir al menos 1 día de descanso semanal (art. 71 LFT)."
 - Se pueden marcar **varios días de descanso** si la empresa así lo requiere (por ejemplo, sábado y domingo).
-- Si un trabajador **labora en su día de descanso**, el sistema lo detecta (porque hay un registro de entrada/salida en un día marcado como descanso) y lo reporta, para que se calcule el pago con la prima del 100% que manda el art. 71 LFT.
+- **Detección de descanso trabajado (art. 73 LFT):** cuando un trabajador registra su entrada en un día marcado como descanso semanal, el sistema:
+  1. **Permite el check-in** (la LFT no prohíbe trabajar en descanso, solo impone la prima).
+  2. **Marca el registro** con `isRestDayWorked = true` y `isSunday` según corresponda.
+  3. **Al hacer check-out**, calcula y persiste automáticamente:
+     - `restDayWorkedMinutes`: minutos trabajados en el descanso (jornada completa).
+     - `restDayPremiumMinutes`: prima del 100% adicional (art. 73 LFT), igual a `restDayWorkedMinutes`.
+  4. **Genera una alerta NOM-035** tipo `REST_DAY_WORKED` (nivel HIGH si es domingo, MEDIUM si no) que aparece en el badge de notificaciones del admin y queda como evidencia auditable.
+  5. **No cuenta esos minutos como horas extra** (art. 66/68) — el descanso trabajado es jornada ordinaria con recargo del 100%, no tiempo extra.
+- **Reportes de nómina:** todos los reportes (horas extra, diario, incidencias, comparativo, exportación XLSX/CSV del admin y del empleado) incluyen columnas separadas para:
+  - Horas extra dobles (art. 66)
+  - Horas extra triples (art. 68)
+  - Día de descanso trabajado (Sí/No)
+  - Prima del 100% (minutos) — art. 73 LFT
+  - Domingo (Sí/No) — para prima dominical art. 71 LFT
 
-### Cómo se cumple el art. 71 LFT
-La validación ocurre en dos lugares:
-1. **Al crear/editar el empleado:** el sistema no permite guardar si no hay día de descanso.
-2. **Al calcular horas:** el sistema sabe qué día es descanso de cada empleado y detecta si trabajó ese día.
+### Cómo se cumple el art. 71 y 73 LFT
+La validación y cálculo ocurren en varios lugares:
+1. **Al crear/editar el empleado:** el sistema no permite guardar si no hay día de descanso (validación backend + frontend, cita art. 71 LFT).
+2. **Al hacer check-in en día de descanso:** el sistema detecta automáticamente que la fecha es `isWeeklyRest` y marca `isRestDayWorked = true`.
+3. **Al hacer check-out:** el sistema calcula `restDayWorkedMinutes` y `restDayPremiumMinutes` (prima del 100%) y los persiste en el registro. Estos minutos **no** se acumulan como overtime.
+4. **En reportes:** las columnas separadas permiten al patrón calcular el pago correcto: salario ordinario + prima del 100% por cada minuto en `restDayPremiumMinutes`.
+5. **Alerta NOM-035:** el descanso trabajado genera una alerta auditable para evidencia ante una revisión de la STPS.
 
 ---
 
@@ -313,8 +330,8 @@ La pantalla "Auditoría" permite consultar el historial completo de acciones, fi
 | 4 | Cálculo automático de horas extra dobles | Art. 66 LFT | Las primeras 9 h extra/semana se calculan y reportan al doble |
 | 5 | Cálculo automático de horas extra triples | Arts. 67 y 68 LFT | Las horas extra que excedan 9/semana se calculan y reportan al triple |
 | 6 | Tope de 9 horas extra semanales (2027) | Transitorio Cuarto DOF 1-may-2026 | Alerta automática si se excede el tope |
-| 7 | Día de descanso semanal obligatorio | Art. 71 LFT | El sistema bloquea el alta/edición si no hay día de descanso marcado |
-| 8 | Detección de trabajo en día de descanso | Art. 71 LFT (prima del 100%) | El sistema detecta registros en días marcados como descanso |
+| 7 | Día de descanso semanal obligatorio | Art. 69 y 71 LFT | El sistema bloquea el alta/edición si no hay día de descanso marcado |
+| 8 | Detección de trabajo en día de descanso + cálculo de prima del 100% | Art. 73 LFT (prima del 100%) y Art. 71 LFT (prima dominical) | El sistema detecta registros en días marcados como descanso, calcula `restDayPremiumMinutes` (prima del 100%), marca `isSunday`, y genera alerta NOM-035 `REST_DAY_WORKED`. Los reportes incluyen columnas separadas para el cálculo de nómina. |
 | 9 | Registros inalterables | Espíritu NOM-037 y Reforma LFT 2027 | Hora original bloqueada; correcciones dejan rastro en auditoría |
 | 10 | Acceso del trabajador a sus registros | Art. 804 LFT + NOM-037 | El empleado ve y exporta su historial sin intermediarios |
 | 11 | Alertas por exceso de horas | NOM-035-STPS-2018 | Alertas automáticas (alta/media/baja) con recomendación y referencia legal |

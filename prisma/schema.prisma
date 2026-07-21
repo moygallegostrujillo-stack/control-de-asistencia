@@ -175,6 +175,13 @@ model AttendanceRecord {
   overtimeDoubleMinutes     Int?     // minutos extra pagados al DOBLE (art. 66)
   overtimeTripleMinutes     Int?     // minutos extra pagados al TRIPLE (art. 68, excedente semanal)
   overtimeWeeklyAccumulated Int?     // acumulado semanal previo al registro (para tope)
+  // --- Prima por descanso trabajado (art. 73 LFT) ---
+  // Si el empleado labora en su día de descanso semanal, se paga con prima del 100%
+  // (salario doble por el día completo). No se considera overtime (art. 66/68).
+  isRestDayWorked           Boolean  @default(false) // true si la fecha del registro es día de descanso del empleado
+  restDayWorkedMinutes      Int?     // minutos trabajados en día de descanso (jornada completa, no overtime)
+  restDayPremiumMinutes     Int?     // prima del 100% adicional (art. 73 LFT) = restDayWorkedMinutes
+  isSunday                  Boolean  @default(false) // true si la fecha cae en domingo (para prima dominical art. 71)
   notes                     String?
   justification             String?
   justificationStatus       String?  // PENDING / APPROVED / REJECTED

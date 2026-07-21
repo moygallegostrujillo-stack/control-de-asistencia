@@ -20,8 +20,6 @@ import {
   minutesToHours,
   formatTimeInMexico,
 } from '@/lib/timezone';
-import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
-import type { WorkSchedule } from '@prisma/client';
 
 const MAX_RANGE_DAYS = 90;
 
@@ -94,18 +92,9 @@ export async function GET(req: NextRequest) {
       orderBy: [{ employee: { employeeNumber: 'asc' } }, { date: 'asc' }],
     });
 
-    // Cargar schedules
-    const employeeIds = [...new Set(records.map((r) => r.employeeId))];
-    const schedules = employeeIds.length
-      ? await db.workSchedule.findMany({
-          where: { employeeId: { in: employeeIds } },
-        })
-      : [];
-    const schedulesByEmp: Record<string, WorkSchedule[]> = {};
-    for (const s of schedules) {
-      if (!schedulesByEmp[s.employeeId]) schedulesByEmp[s.employeeId] = [];
-      schedulesByEmp[s.employeeId].push(s);
-    }
+    // Los campos overtimeDoubleMinutes / overtimeTripleMinutes / isRestDayWorked /
+    // restDayWorkedMinutes / restDayPremiumMinutes / isSunday ya vienen persistidos
+    // por el check-out (reforma LFT 2027). NO se recalculan aquí.
 
     // Agrupar por empleado
     const byEmployeeMap = new Map<
@@ -118,6 +107,11 @@ export async function GET(req: NextRequest) {
         sucursalCodigoLocal: string | null;
         totalOvertimeMinutes: number;
         totalWorkedMinutes: number;
+        totalDoubleMinutes: number;
+        totalTripleMinutes: number;
+        restDayWorkedCount: number;
+        totalRestDayWorkedMinutes: number;
+        totalRestDayPremiumMinutes: number;
         days: number;
         dailyRecords: any[];
       }
@@ -127,17 +121,12 @@ export async function GET(req: NextRequest) {
       // Solo registros con check-in y check-out
       if (!r.checkInTime || !r.checkOutTime) continue;
 
-      const sched = findScheduleForDate(
-        schedulesByEmp[r.employeeId] || [],
-        r.date
-      );
-      const ot = calculateOvertime({
-        record: r,
-        schedule: sched,
-        sucursal: {
-          checkoutToleranceMinutes: r.sucursal.checkoutToleranceMinutes,
-        },
-      });
+      const otMin = r.overtimeMinutes ?? 0;
+      const doubleMin = r.overtimeDoubleMinutes ?? 0;
+      const tripleMin = r.overtimeTripleMinutes ?? 0;
+      const restWorkedMin = r.restDayWorkedMinutes ?? 0;
+      const restPremiumMin = r.restDayPremiumMinutes ?? 0;
+      const workedMin = r.workedMinutes ?? 0;
 
       const key = r.employeeId;
       if (!byEmployeeMap.has(key)) {
@@ -149,21 +138,43 @@ export async function GET(req: NextRequest) {
           sucursalCodigoLocal: r.sucursal.codigoLocal,
           totalOvertimeMinutes: 0,
           totalWorkedMinutes: 0,
+          totalDoubleMinutes: 0,
+          totalTripleMinutes: 0,
+          restDayWorkedCount: 0,
+          totalRestDayWorkedMinutes: 0,
+          totalRestDayPremiumMinutes: 0,
           days: 0,
           dailyRecords: [],
         });
       }
       const e = byEmployeeMap.get(key)!;
-      e.totalOvertimeMinutes += ot.overtimeMinutes;
-      e.totalWorkedMinutes += ot.workedMinutes ?? 0;
+      e.totalOvertimeMinutes += otMin;
+      e.totalWorkedMinutes += workedMin;
+      e.totalDoubleMinutes += doubleMin;
+      e.totalTripleMinutes += tripleMin;
+      if (r.isRestDayWorked) {
+        e.restDayWorkedCount += 1;
+        e.totalRestDayWorkedMinutes += restWorkedMin;
+        e.totalRestDayPremiumMinutes += restPremiumMin;
+      }
       e.days += 1;
       e.dailyRecords.push({
         date: toISODate(r.date),
         checkIn: formatTimeInMexico(r.checkInTime),
         checkOut: formatTimeInMexico(r.checkOutTime),
-        workedMinutes: ot.workedMinutes ?? 0,
-        overtimeMinutes: ot.overtimeMinutes,
-        overtimeHours: ot.overtimeHours,
+        workedMinutes: workedMin,
+        overtimeMinutes: otMin,
+        overtimeHours: minutesToHours(otMin),
+        // Reforma LFT 2027 — dobles/triples persistidos por check-out
+        overtimeDoubleMinutes: doubleMin,
+        overtimeTripleMinutes: tripleMin,
+        overtimeDoubleHours: minutesToHours(doubleMin),
+        overtimeTripleHours: minutesToHours(tripleMin),
+        // Prima por descanso trabajado (art. 73 LFT)
+        isRestDayWorked: r.isRestDayWorked,
+        restDayWorkedMinutes: restWorkedMin,
+        restDayPremiumMinutes: restPremiumMin,
+        isSunday: r.isSunday,
         status: r.status,
       });
     }
@@ -174,12 +185,32 @@ export async function GET(req: NextRequest) {
         ...e,
         totalOvertimeHours: minutesToHours(e.totalOvertimeMinutes),
         totalWorkedHours: minutesToHours(e.totalWorkedMinutes),
+        totalDoubleHours: minutesToHours(e.totalDoubleMinutes),
+        totalTripleHours: minutesToHours(e.totalTripleMinutes),
+        totalRestDayWorkedHours: minutesToHours(e.totalRestDayWorkedMinutes),
+        totalRestDayPremiumHours: minutesToHours(e.totalRestDayPremiumMinutes),
       }))
       .sort((a, b) => b.totalOvertimeMinutes - a.totalOvertimeMinutes);
 
     const totalEmployees = byEmployee.length;
     const totalOvertimeMinutes = byEmployee.reduce(
       (s, e) => s + e.totalOvertimeMinutes,
+      0
+    );
+    const totalDoubleMinutes = byEmployee.reduce(
+      (s, e) => s + e.totalDoubleMinutes,
+      0
+    );
+    const totalTripleMinutes = byEmployee.reduce(
+      (s, e) => s + e.totalTripleMinutes,
+      0
+    );
+    const totalRestDayWorkedCount = byEmployee.reduce(
+      (s, e) => s + e.restDayWorkedCount,
+      0
+    );
+    const totalRestDayPremiumMinutes = byEmployee.reduce(
+      (s, e) => s + e.totalRestDayPremiumMinutes,
       0
     );
     const totalOvertimeHours = minutesToHours(totalOvertimeMinutes);
@@ -194,6 +225,10 @@ export async function GET(req: NextRequest) {
         totalEmployees,
         totalOvertimeHours,
         avgPerEmployee,
+        totalDoubleHours: minutesToHours(totalDoubleMinutes),
+        totalTripleHours: minutesToHours(totalTripleMinutes),
+        totalRestDayWorkedCount,
+        totalRestDayPremiumHours: minutesToHours(totalRestDayPremiumMinutes),
       },
       period: { start: startDateStr, end: endDateStr },
     });

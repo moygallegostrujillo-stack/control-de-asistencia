@@ -36,8 +36,6 @@ import {
   loadHolidays,
   computeAbsentsForDate,
 } from '@/lib/absence-calculator';
-import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
-import type { WorkSchedule } from '@prisma/client';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 
 // Reforma LFT 2027 — art. 804 LFT: conservación mínima 12 meses.
@@ -406,33 +404,16 @@ async function buildDailyRows(
     orderBy: [{ sucursalId: 'asc' }, { employee: { employeeNumber: 'asc' } }],
   });
 
-  // Schedules
-  const employeeIds = [...new Set(records.map((r) => r.employeeId))];
-  const schedules = employeeIds.length
-    ? await db.workSchedule.findMany({
-        where: { employeeId: { in: employeeIds } },
-      })
-    : [];
-  const schedulesByEmp: Record<string, WorkSchedule[]> = {};
-  for (const s of schedules) {
-    if (!schedulesByEmp[s.employeeId]) schedulesByEmp[s.employeeId] = [];
-    schedulesByEmp[s.employeeId].push(s);
-  }
+  // Reforma LFT 2027 — dobles/triples y prima descanso ya persistidos por
+  // check-out. No se requiere cargar WorkSchedules (no se recalcula overtime).
 
   const rows: Record<string, any>[] = [];
   const auditRows: Record<string, any>[] = [];
   for (const r of records) {
-    const sched = findScheduleForDate(
-      schedulesByEmp[r.employeeId] || [],
-      r.date
-    );
-    const ot = calculateOvertime({
-      record: r,
-      schedule: sched,
-      sucursal: {
-        checkoutToleranceMinutes: r.sucursal.checkoutToleranceMinutes,
-      },
-    });
+    // dobles/triples y prima descanso persistidos por check-out (reforma LFT 2027)
+    const doubleMin = r.overtimeDoubleMinutes ?? 0;
+    const tripleMin = r.overtimeTripleMinutes ?? 0;
+    const restPremiumMin = r.restDayPremiumMinutes ?? 0;
 
     rows.push({
       'Número de Empleado': r.employee.employeeNumber,
@@ -453,10 +434,16 @@ async function buildDailyRows(
       'Descanso Fin': r.mealEnd ? formatTimeInMexico(r.mealEnd) : '—',
       'Descanso Duración (min)': r.mealDurationMinutes ?? '—',
       'Excedió Descanso': r.mealExceeded ? 'Sí' : 'No',
-      'Horas Trabajadas': ot.workedMinutes
-        ? minutesToHours(ot.workedMinutes)
+      'Horas Trabajadas': r.workedMinutes
+        ? minutesToHours(r.workedMinutes)
         : 0,
-      'Horas Extra': minutesToHours(ot.overtimeMinutes),
+      'Horas Extra': minutesToHours(r.overtimeMinutes ?? 0),
+      // Reforma LFT 2027 — art. 66 (dobles) / art. 68 (triples)
+      'Horas Extra Dobles': minutesToHours(doubleMin),
+      'Horas Extra Triples': minutesToHours(tripleMin),
+      // Prima por descanso trabajado (art. 73 LFT)
+      'Día de Descanso Trabajado': r.isRestDayWorked ? 'Sí' : 'No',
+      'Prima 100% (min)': restPremiumMin,
       Estado: STATUS_ES[r.status] || r.status,
       'Justificación': r.justificationStatus || '—',
     });
@@ -486,6 +473,10 @@ async function buildDailyRows(
       late: number;
       earlyLeave: number;
       overtimeMin: number;
+      doubleMin: number;
+      tripleMin: number;
+      restDayWorkedCount: number;
+      restPremiumMin: number;
     }
   >();
   for (const r of records) {
@@ -500,6 +491,10 @@ async function buildDailyRows(
         late: 0,
         earlyLeave: 0,
         overtimeMin: 0,
+        doubleMin: 0,
+        tripleMin: 0,
+        restDayWorkedCount: 0,
+        restPremiumMin: 0,
       });
     }
     const s = bySucursalMap.get(key)!;
@@ -507,18 +502,13 @@ async function buildDailyRows(
     if (r.status === 'PRESENT') s.present += 1;
     if (r.status === 'LATE') s.late += 1;
     if (r.status === 'EARLY_LEAVE') s.earlyLeave += 1;
-    const sched = findScheduleForDate(
-      schedulesByEmp[r.employeeId] || [],
-      r.date
-    );
-    const ot = calculateOvertime({
-      record: r,
-      schedule: sched,
-      sucursal: {
-        checkoutToleranceMinutes: r.sucursal.checkoutToleranceMinutes,
-      },
-    });
-    s.overtimeMin += ot.overtimeMinutes;
+    s.overtimeMin += r.overtimeMinutes ?? 0;
+    s.doubleMin += r.overtimeDoubleMinutes ?? 0;
+    s.tripleMin += r.overtimeTripleMinutes ?? 0;
+    if (r.isRestDayWorked) {
+      s.restDayWorkedCount += 1;
+      s.restPremiumMin += r.restDayPremiumMinutes ?? 0;
+    }
   }
 
   const summaryRows: (string | number)[][] = [
@@ -533,6 +523,10 @@ async function buildDailyRows(
     summaryRows.push(['    Retardos', s.late]);
     summaryRows.push(['    Salidas Anticipadas', s.earlyLeave]);
     summaryRows.push(['    Horas Extra (h)', minutesToHours(s.overtimeMin)]);
+    summaryRows.push(['    Horas Extra Dobles (h)', minutesToHours(s.doubleMin)]);
+    summaryRows.push(['    Horas Extra Triples (h)', minutesToHours(s.tripleMin)]);
+    summaryRows.push(['    Días de Descanso Trabajados', s.restDayWorkedCount]);
+    summaryRows.push(['    Prima 100% (h)', minutesToHours(s.restPremiumMin)]);
   }
 
   return { rows, summaryRows, auditRows };
@@ -568,32 +562,17 @@ async function buildOvertimeRows(
     orderBy: [{ date: 'asc' }, { employee: { employeeNumber: 'asc' } }],
   });
 
-  const employeeIds = [...new Set(records.map((r) => r.employeeId))];
-  const schedules = employeeIds.length
-    ? await db.workSchedule.findMany({
-        where: { employeeId: { in: employeeIds } },
-      })
-    : [];
-  const schedulesByEmp: Record<string, WorkSchedule[]> = {};
-  for (const s of schedules) {
-    if (!schedulesByEmp[s.employeeId]) schedulesByEmp[s.employeeId] = [];
-    schedulesByEmp[s.employeeId].push(s);
-  }
+  // Reforma LFT 2027 — dobles/triples y prima descanso ya persistidos por
+  // check-out. No se requiere cargar WorkSchedules (no se recalcula overtime).
 
   const rows: Record<string, any>[] = [];
   for (const r of records) {
     if (!r.checkInTime || !r.checkOutTime) continue;
-    const sched = findScheduleForDate(
-      schedulesByEmp[r.employeeId] || [],
-      r.date
-    );
-    const ot = calculateOvertime({
-      record: r,
-      schedule: sched,
-      sucursal: {
-        checkoutToleranceMinutes: r.sucursal.checkoutToleranceMinutes,
-      },
-    });
+    const doubleMin = r.overtimeDoubleMinutes ?? 0;
+    const tripleMin = r.overtimeTripleMinutes ?? 0;
+    const restPremiumMin = r.restDayPremiumMinutes ?? 0;
+    const otMin = r.overtimeMinutes ?? 0;
+    const workedMin = r.workedMinutes ?? 0;
     rows.push({
       'Número de Empleado': r.employee.employeeNumber,
       Nombre: r.employee.user.name,
@@ -605,8 +584,14 @@ async function buildOvertimeRows(
       Fecha: toISODate(r.date),
       'Hora de Entrada': formatTimeInMexico(r.checkInTime),
       'Hora de Salida': formatTimeInMexico(r.checkOutTime),
-      'Horas Trabajadas': minutesToHours(ot.workedMinutes ?? 0),
-      'Horas Extra': minutesToHours(ot.overtimeMinutes),
+      'Horas Trabajadas': minutesToHours(workedMin),
+      'Horas Extra': minutesToHours(otMin),
+      // Reforma LFT 2027 — art. 66 (dobles) / art. 68 (triples)
+      'Horas Extra Dobles': minutesToHours(doubleMin),
+      'Horas Extra Triples': minutesToHours(tripleMin),
+      // Prima por descanso trabajado (art. 73 LFT)
+      'Día de Descanso Trabajado': r.isRestDayWorked ? 'Sí' : 'No',
+      'Prima 100% (min)': restPremiumMin,
     });
   }
 
@@ -614,9 +599,31 @@ async function buildOvertimeRows(
     (s, r) => s + Math.round((r['Horas Extra'] as number) * 60),
     0
   );
+  const totalDoubleMin = rows.reduce(
+    (s, r) => s + Math.round((r['Horas Extra Dobles'] as number) * 60),
+    0
+  );
+  const totalTripleMin = rows.reduce(
+    (s, r) => s + Math.round((r['Horas Extra Triples'] as number) * 60),
+    0
+  );
+  const totalRestDayWorkedCount = rows.filter(
+    (r) => r['Día de Descanso Trabajado'] === 'Sí'
+  ).length;
+  const totalRestPremiumMin = rows.reduce(
+    (s, r) => s + (r['Prima 100% (min)'] as number),
+    0
+  );
+
   const summaryRows: (string | number)[][] = [
     ['Total de Registros con Horas Extra', rows.length],
     ['Total Horas Extra', minutesToHours(totalOvertimeMin)],
+    // Reforma LFT 2027 — dobles/triples
+    ['Total Horas Extra Dobles', minutesToHours(totalDoubleMin)],
+    ['Total Horas Extra Triples', minutesToHours(totalTripleMin)],
+    // Prima por descanso trabajado (art. 73 LFT)
+    ['Total Días de Descanso Trabajados', totalRestDayWorkedCount],
+    ['Total Prima 100% (h)', minutesToHours(totalRestPremiumMin)],
   ];
 
   return { rows, summaryRows };
@@ -727,16 +734,8 @@ async function buildIncidencesRows(
       loadHolidays(start, end),
     ]);
 
-  // Sucursales para checkoutToleranceMinutes
-  const sucIds = [...new Set(employees.map((e) => e.sucursalId))];
-  const sucMap = new Map<string, number>();
-  if (sucIds.length) {
-    const sucs = await db.sucursal.findMany({
-      where: { id: { in: sucIds } },
-      select: { id: true, checkoutToleranceMinutes: true },
-    });
-    for (const s of sucs) sucMap.set(s.id, s.checkoutToleranceMinutes);
-  }
+  // Reforma LFT 2027 — dobles/triples y prima descanso persistidos por check-out.
+  // No se necesita checkoutToleranceMinutes aquí (no se recalcula overtime).
 
   const vacationsByEmp: Record<string, any[]> = {};
   for (const v of vacations as any[]) {
@@ -751,9 +750,13 @@ async function buildIncidencesRows(
     retardos: 0,
     salidasAnticipadas: 0,
     horasExtraMin: 0,
+    horasExtraDobleMin: 0,
+    horasExtraTripleMin: 0,
     horasTrabajadasMin: 0,
     diasVacaciones: 0,
     diasIncapacidad: 0,
+    diasDescansoTrabajado: 0,
+    primaDescansoMin: 0,
   };
 
   for (const emp of employees) {
@@ -763,7 +766,6 @@ async function buildIncidencesRows(
     const sucName = emp.sucursal?.codigoLocal
       ? `${emp.sucursal.codigoLocal} — ${emp.sucursal.name}`
       : emp.sucursal?.name || '—';
-    const checkoutTol = sucMap.get(emp.sucursalId) ?? 0;
 
     const recordsByDate: Record<string, (typeof empRecords)[0]> = {};
     for (const r of empRecords) recordsByDate[toISODate(r.date)] = r;
@@ -773,9 +775,13 @@ async function buildIncidencesRows(
       retardos = 0,
       salidasAnticipadas = 0,
       horasExtraMin = 0,
+      horasExtraDobleMin = 0,
+      horasExtraTripleMin = 0,
       horasTrabajadasMin = 0,
       diasVacaciones = 0,
-      diasIncapacidad = 0;
+      diasIncapacidad = 0,
+      diasDescansoTrabajado = 0,
+      primaDescansoMin = 0;
 
     for (const day of days) {
       const dayISO = toISODate(day);
@@ -808,18 +814,19 @@ async function buildIncidencesRows(
         continue;
       }
       if (!record) continue;
-      const sched = findScheduleForDate(empSchedules, day);
-      const ot = calculateOvertime({
-        record,
-        schedule: sched,
-        sucursal: { checkoutToleranceMinutes: checkoutTol },
-      });
+      // Reforma LFT 2027 — dobles/triples y prima descanso persistidos por check-out
       if (record.status === 'PRESENT' || record.status === 'LATE')
         diasLaborados += 1;
       if (record.status === 'LATE') retardos += 1;
       if (record.status === 'EARLY_LEAVE') salidasAnticipadas += 1;
-      horasExtraMin += ot.overtimeMinutes;
-      horasTrabajadasMin += ot.workedMinutes ?? 0;
+      horasExtraMin += record.overtimeMinutes ?? 0;
+      horasExtraDobleMin += record.overtimeDoubleMinutes ?? 0;
+      horasExtraTripleMin += record.overtimeTripleMinutes ?? 0;
+      horasTrabajadasMin += record.workedMinutes ?? 0;
+      if (record.isRestDayWorked) {
+        diasDescansoTrabajado += 1;
+        primaDescansoMin += record.restDayPremiumMinutes ?? 0;
+      }
     }
 
     totals.diasLaborados += diasLaborados;
@@ -827,9 +834,13 @@ async function buildIncidencesRows(
     totals.retardos += retardos;
     totals.salidasAnticipadas += salidasAnticipadas;
     totals.horasExtraMin += horasExtraMin;
+    totals.horasExtraDobleMin += horasExtraDobleMin;
+    totals.horasExtraTripleMin += horasExtraTripleMin;
     totals.horasTrabajadasMin += horasTrabajadasMin;
     totals.diasVacaciones += diasVacaciones;
     totals.diasIncapacidad += diasIncapacidad;
+    totals.diasDescansoTrabajado += diasDescansoTrabajado;
+    totals.primaDescansoMin += primaDescansoMin;
 
     rows.push({
       'Número de Empleado': emp.employeeNumber,
@@ -843,10 +854,19 @@ async function buildIncidencesRows(
       'Salidas Anticipadas': salidasAnticipadas,
       'Horas Extra (min)': horasExtraMin,
       'Horas Extra (h)': minutesToHours(horasExtraMin),
+      // Reforma LFT 2027 — dobles/triples persistidos por check-out
+      'Horas Extra Dobles (min)': horasExtraDobleMin,
+      'Horas Extra Dobles (h)': minutesToHours(horasExtraDobleMin),
+      'Horas Extra Triples (min)': horasExtraTripleMin,
+      'Horas Extra Triples (h)': minutesToHours(horasExtraTripleMin),
       'Horas Trabajadas (min)': horasTrabajadasMin,
       'Horas Trabajadas (h)': minutesToHours(horasTrabajadasMin),
       'Días de Vacaciones': diasVacaciones,
       'Días de Incapacidad': diasIncapacidad,
+      // Prima por descanso trabajado (art. 73 LFT)
+      'Días de Descanso Trabajados': diasDescansoTrabajado,
+      'Prima 100% (min)': primaDescansoMin,
+      'Prima 100% (h)': minutesToHours(primaDescansoMin),
     });
   }
 
@@ -857,9 +877,15 @@ async function buildIncidencesRows(
     ['Retardos (total)', totals.retardos],
     ['Salidas Anticipadas (total)', totals.salidasAnticipadas],
     ['Horas Extra (total, h)', minutesToHours(totals.horasExtraMin)],
+    // Reforma LFT 2027 — dobles/triples
+    ['Horas Extra Dobles (total, h)', minutesToHours(totals.horasExtraDobleMin)],
+    ['Horas Extra Triples (total, h)', minutesToHours(totals.horasExtraTripleMin)],
     ['Horas Trabajadas (total, h)', minutesToHours(totals.horasTrabajadasMin)],
     ['Días de Vacaciones (total)', totals.diasVacaciones],
     ['Días de Incapacidad (total)', totals.diasIncapacidad],
+    // Prima por descanso trabajado (art. 73 LFT)
+    ['Días de Descanso Trabajados (total)', totals.diasDescansoTrabajado],
+    ['Prima 100% (total, h)', minutesToHours(totals.primaDescansoMin)],
   ];
 
   return { rows, summaryRows };
@@ -885,7 +911,6 @@ async function buildComparativeRows(
       id: true,
       name: true,
       codigoLocal: true,
-      checkoutToleranceMinutes: true,
     },
   });
 
@@ -895,7 +920,11 @@ async function buildComparativeRows(
   let totalPresent = 0,
     totalAbsent = 0,
     totalLate = 0,
-    totalOvertimeMin = 0;
+    totalOvertimeMin = 0,
+    totalDoubleMin = 0,
+    totalTripleMin = 0,
+    totalRestDayWorkedCount = 0,
+    totalRestPremiumMin = 0;
 
   for (const suc of sucursales) {
     const employees = await loadActiveEmployees(suc.id);
@@ -916,7 +945,11 @@ async function buildComparativeRows(
     let presentDays = 0,
       absentDays = 0,
       lateDays = 0,
-      overtimeMin = 0;
+      overtimeMin = 0,
+      doubleMin = 0,
+      tripleMin = 0,
+      restDayWorkedCount = 0,
+      restPremiumMin = 0;
 
     for (const emp of employees) {
       const empSchedules = schedulesByEmp[emp.id] || [];
@@ -948,16 +981,15 @@ async function buildComparativeRows(
           lateDays += 1;
           presentDays += 1;
         }
+        // Reforma LFT 2027 — dobles/triples y prima descanso persistidos por check-out
         if (record.checkInTime && record.checkOutTime) {
-          const sched = findScheduleForDate(empSchedules, day);
-          const ot = calculateOvertime({
-            record,
-            schedule: sched,
-            sucursal: {
-              checkoutToleranceMinutes: suc.checkoutToleranceMinutes,
-            },
-          });
-          overtimeMin += ot.overtimeMinutes;
+          overtimeMin += record.overtimeMinutes ?? 0;
+          doubleMin += record.overtimeDoubleMinutes ?? 0;
+          tripleMin += record.overtimeTripleMinutes ?? 0;
+          if (record.isRestDayWorked) {
+            restDayWorkedCount += 1;
+            restPremiumMin += record.restDayPremiumMinutes ?? 0;
+          }
         }
       }
     }
@@ -970,6 +1002,10 @@ async function buildComparativeRows(
     totalAbsent += absentDays;
     totalLate += lateDays;
     totalOvertimeMin += overtimeMin;
+    totalDoubleMin += doubleMin;
+    totalTripleMin += tripleMin;
+    totalRestDayWorkedCount += restDayWorkedCount;
+    totalRestPremiumMin += restPremiumMin;
 
     rows.push({
       Sucursal: suc.codigoLocal
@@ -980,6 +1016,12 @@ async function buildComparativeRows(
       'Días Ausente': absentDays,
       'Días con Retardo': lateDays,
       'Horas Extra': minutesToHours(overtimeMin),
+      // Reforma LFT 2027 — dobles/triples
+      'Horas Extra Dobles': minutesToHours(doubleMin),
+      'Horas Extra Triples': minutesToHours(tripleMin),
+      // Prima por descanso trabajado (art. 73 LFT)
+      'Días de Descanso Trabajados': restDayWorkedCount,
+      'Prima 100% (h)': minutesToHours(restPremiumMin),
       'Tasa de Asistencia (%)': attendanceRate,
     });
   }
@@ -991,6 +1033,12 @@ async function buildComparativeRows(
     ['Días Ausente (total)', totalAbsent],
     ['Días con Retardo (total)', totalLate],
     ['Horas Extra (total)', minutesToHours(totalOvertimeMin)],
+    // Reforma LFT 2027 — dobles/triples
+    ['Horas Extra Dobles (total)', minutesToHours(totalDoubleMin)],
+    ['Horas Extra Triples (total)', minutesToHours(totalTripleMin)],
+    // Prima por descanso trabajado (art. 73 LFT)
+    ['Días de Descanso Trabajados (total)', totalRestDayWorkedCount],
+    ['Prima 100% (total, h)', minutesToHours(totalRestPremiumMin)],
     [
       'Tasa de Asistencia Global (%)',
       totalEval > 0 ? +((totalPresent / totalEval) * 100).toFixed(2) : 0,

@@ -153,6 +153,14 @@ export async function POST(req: NextRequest) {
       (s) => s.dayOfWeek === dow && !s.isWeeklyRest
     );
 
+    // Detectar si hoy es día de descanso semanal del empleado (art. 73 LFT).
+    // El check-in se PERMITE (el patrón debe pagar la prima del 100%), pero se marca.
+    const restSchedule = employee.workSchedules.find(
+      (s) => s.dayOfWeek === dow && s.isWeeklyRest
+    );
+    const isRestDayWorked = restSchedule !== undefined;
+    const isSunday = dow === 0;
+
     if (todaySchedule) {
       try {
         const expectedCheckIn = buildDateTimeInMexico(todayISO, todaySchedule.startTime);
@@ -180,6 +188,9 @@ export async function POST(req: NextRequest) {
             checkInUserAgent: ua,
             status,
             isLocked: true,
+            // Marcar descanso trabajado (art. 73 LFT) — la prima se calcula al check-out
+            isRestDayWorked,
+            isSunday,
           },
         })
       : await db.attendanceRecord.create({
@@ -195,6 +206,9 @@ export async function POST(req: NextRequest) {
             checkInUserAgent: ua,
             status,
             isLocked: true,
+            // Marcar descanso trabajado (art. 73 LFT) — la prima se calcula al check-out
+            isRestDayWorked,
+            isSunday,
           },
         });
 
@@ -215,6 +229,12 @@ export async function POST(req: NextRequest) {
         long,
         status,
         performedBy: user.email,
+        // Bandera de descanso trabajado para auditoría NOM-035
+        isRestDayWorked,
+        isSunday,
+        legalNote: isRestDayWorked
+          ? 'Registro en día de descanso semanal — aplica prima del 100% (art. 73 LFT)'
+          : undefined,
       },
     });
 

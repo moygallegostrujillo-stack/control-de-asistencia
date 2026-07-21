@@ -170,6 +170,11 @@ export async function POST(req: NextRequest) {
         overtimeDoubleMinutes: calc.overtimeDoubleMinutes,
         overtimeTripleMinutes: calc.overtimeTripleMinutes,
         overtimeWeeklyAccumulated: calc.overtimeWeeklyAccumulated,
+        // Prima por descanso trabajado (art. 73 LFT) — persistir minutos y prima del 100%
+        isRestDayWorked: calc.isRestDayWorked,
+        restDayWorkedMinutes: calc.restDayWorkedMinutes || null,
+        restDayPremiumMinutes: calc.restDayPremiumMinutes || null,
+        isSunday: calc.isSunday,
         status: finalStatus,
       },
     });
@@ -195,10 +200,42 @@ export async function POST(req: NextRequest) {
         overtimeTripleMinutes: calc.overtimeTripleMinutes,
         overtimeWeeklyAccumulated: calc.overtimeWeeklyAccumulated,
         overtimeWeeklyTotal: calc.overtimeWeeklyTotal,
+        // Prima por descanso trabajado (art. 73 LFT)
+        isRestDayWorked: calc.isRestDayWorked,
+        restDayWorkedMinutes: calc.restDayWorkedMinutes,
+        restDayPremiumMinutes: calc.restDayPremiumMinutes,
+        isSunday: calc.isSunday,
         status: finalStatus,
         performedBy: user.email,
       },
     });
+
+    // --- NOM-035 — Alerta automática al trabajar en día de descanso (art. 73 LFT) ---
+    // Registramos una alerta NOM-035 para evidencia y para que aparezca en el badge
+    // de notificaciones del admin. La prima del 100% ya quedó persistida arriba.
+    if (calc.isRestDayWorked && (calc.restDayWorkedMinutes || 0) > 0) {
+      await auditLog({
+        userId: user.id,
+        action: 'NOM035_ALERT_REST_DAY_WORKED',
+        entityType: 'ATTENDANCE_RECORD',
+        entityId: updated.id,
+        sucursalId: record.employee.sucursalId,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          employeeId,
+          employeeName: record.employee.user.name,
+          employeeNumber: record.employee.employeeNumber,
+          restDayWorkedMinutes: calc.restDayWorkedMinutes,
+          restDayPremiumMinutes: calc.restDayPremiumMinutes,
+          isSunday: calc.isSunday,
+          alertLevel: calc.isSunday ? 'HIGH' : 'MEDIUM', // domingo = mayor riesgo
+          legalReference: 'LFT art. 73 (prima del 100% por descanso trabajado); art. 71 (prima dominical)',
+          triggeredBy: 'CHECK_OUT',
+          recommendation: 'Pagar jornada completa con prima del 100% adicional (art. 73 LFT). Si fue domingo, también aplica prima dominical (art. 71).',
+        },
+      }).catch(() => {}); // no bloquear el checkout si falla el log
+    }
 
     // --- NOM-035 — Alerta automática al cruzar el tope semanal de horas extra ---
     // Si este checkout hizo que el acumulado semanal del empleado supere el tope
@@ -241,6 +278,11 @@ export async function POST(req: NextRequest) {
       overtimeTripleMinutes: calc.overtimeTripleMinutes,
       overtimeWeeklyAccumulated: calc.overtimeWeeklyAccumulated,
       overtimeWeeklyTotal: calc.overtimeWeeklyTotal,
+      // Prima por descanso trabajado (art. 73 LFT)
+      isRestDayWorked: calc.isRestDayWorked,
+      restDayWorkedMinutes: calc.restDayWorkedMinutes,
+      restDayPremiumMinutes: calc.restDayPremiumMinutes,
+      isSunday: calc.isSunday,
       status: finalStatus,
     });
   } catch (error) {

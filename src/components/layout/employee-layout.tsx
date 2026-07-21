@@ -94,6 +94,7 @@ import {
   FileText,
   Camera,
   Keyboard,
+  CalendarOff,
 } from 'lucide-react';
 
 // ============================================================
@@ -122,6 +123,13 @@ interface TodayRecord {
   status: string;
   workedMinutes: number | null;
   overtimeMinutes: number | null;
+  // Reforma LFT 2027 — dobles / triples / prima por descanso trabajado
+  overtimeDoubleMinutes?: number | null;
+  overtimeTripleMinutes?: number | null;
+  isRestDayWorked?: boolean | null;
+  restDayWorkedMinutes?: number | null;
+  restDayPremiumMinutes?: number | null;
+  isSunday?: boolean | null;
   notes: string | null;
   employee?: {
     id: string;
@@ -156,6 +164,12 @@ interface HistoryRecord {
   status: string;
   workedMinutes: number | null;
   overtimeMinutes: number | null;
+  // Reforma LFT 2027 — dobles / triples / prima por descanso trabajado
+  overtimeDoubleMinutes?: number | null;
+  overtimeTripleMinutes?: number | null;
+  isRestDayWorked?: boolean | null;
+  restDayPremiumMinutes?: number | null;
+  isSunday?: boolean | null;
   notes: string | null;
   checkInMethod: string | null;
   checkInLat: number | null;
@@ -1108,6 +1122,16 @@ function AttendanceView() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <FileText className="w-4 h-4" /> Resumen de hoy
+            {record?.isRestDayWorked && (
+              <Badge
+                className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1 ml-auto"
+                title="Día de descanso trabajado — prima 100% (art. 73 LFT)"
+              >
+                <CalendarOff className="h-3 w-3" />
+                {record.isSunday ? 'Domingo trabajado' : 'Descanso trabajado'}
+                <span className="font-semibold">· prima 100%</span>
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -1130,7 +1154,7 @@ function AttendanceView() {
               label="Horas extra"
               value={
                 record?.overtimeMinutes
-                  ? formatMinutes(record.overtimeMinutes)
+                  ? `${formatMinutes(record.overtimeMinutes)} · Dobles ${formatMinutes(record.overtimeDoubleMinutes ?? 0)} / Triples ${formatMinutes(record.overtimeTripleMinutes ?? 0)}`
                   : '0min'
               }
               highlight={!!record?.overtimeMinutes}
@@ -1325,6 +1349,7 @@ function HistoryView() {
                     <TableHead className="whitespace-nowrap">Estado</TableHead>
                     <TableHead className="whitespace-nowrap">Hrs. Trabajadas</TableHead>
                     <TableHead className="whitespace-nowrap">Hrs. Extra</TableHead>
+                    <TableHead className="whitespace-nowrap">Descanso</TableHead>
                     <TableHead className="whitespace-nowrap">Notas</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1356,9 +1381,29 @@ function HistoryView() {
                         {r.workedMinutes != null ? formatMinutes(r.workedMinutes) : '—'}
                       </TableCell>
                       <TableCell className="whitespace-nowrap font-mono text-xs">
-                        {r.overtimeMinutes
-                          ? formatMinutes(r.overtimeMinutes)
-                          : '—'}
+                        {r.overtimeMinutes ? (
+                          <span>
+                            {formatMinutes(r.overtimeMinutes)}
+                            {(r.overtimeDoubleMinutes ?? 0) > 0 || (r.overtimeTripleMinutes ?? 0) > 0 ? (
+                              <span className="block text-[10px] text-muted-foreground">
+                                <span className="text-amber-700">D: {formatMinutes(r.overtimeDoubleMinutes ?? 0)}</span>
+                                {' · '}
+                                <span className="text-rose-700">T: {formatMinutes(r.overtimeTripleMinutes ?? 0)}</span>
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {r.isRestDayWorked ? (
+                          <Badge
+                            className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1"
+                            title={`Día de descanso trabajado — prima 100% (art. 73 LFT)${r.isSunday ? ' · Domingo' : ''}`}
+                          >
+                            <CalendarOff className="h-3 w-3" />
+                            {r.isSunday ? 'Dom.' : 'Sí'}
+                          </Badge>
+                        ) : '—'}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs text-muted-foreground max-w-[160px] truncate">
                         {r.notes || '—'}

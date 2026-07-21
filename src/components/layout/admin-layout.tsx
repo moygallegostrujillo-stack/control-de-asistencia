@@ -13,7 +13,7 @@ import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
 import type { AuthUser } from '@/lib/auth';
 import { useRealtime } from '@/hooks/use-realtime';
 import { cn } from '@/lib/utils';
-import { formatTimeInMexico, formatDateInMexico, formatMinutes, formatDateTimeInMexico, getMexicoTodayISO, toISODate } from '@/lib/timezone';
+import { formatTimeInMexico, formatDateInMexico, formatMinutes, minutesToHours, formatDateTimeInMexico, getMexicoTodayISO, toISODate } from '@/lib/timezone';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +49,7 @@ import {
   Maximize2, Minimize2,
   FileDown, FileText, ExternalLink, BookOpen, FileType, Scale, Sparkles,
   Server, Database, Rocket,
+  CalendarOff, Sun,
 } from 'lucide-react';
 
 // ============================================================
@@ -3045,7 +3046,7 @@ function HistoryView({ role }: { role: Role }) {
   function exportCsv() {
     if (filteredRecords.length === 0) { toast.error('Sin datos para exportar'); return; }
     const rows = [
-      ['Empleado', 'Número', 'Sucursal', 'Fecha', 'Entrada', 'Salida', 'Comida', 'Descanso', 'Estado', 'Min. trabajados', 'Min. extra'],
+      ['Empleado', 'Número', 'Sucursal', 'Fecha', 'Entrada', 'Salida', 'Comida', 'Descanso', 'Estado', 'Min. trabajados', 'Min. extra', 'Horas Extra Dobles (min)', 'Horas Extra Triples (min)', 'Día de Descanso Trabajado', 'Prima 100% (min)'],
       ...filteredRecords.map((r) => [
         r.employee?.user?.name || '',
         r.employee?.employeeNumber || '',
@@ -3058,6 +3059,10 @@ function HistoryView({ role }: { role: Role }) {
         STATUS_LABEL[r.status] || r.status,
         r.workedMinutes?.toString() || '0',
         r.overtimeMinutes?.toString() || '0',
+        (r.overtimeDoubleMinutes ?? 0).toString(),
+        (r.overtimeTripleMinutes ?? 0).toString(),
+        r.isRestDayWorked ? 'Sí' : 'No',
+        (r.restDayPremiumMinutes ?? 0).toString(),
       ]),
     ];
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -3179,10 +3184,17 @@ function HistoryView({ role }: { role: Role }) {
                       <TableHead className="w-[100px] whitespace-nowrap">Estado</TableHead>
                       <TableHead className="w-[100px] whitespace-nowrap">Trabajado</TableHead>
                       <TableHead className="w-[100px] whitespace-nowrap">Extra</TableHead>
+                      <TableHead className="w-[90px] whitespace-nowrap">Dobles</TableHead>
+                      <TableHead className="w-[90px] whitespace-nowrap">Triples</TableHead>
+                      <TableHead className="w-[90px] whitespace-nowrap">Descanso</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {employeeHistory.records.map((r) => (
+                    {employeeHistory.records.map((r) => {
+                      const doubleMin = r.overtimeDoubleMinutes ?? 0;
+                      const tripleMin = r.overtimeTripleMinutes ?? 0;
+                      const isRest = !!r.isRestDayWorked;
+                      return (
                       <TableRow key={r.id} className="hover:bg-muted/40">
                         <TableCell className="whitespace-nowrap">{formatDateInMexico(r.date)}</TableCell>
                         <TableCell className="whitespace-nowrap">{formatTimeInMexico(r.checkInTime)}</TableCell>
@@ -3190,8 +3202,24 @@ function HistoryView({ role }: { role: Role }) {
                         <TableCell className="whitespace-nowrap"><StatusBadge status={r.status} /></TableCell>
                         <TableCell className="whitespace-nowrap">{formatMinutes(r.workedMinutes)}</TableCell>
                         <TableCell className="whitespace-nowrap">{r.overtimeMinutes ? formatMinutes(r.overtimeMinutes) : '—'}</TableCell>
+                        <TableCell className="whitespace-nowrap text-amber-700">{doubleMin > 0 ? formatMinutes(doubleMin) : '—'}</TableCell>
+                        <TableCell className="whitespace-nowrap text-rose-700">{tripleMin > 0 ? formatMinutes(tripleMin) : '—'}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {isRest ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1">
+                                  <CalendarOff className="h-3 w-3" />
+                                  {r.isSunday ? 'Dom.' : 'Sí'}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>Día de descanso trabajado — prima 100% (art. 73 LFT){r.isSunday ? ' · Domingo' : ''}</TooltipContent>
+                            </Tooltip>
+                          ) : '—'}
+                        </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -3222,10 +3250,17 @@ function HistoryView({ role }: { role: Role }) {
                     <TableHead className="w-[100px] whitespace-nowrap">Estado</TableHead>
                     <TableHead className="w-[100px] whitespace-nowrap">Trabajado</TableHead>
                     <TableHead className="w-[100px] whitespace-nowrap">Extra</TableHead>
+                    <TableHead className="w-[90px] whitespace-nowrap">Dobles</TableHead>
+                    <TableHead className="w-[90px] whitespace-nowrap">Triples</TableHead>
+                    <TableHead className="w-[90px] whitespace-nowrap">Descanso</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRecords.map((r) => (
+                  {filteredRecords.map((r) => {
+                    const doubleMin = r.overtimeDoubleMinutes ?? 0;
+                    const tripleMin = r.overtimeTripleMinutes ?? 0;
+                    const isRest = !!r.isRestDayWorked;
+                    return (
                     <TableRow key={r.id} className="hover:bg-muted/40">
                       <TableCell className="whitespace-nowrap">{formatDateInMexico(r.date)}</TableCell>
                       <TableCell className="whitespace-nowrap">
@@ -3240,8 +3275,24 @@ function HistoryView({ role }: { role: Role }) {
                       <TableCell className="whitespace-nowrap"><StatusBadge status={r.status} /></TableCell>
                       <TableCell className="whitespace-nowrap">{formatMinutes(r.workedMinutes)}</TableCell>
                       <TableCell className="whitespace-nowrap">{r.overtimeMinutes ? formatMinutes(r.overtimeMinutes) : '—'}</TableCell>
+                      <TableCell className="whitespace-nowrap text-amber-700">{doubleMin > 0 ? formatMinutes(doubleMin) : '—'}</TableCell>
+                      <TableCell className="whitespace-nowrap text-rose-700">{tripleMin > 0 ? formatMinutes(tripleMin) : '—'}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {isRest ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1">
+                                <CalendarOff className="h-3 w-3" />
+                                {r.isSunday ? 'Dom.' : 'Sí'}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>Día de descanso trabajado — prima 100% (art. 73 LFT){r.isSunday ? ' · Domingo' : ''}</TooltipContent>
+                          </Tooltip>
+                        ) : '—'}
+                      </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -3451,6 +3502,11 @@ function DailyReportBody({ data, isGA }: { data: any; isGA: boolean }) {
   const records: any[] = data.records || [];
   const bySucursal: any[] = data.bySucursal || [];
   const summary = data.summary || {};
+  // Cómputo local de dobles/triples/descansos (la API de daily aún no los expone en summary).
+  const totalDoubleHours = minutesToHours(records.reduce((s, r) => s + (r.overtimeDoubleMinutes ?? 0), 0));
+  const totalTripleHours = minutesToHours(records.reduce((s, r) => s + (r.overtimeTripleMinutes ?? 0), 0));
+  const restDayWorkedCount = records.filter((r) => r.isRestDayWorked).length;
+  const totalRestPremiumHours = minutesToHours(records.reduce((s, r) => s + (r.isRestDayWorked ? (r.restDayPremiumMinutes ?? 0) : 0), 0));
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -3458,6 +3514,12 @@ function DailyReportBody({ data, isGA }: { data: any; isGA: boolean }) {
         <KpiCard icon={CheckCircle2} label="Presentes" value={(summary.present ?? 0).toString()} tone="emerald" />
         <KpiCard icon={AlertTriangle} label="Retardos" value={(summary.late ?? 0).toString()} tone="amber" />
         <KpiCard icon={UserX} label="Ausentes" value={(summary.absent ?? 0).toString()} tone="rose" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={Clock} label="HE Dobles" value={`${totalDoubleHours} h`} tone="amber" />
+        <KpiCard icon={Clock} label="HE Triples" value={`${totalTripleHours} h`} tone="rose" />
+        <KpiCard icon={CalendarOff} label="Descansos trab." value={restDayWorkedCount.toString()} tone="amber" />
+        <KpiCard icon={Sun} label="Prima 100% (h)" value={`${totalRestPremiumHours} h`} tone="amber" />
       </div>
       {isGA && bySucursal.length > 0 && (
         <Card>
@@ -3507,10 +3569,17 @@ function DailyReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                     <TableHead className="w-[100px] whitespace-nowrap">Estado</TableHead>
                     <TableHead className="w-[100px] whitespace-nowrap">Trabajado</TableHead>
                     <TableHead className="w-[100px] whitespace-nowrap">Extra</TableHead>
+                    <TableHead className="w-[90px] whitespace-nowrap">Dobles</TableHead>
+                    <TableHead className="w-[90px] whitespace-nowrap">Triples</TableHead>
+                    <TableHead className="w-[100px] whitespace-nowrap">Descanso</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {records.map((r: any) => (
+                  {records.map((r: any) => {
+                    const doubleMin = r.overtimeDoubleMinutes ?? 0;
+                    const tripleMin = r.overtimeTripleMinutes ?? 0;
+                    const isRest = !!r.isRestDayWorked;
+                    return (
                     <TableRow key={r.id}>
                       <TableCell className="whitespace-nowrap font-medium">{r.name} <span className="text-xs text-muted-foreground">#{r.employeeNumber}</span></TableCell>
                       {isGA && <TableCell className="whitespace-nowrap text-muted-foreground">{sucursalLabel(r.sucursalName, r.sucursalCodigoLocal)}</TableCell>}
@@ -3519,8 +3588,24 @@ function DailyReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                       <TableCell className="whitespace-nowrap"><StatusBadge status={r.status} /></TableCell>
                       <TableCell className="whitespace-nowrap">{formatMinutes(r.workedMinutes)}</TableCell>
                       <TableCell className="whitespace-nowrap">{r.overtimeMinutes ? formatMinutes(r.overtimeMinutes) : '—'}</TableCell>
+                      <TableCell className="whitespace-nowrap text-amber-700">{doubleMin > 0 ? formatMinutes(doubleMin) : '—'}</TableCell>
+                      <TableCell className="whitespace-nowrap text-rose-700">{tripleMin > 0 ? formatMinutes(tripleMin) : '—'}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {isRest ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1">
+                                <CalendarOff className="h-3 w-3" />
+                                {r.isSunday ? 'Dom.' : 'Sí'}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>Día de descanso trabajado — prima 100% (art. 73 LFT){r.isSunday ? ' · Domingo' : ''}</TooltipContent>
+                          </Tooltip>
+                        ) : '—'}
+                      </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -3538,9 +3623,15 @@ function OvertimeReportBody({ data, isGA }: { data: any; isGA: boolean }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard icon={Users} label="Empleados" value={(summary.totalEmployees ?? 0).toString()} tone="zinc" />
-        <KpiCard icon={Clock} label="Horas extra" value={`${summary.totalOvertimeHours ?? 0} h`} tone="amber" />
-        <KpiCard icon={Timer} label="Promedio" value={`${summary.avgPerEmployee ?? 0} h`} tone="zinc" />
+        <KpiCard icon={Clock} label="Horas extra (total)" value={`${summary.totalOvertimeHours ?? 0} h`} tone="amber" />
+        <KpiCard icon={Timer} label="Promedio / emp." value={`${summary.avgPerEmployee ?? 0} h`} tone="zinc" />
         <KpiCard icon={FileBarChart} label="Registros" value={(summary.totalRecords ?? 0).toString()} tone="emerald" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={Clock} label="HE Dobles" value={`${summary.totalDoubleHours ?? 0} h`} tone="amber" />
+        <KpiCard icon={Clock} label="HE Triples" value={`${summary.totalTripleHours ?? 0} h`} tone="rose" />
+        <KpiCard icon={CalendarOff} label="Descansos trabajados" value={(summary.totalRestDayWorkedCount ?? 0).toString()} tone="amber" />
+        <KpiCard icon={Sun} label="Prima 100% descanso" value={`${summary.totalRestDayPremiumHours ?? 0} h`} tone="amber" />
       </div>
       <Card>
         <CardHeader><CardTitle className="text-base">Horas extra por empleado</CardTitle></CardHeader>
@@ -3555,6 +3646,10 @@ function OvertimeReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                     <TableHead className="whitespace-nowrap">Días</TableHead>
                     <TableHead className="whitespace-nowrap">Horas trabajadas</TableHead>
                     <TableHead className="whitespace-nowrap">Horas extra</TableHead>
+                    <TableHead className="whitespace-nowrap">HE Dobles</TableHead>
+                    <TableHead className="whitespace-nowrap">HE Triples</TableHead>
+                    <TableHead className="whitespace-nowrap">Descansos trab.</TableHead>
+                    <TableHead className="whitespace-nowrap">Prima 100% (h)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -3565,6 +3660,17 @@ function OvertimeReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                       <TableCell className="whitespace-nowrap">{e.days}</TableCell>
                       <TableCell className="whitespace-nowrap">{e.totalWorkedHours} h</TableCell>
                       <TableCell className="whitespace-nowrap font-medium text-amber-700">{e.totalOvertimeHours} h</TableCell>
+                      <TableCell className="whitespace-nowrap text-amber-700">{(e.totalDoubleHours ?? 0)} h</TableCell>
+                      <TableCell className="whitespace-nowrap text-rose-700">{(e.totalTripleHours ?? 0)} h</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {(e.restDayWorkedCount ?? 0) > 0 ? (
+                          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1">
+                            <CalendarOff className="h-3 w-3" />
+                            {e.restDayWorkedCount}
+                          </Badge>
+                        ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-amber-700">{(e.totalRestDayPremiumHours ?? 0)} h</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -3631,6 +3737,12 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
         <KpiCard icon={UserX} label="Faltas" value={(totals.faltas ?? 0).toString()} tone="rose" />
         <KpiCard icon={Clock} label="Horas extra" value={`${totals.horasExtraHoras ?? 0} h`} tone="zinc" />
       </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={Clock} label="HE Dobles" value={`${totals.horasExtraDobleHoras ?? 0} h`} tone="amber" />
+        <KpiCard icon={Clock} label="HE Triples" value={`${totals.horasExtraTripleHoras ?? 0} h`} tone="rose" />
+        <KpiCard icon={CalendarOff} label="Descansos trab." value={(totals.diasDescansoTrabajado ?? 0).toString()} tone="amber" />
+        <KpiCard icon={Sun} label="Prima 100% (h)" value={`${totals.primaDescansoHoras ?? 0} h`} tone="amber" />
+      </div>
       <Card>
         <CardHeader><CardTitle className="text-base">Incidencias por empleado</CardTitle></CardHeader>
         <CardContent className="p-0">
@@ -3646,6 +3758,10 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                     <TableHead className="whitespace-nowrap">Ret.</TableHead>
                     <TableHead className="whitespace-nowrap">S.A.</TableHead>
                     <TableHead className="whitespace-nowrap">HE h</TableHead>
+                    <TableHead className="whitespace-nowrap">Dobles</TableHead>
+                    <TableHead className="whitespace-nowrap">Triples</TableHead>
+                    <TableHead className="whitespace-nowrap">Desc.</TableHead>
+                    <TableHead className="whitespace-nowrap">Prima h</TableHead>
                     <TableHead className="whitespace-nowrap">Vac.</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -3659,6 +3775,17 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                       <TableCell className="whitespace-nowrap">{e.retardos}</TableCell>
                       <TableCell className="whitespace-nowrap">{e.salidasAnticipadas}</TableCell>
                       <TableCell className="whitespace-nowrap">{e.horasExtraHoras}</TableCell>
+                      <TableCell className="whitespace-nowrap text-amber-700">{(e.horasExtraDobleHoras ?? 0)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-rose-700">{(e.horasExtraTripleHoras ?? 0)}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {(e.diasDescansoTrabajado ?? 0) > 0 ? (
+                          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1">
+                            <CalendarOff className="h-3 w-3" />
+                            {e.diasDescansoTrabajado}
+                          </Badge>
+                        ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-amber-700">{(e.primaDescansoHoras ?? 0)}</TableCell>
                       <TableCell className="whitespace-nowrap">{e.diasVacaciones}</TableCell>
                     </TableRow>
                   ))}
@@ -3682,6 +3809,12 @@ function ComparativeReportBody({ data }: { data: any }) {
         <KpiCard icon={Users} label="Empleados" value={(summary.totalEmployees ?? 0).toString()} tone="emerald" />
         <KpiCard icon={CheckCircle2} label="% asist. prom." value={`${summary.avgAttendanceRate ?? 0}%`} tone="emerald" />
         <KpiCard icon={Clock} label="HE total" value={`${summary.totalOvertimeHours ?? 0} h`} tone="amber" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={Clock} label="HE Dobles" value={`${summary.totalDoubleHours ?? 0} h`} tone="amber" />
+        <KpiCard icon={Clock} label="HE Triples" value={`${summary.totalTripleHours ?? 0} h`} tone="rose" />
+        <KpiCard icon={CalendarOff} label="Descansos trab." value={(summary.totalRestDayWorkedCount ?? 0).toString()} tone="amber" />
+        <KpiCard icon={Sun} label="Prima 100% (h)" value={`${summary.totalRestDayPremiumHours ?? 0} h`} tone="amber" />
       </div>
       <Card>
         <CardHeader><CardTitle className="text-base">Comparativo por sucursal</CardTitle></CardHeader>
@@ -3711,6 +3844,10 @@ function ComparativeReportBody({ data }: { data: any }) {
                       <TableHead className="whitespace-nowrap">Ausentes</TableHead>
                       <TableHead className="whitespace-nowrap">% Asist.</TableHead>
                       <TableHead className="whitespace-nowrap">HE h</TableHead>
+                      <TableHead className="whitespace-nowrap">Dobles</TableHead>
+                      <TableHead className="whitespace-nowrap">Triples</TableHead>
+                      <TableHead className="whitespace-nowrap">Descansos</TableHead>
+                      <TableHead className="whitespace-nowrap">Prima 100% (h)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -3722,6 +3859,10 @@ function ComparativeReportBody({ data }: { data: any }) {
                         <TableCell className="whitespace-nowrap">{s.absentDays}</TableCell>
                         <TableCell className="whitespace-nowrap font-medium text-emerald-700">{s.attendanceRate}%</TableCell>
                         <TableCell className="whitespace-nowrap">{s.overtimeHours}</TableCell>
+                        <TableCell className="whitespace-nowrap text-amber-700">{(s.overtimeDoubleHours ?? 0)} h</TableCell>
+                        <TableCell className="whitespace-nowrap text-rose-700">{(s.overtimeTripleHours ?? 0)} h</TableCell>
+                        <TableCell className="whitespace-nowrap">{(s.restDayWorkedCount ?? 0)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-amber-700">{(s.restDayPremiumHours ?? 0)} h</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -3747,7 +3888,7 @@ interface NOM035AlertRow {
   sucursalId: string;
   sucursalName: string;
   sucursalCodigoLocal: string | null;
-  type: 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST';
+  type: 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST' | 'REST_DAY_WORKED';
   level: 'HIGH' | 'MEDIUM' | 'LOW';
   title: string;
   description: string;
@@ -3766,6 +3907,15 @@ const NOM035_TYPE_LABELS: Record<NOM035AlertRow['type'], string> = {
   DAILY_OVERTIME_EXCEEDED: 'Tope diario excedido',
   CONSECUTIVE_LONG_DAYS: 'Sobrecarga sostenida',
   NO_WEEKLY_REST: 'Sin descanso semanal',
+  REST_DAY_WORKED: 'Día de descanso trabajado',
+};
+
+const NOM035_TYPE_ICONS: Record<NOM035AlertRow['type'], React.ElementType> = {
+  WEEKLY_OVERTIME_EXCEEDED: AlertTriangle,
+  DAILY_OVERTIME_EXCEEDED: AlertTriangle,
+  CONSECUTIVE_LONG_DAYS: AlertTriangle,
+  NO_WEEKLY_REST: AlertTriangle,
+  REST_DAY_WORKED: CalendarOff,
 };
 
 function NOM035View({ role }: { role: Role }) {
@@ -3876,13 +4026,15 @@ function NOM035View({ role }: { role: Role }) {
             <EmptyState
               icon={CheckCircle2}
               title="Sin alertas NOM-035 en esta semana"
-              subtitle="Ningún empleado supera los topes de horas extra ni presenta sobrecarga."
+              subtitle="Ningún empleado supera los topes de horas extra, presenta sobrecarga o trabajó en su día de descanso."
             />
           ) : (
             <div className={`max-h-[60vh] overflow-y-auto divide-y divide-zinc-100 ${SCROLLBAR_CLASS}`}>
               {alerts.map((a, i) => {
                 const isHigh = a.level === 'HIGH';
                 const isMed = a.level === 'MEDIUM';
+                const TypeIcon = NOM035_TYPE_ICONS[a.type] ?? AlertTriangle;
+                const isRestWorked = a.type === 'REST_DAY_WORKED';
                 return (
                   <div
                     key={`${a.employeeId}-${a.type}-${i}`}
@@ -3900,10 +4052,12 @@ function NOM035View({ role }: { role: Role }) {
                               isHigh ? 'bg-red-100 text-red-700' : isMed ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-700'
                             )}
                           >
-                            <AlertTriangle className="h-3 w-3" />
+                            <TypeIcon className="h-3 w-3" />
                             {a.level}
                           </span>
-                          <span className="text-xs text-muted-foreground">{NOM035_TYPE_LABELS[a.type]}</span>
+                          <span className={cn('text-xs', isRestWorked ? 'text-amber-700 font-medium' : 'text-muted-foreground')}>
+                            {NOM035_TYPE_LABELS[a.type]}
+                          </span>
                         </div>
                         <p className="text-sm font-semibold text-zinc-900 mt-1.5">{a.title}</p>
                         <p className="text-sm text-zinc-600 mt-0.5">{a.description}</p>

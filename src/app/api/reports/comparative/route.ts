@@ -23,7 +23,6 @@ import {
   loadApprovedVacations,
   loadHolidays,
 } from '@/lib/absence-calculator';
-import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
 
 export async function GET(req: NextRequest) {
   try {
@@ -73,7 +72,6 @@ export async function GET(req: NextRequest) {
         id: true,
         name: true,
         codigoLocal: true,
-        checkoutToleranceMinutes: true,
       },
     });
 
@@ -103,6 +101,10 @@ export async function GET(req: NextRequest) {
       let lateDays = 0;
       let earlyLeaveDays = 0;
       let overtimeMinutes = 0;
+      let overtimeDoubleMinutes = 0;
+      let overtimeTripleMinutes = 0;
+      let restDayWorkedCount = 0;
+      let restDayPremiumMinutes = 0;
 
       for (const emp of employees) {
         const empSchedules = schedulesByEmp[emp.id] || [];
@@ -143,17 +145,16 @@ export async function GET(req: NextRequest) {
             presentDays += 1;
           }
 
-          // Overtime (fix #2)
+          // Reforma LFT 2027 — dobles/triples y prima descanso persistidos
+          // por check-out. Se leen directamente de la BD (no se recalcula).
           if (record.checkInTime && record.checkOutTime) {
-            const sched = findScheduleForDate(empSchedules, day);
-            const ot = calculateOvertime({
-              record,
-              schedule: sched,
-              sucursal: {
-                checkoutToleranceMinutes: suc.checkoutToleranceMinutes,
-              },
-            });
-            overtimeMinutes += ot.overtimeMinutes;
+            overtimeMinutes += record.overtimeMinutes ?? 0;
+            overtimeDoubleMinutes += record.overtimeDoubleMinutes ?? 0;
+            overtimeTripleMinutes += record.overtimeTripleMinutes ?? 0;
+            if (record.isRestDayWorked) {
+              restDayWorkedCount += 1;
+              restDayPremiumMinutes += record.restDayPremiumMinutes ?? 0;
+            }
           }
         }
       }
@@ -175,11 +176,41 @@ export async function GET(req: NextRequest) {
         earlyLeaveDays,
         overtimeMinutes,
         overtimeHours: minutesToHours(overtimeMinutes),
+        // Reforma LFT 2027 — dobles (art. 66) / triples (art. 68)
+        overtimeDoubleMinutes,
+        overtimeDoubleHours: minutesToHours(overtimeDoubleMinutes),
+        overtimeTripleMinutes,
+        overtimeTripleHours: minutesToHours(overtimeTripleMinutes),
+        // Prima por descanso trabajado (art. 73 LFT)
+        restDayWorkedCount,
+        restDayPremiumMinutes,
+        restDayPremiumHours: minutesToHours(restDayPremiumMinutes),
         attendanceRate,
       });
     }
 
     // Summary comparativo
+    const totalOvertimeMinutes = sucursalResults.reduce(
+      (s, x) => s + x.overtimeMinutes,
+      0
+    );
+    const totalDoubleMinutes = sucursalResults.reduce(
+      (s, x) => s + x.overtimeDoubleMinutes,
+      0
+    );
+    const totalTripleMinutes = sucursalResults.reduce(
+      (s, x) => s + x.overtimeTripleMinutes,
+      0
+    );
+    const totalRestDayWorkedCount = sucursalResults.reduce(
+      (s, x) => s + x.restDayWorkedCount,
+      0
+    );
+    const totalRestDayPremiumMinutes = sucursalResults.reduce(
+      (s, x) => s + x.restDayPremiumMinutes,
+      0
+    );
+
     const summary = {
       totalSucursales: sucursalResults.length,
       totalEmployees: sucursalResults.reduce(
@@ -199,9 +230,13 @@ export async function GET(req: NextRequest) {
         (s, x) => s + x.earlyLeaveDays,
         0
       ),
-      totalOvertimeHours: minutesToHours(
-        sucursalResults.reduce((s, x) => s + x.overtimeMinutes, 0)
-      ),
+      totalOvertimeHours: minutesToHours(totalOvertimeMinutes),
+      // Reforma LFT 2027
+      totalDoubleHours: minutesToHours(totalDoubleMinutes),
+      totalTripleHours: minutesToHours(totalTripleMinutes),
+      // Prima por descanso trabajado (art. 73 LFT)
+      totalRestDayWorkedCount,
+      totalRestDayPremiumHours: minutesToHours(totalRestDayPremiumMinutes),
       avgAttendanceRate:
         sucursalResults.length > 0
           ? +(

@@ -17,7 +17,7 @@ export interface AbsenceContext {
 
 export interface AbsenceResult {
   absent: boolean;
-  reason?: string; // 'no_schedule' | 'sunday' | 'holiday' | 'vacation' | 'absent'
+  reason?: string; // 'inactive' | 'rest_day' | 'holiday' | 'vacation' | 'no_schedule' | 'absent' | 'present'
 }
 
 /**
@@ -36,18 +36,13 @@ export function isAbsentOnDate(
   const dow = getDayOfWeek(date); // 0=domingo..6=sábado
   const dateISO = toISODate(date);
 
-  // 2. Domingo = descanso oficial (no se cuenta como ausencia)
-  if (dow === 0) {
-    return { absent: false, reason: 'sunday' };
-  }
-
-  // 3. Feriado oficial
+  // 2. Feriado oficial
   const isHoliday = ctx.holidays.some((h) => toISODate(h.date) === dateISO);
   if (isHoliday) {
     return { absent: false, reason: 'holiday' };
   }
 
-  // 4. Vacaciones aprobadas que cubren la fecha
+  // 3. Vacaciones aprobadas que cubren la fecha
   const onVacation = ctx.vacations.some(
     (v) =>
       v.status === 'APPROVED' &&
@@ -58,13 +53,24 @@ export function isAbsentOnDate(
     return { absent: false, reason: 'vacation' };
   }
 
-  // 5. Sin horario ese día → no ausente (no trabaja ese día)
-  const daySchedule = ctx.schedules.find((s) => s.dayOfWeek === dow);
-  if (!daySchedule || daySchedule.isWeeklyRest) {
-    return { absent: false, reason: 'no_schedule' };
+  // 4. Día laboral = existe WorkSchedule para este dow SIN isWeeklyRest.
+  //    NO se asume que domingo (dow=0) sea descanso: la LFT art. 71 dice
+  //    "preferentemente" domingo, pero el empleado puede tener otro día
+  //    de descanso. Si el día no es laboral según el horario del empleado
+  //    (sin schedule o schedule con isWeeklyRest=true), no se cuenta ausencia.
+  const isWorkingDay = ctx.schedules.some(
+    (s) => s.dayOfWeek === dow && !s.isWeeklyRest
+  );
+  if (!isWorkingDay) {
+    // Distingue 'rest_day' (hay schedule marcado como descanso para este dow)
+    // de 'no_schedule' (no hay ningún schedule para este dow).
+    const hasRestSchedule = ctx.schedules.some(
+      (s) => s.dayOfWeek === dow && s.isWeeklyRest
+    );
+    return { absent: false, reason: hasRestSchedule ? 'rest_day' : 'no_schedule' };
   }
 
-  // 6. Tiene horario → verificar registro
+  // 5. Tiene horario laboral → verificar registro
   const record = ctx.records.find((r) => toISODate(r.date) === dateISO);
   if (!record || record.status === 'ABSENT') {
     return { absent: true, reason: 'absent' };

@@ -95,7 +95,8 @@ export async function GET(req: NextRequest) {
       schedulesByEmp[s.employeeId].push(s);
     }
 
-    // Enriquecer registros con overtime (fix #2)
+    // Enriquecer registros con overtime (fix #2) + dobles/triples y prima descanso
+    // (leídos directamente de la BD — ya persistidos por check-out, reforma LFT 2027).
     const enrichedRecords = records.map((r) => {
       const suc = r.sucursal;
       const sched = findScheduleForDate(
@@ -107,6 +108,13 @@ export async function GET(req: NextRequest) {
         schedule: sched,
         sucursal: { checkoutToleranceMinutes: suc.checkoutToleranceMinutes },
       });
+      // dobles/triples y prima descanso vienen persistidos por check-out
+      // (calculateOvertime no recibe weeklyAccumulatedMinutes aquí → no debe usarse
+      //  para dobles/triples; se leen directamente de la BD).
+      const doubleMin = r.overtimeDoubleMinutes ?? 0;
+      const tripleMin = r.overtimeTripleMinutes ?? 0;
+      const restWorkedMin = r.restDayWorkedMinutes ?? 0;
+      const restPremiumMin = r.restDayPremiumMinutes ?? 0;
       return {
         id: r.id,
         employeeId: r.employeeId,
@@ -130,6 +138,16 @@ export async function GET(req: NextRequest) {
         workedMinutes: ot.workedMinutes,
         overtimeMinutes: ot.overtimeMinutes,
         overtimeHours: ot.overtimeHours,
+        // Reforma LFT 2027 — art. 66 (dobles) / art. 68 (triples)
+        overtimeDoubleMinutes: doubleMin,
+        overtimeTripleMinutes: tripleMin,
+        overtimeDoubleHours: minutesToHours(doubleMin),
+        overtimeTripleHours: minutesToHours(tripleMin),
+        // Prima por descanso trabajado (art. 73 LFT)
+        isRestDayWorked: r.isRestDayWorked,
+        restDayWorkedMinutes: restWorkedMin,
+        restDayPremiumMinutes: restPremiumMin,
+        isSunday: r.isSunday,
         justificationStatus: r.justificationStatus,
       };
     });

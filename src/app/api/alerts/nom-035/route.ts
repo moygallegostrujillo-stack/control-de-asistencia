@@ -13,6 +13,10 @@
 //       horas extra en la semana actual.
 //     - NO_WEEKLY_REST: empleado sin día de descanso marcado en su
 //       horario (art. 71 LFT).
+//     - REST_DAY_WORKED: empleado con al menos un AttendanceRecord donde
+//       isRestDayWorked=true en la semana actual (art. 73 LFT — prima
+//       del 100% por descanso trabajado; nivel HIGH si fue domingo,
+//       MEDIUM si fue otro día).
 //
 //   Query params:
 //     ?week=current (default) — semana actual (lun..dom)
@@ -45,7 +49,7 @@ interface NOM035Alert {
   sucursalId: string;
   sucursalName: string;
   sucursalCodigoLocal: string | null;
-  type: 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST';
+  type: 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST' | 'REST_DAY_WORKED';
   level: AlertLevel;
   title: string;
   description: string;
@@ -242,6 +246,30 @@ export async function GET(req: NextRequest) {
           },
           recommendation: 'Editar el empleado y marcar al menos 1 día como "Descanso" en su horario.',
           legalReference: 'LFT art. 71; NOM-035-STPS-2018 A.5',
+        });
+      }
+
+      // Alerta: Día de descanso trabajado (art. 73 LFT — prima del 100%)
+      // Una alerta por cada registro de la semana con isRestDayWorked=true.
+      for (const r of empRecords) {
+        if (!r.isRestDayWorked) continue;
+        const workedMin = r.restDayWorkedMinutes ?? 0;
+        const level: AlertLevel = r.isSunday ? 'HIGH' : 'MEDIUM';
+        const dayLabel = r.isSunday ? 'domingo' : 'día de descanso';
+        alerts.push({
+          ...baseInfo,
+          type: 'REST_DAY_WORKED',
+          level,
+          title: `Día de descanso trabajado (${emp.user.name})`,
+          description: `El empleado trabajó en su ${dayLabel} el ${toISODate(r.date)}. Minutos trabajados: ${workedMin} (${(workedMin / 60).toFixed(1)}h). Aplica prima del 100% adicional sobre la jornada completa (art. 73 LFT).${r.isSunday ? ' Al ser domingo, también aplica prima dominical (art. 71 LFT).' : ''}`,
+          metric: {
+            weeklyOvertimeMinutes,
+            weeklyOvertimeCapMinutes: weeklyCap,
+            maxDailyOvertimeMinutes,
+            consecutiveLongDays,
+          },
+          recommendation: 'Pagar jornada completa con prima del 100% adicional. Si fue domingo, también aplica prima dominical (art. 71 LFT).',
+          legalReference: 'LFT art. 73 (prima del 100% por descanso trabajado); art. 71 (prima dominical)',
         });
       }
     }
