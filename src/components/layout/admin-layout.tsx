@@ -9,6 +9,7 @@ import { useDynamicQR } from '@/hooks/queries/use-dynamic-qr';
 import { FreshnessIndicator } from '@/components/shared/freshness-indicator';
 import { PollingToast } from '@/components/shared/polling-toast';
 import { NotificationBell } from '@/components/admin/notification-bell';
+import { UserManual } from '@/components/manual/user-manual';
 import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
 import type { AuthUser } from '@/lib/auth';
 import { useRealtime } from '@/hooks/use-realtime';
@@ -49,7 +50,7 @@ import {
   Maximize2, Minimize2,
   FileDown, FileText, ExternalLink, BookOpen, FileType, Scale, Sparkles,
   Server, Database, Rocket,
-  CalendarOff, Sun,
+  CalendarOff, Sun, Moon,
 } from 'lucide-react';
 
 // ============================================================
@@ -67,6 +68,9 @@ interface EmployeeRow {
   isActive: boolean;
   hireDate?: string | null;
   vacationBalanceDays?: number;
+  // RFC y CURP: opcionales (art. 804 LFT). Se guardan tal cual.
+  rfc?: string | null;
+  curp?: string | null;
   user: { id: string; name: string; email: string; isActive: boolean };
   sucursal: { id: string; name: string; codigoLocal: string | null };
   workSchedules?: Array<{ id: string; dayOfWeek: number; startTime: string; endTime: string; toleranceMinutes: number; isWeeklyRest: boolean }>;
@@ -1369,6 +1373,10 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
   const [employeeNumber, setEmployeeNumber] = useState(employee?.employeeNumber || '');
   const [position, setPosition] = useState(employee?.position || '');
   const [department, setDepartment] = useState(employee?.department || '');
+  // RFC y CURP: opcionales. Se guardan tal cual los escribe el admin
+  // (mayúsculas normalmente), sin normalización (trim/lowercase).
+  const [rfc, setRfc] = useState(employee?.rfc || '');
+  const [curp, setCurp] = useState(employee?.curp || '');
   const [sucursalId, setSucursalId] = useState(employee?.sucursalId || userSucursalId || '');
   const [dayConfigs, setDayConfigs] = useState<DayConfig[]>(
     isEdit && employee?.workSchedules
@@ -1425,10 +1433,13 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
       if (isEdit && employee) {
         const body: Record<string, unknown> = { name, email, position, department, schedules };
         if (isGA) body.sucursalId = sucursalId;
+        // RFC/CURP opcionales: cadena vacía → el backend la guarda como NULL.
+        body.rfc = rfc;
+        body.curp = curp;
         await apiSend(`/api/employees/${employee.id}`, 'PUT', body);
         toast.success('Empleado actualizado');
       } else {
-        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId, schedules });
+        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId, rfc, curp, schedules });
         toast.success('Empleado creado');
       }
       onSaved();
@@ -1472,6 +1483,17 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
           <div className="space-y-1.5">
             <Label htmlFor="f-dep">Departamento *</Label>
             <Input id="f-dep" value={department} onChange={(e) => setDepartment(e.target.value)} required />
+          </div>
+          {/* RFC y CURP — opcionales (art. 804 LFT). Se guardan tal cual. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="f-rfc">RFC</Label>
+            <Input id="f-rfc" value={rfc} onChange={(e) => setRfc(e.target.value)} maxLength={13} placeholder="Opcional · 13 caracteres" autoCapitalize="characters" />
+            <p className="text-xs text-muted-foreground">Opcional. Se usa en el reporte STPS.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="f-curp">CURP</Label>
+            <Input id="f-curp" value={curp} onChange={(e) => setCurp(e.target.value)} maxLength={18} placeholder="Opcional · 18 caracteres" autoCapitalize="characters" />
+            <p className="text-xs text-muted-foreground">Opcional. Se usa en el reporte STPS.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="f-suc">Sucursal *</Label>
@@ -3046,7 +3068,7 @@ function HistoryView({ role }: { role: Role }) {
   function exportCsv() {
     if (filteredRecords.length === 0) { toast.error('Sin datos para exportar'); return; }
     const rows = [
-      ['Empleado', 'Número', 'Sucursal', 'Fecha', 'Entrada', 'Salida', 'Comida', 'Descanso', 'Estado', 'Min. trabajados', 'Min. extra', 'Horas Extra Dobles (min)', 'Horas Extra Triples (min)', 'Día de Descanso Trabajado', 'Prima 100% (min)'],
+      ['Empleado', 'Número', 'Sucursal', 'Fecha', 'Entrada', 'Salida', 'Comida', 'Descanso', 'Estado', 'Min. trabajados', 'Min. extra', 'Horas Extra Dobles (min)', 'Horas Extra Triples (min)', 'Día de Descanso Trabajado', 'Prima 100% (min)', 'Jornada', 'Min. nocturnos'],
       ...filteredRecords.map((r) => [
         r.employee?.user?.name || '',
         r.employee?.employeeNumber || '',
@@ -3063,6 +3085,8 @@ function HistoryView({ role }: { role: Role }) {
         (r.overtimeTripleMinutes ?? 0).toString(),
         r.isRestDayWorked ? 'Sí' : 'No',
         (r.restDayPremiumMinutes ?? 0).toString(),
+        r.shiftType || '—',
+        (r.nightMinutes ?? 0).toString(),
       ]),
     ];
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -3187,6 +3211,7 @@ function HistoryView({ role }: { role: Role }) {
                       <TableHead className="w-[90px] whitespace-nowrap">Dobles</TableHead>
                       <TableHead className="w-[90px] whitespace-nowrap">Triples</TableHead>
                       <TableHead className="w-[90px] whitespace-nowrap">Descanso</TableHead>
+                      <TableHead className="w-[100px] whitespace-nowrap">Jornada</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -3214,6 +3239,33 @@ function HistoryView({ role }: { role: Role }) {
                                 </Badge>
                               </TooltipTrigger>
                               <TooltipContent>Día de descanso trabajado — prima 100% (art. 73 LFT){r.isSunday ? ' · Domingo' : ''}</TooltipContent>
+                            </Tooltip>
+                          ) : '—'}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {r.shiftType ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className={cn(
+                                  'inline-flex items-center gap-1 text-xs font-medium',
+                                  r.shiftType === 'NOCTURNA' && 'text-violet-600',
+                                  r.shiftType === 'MIXTA' && 'text-amber-600',
+                                  r.shiftType === 'DIURNA' && 'text-muted-foreground'
+                                )}>
+                                  {r.shiftType === 'NOCTURNA' && <Moon className="h-3 w-3" />}
+                                  {r.shiftType === 'MIXTA' && <Clock className="h-3 w-3" />}
+                                  {r.shiftType === 'DIURNA' && <Sun className="h-3 w-3" />}
+                                  {r.shiftType}
+                                  {r.nightMinutes ? ` (${Math.round(r.nightMinutes)}m)` : ''}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {r.shiftType === 'NOCTURNA'
+                                  ? 'Jornada nocturna — prima 25% (art. 61 LFT)'
+                                  : r.shiftType === 'MIXTA'
+                                    ? 'Jornada mixta — prima 25% sobre horas nocturnas (art. 61 LFT)'
+                                    : 'Jornada diurna — sin prima nocturna'}
+                              </TooltipContent>
                             </Tooltip>
                           ) : '—'}
                         </TableCell>
@@ -3253,6 +3305,7 @@ function HistoryView({ role }: { role: Role }) {
                     <TableHead className="w-[90px] whitespace-nowrap">Dobles</TableHead>
                     <TableHead className="w-[90px] whitespace-nowrap">Triples</TableHead>
                     <TableHead className="w-[90px] whitespace-nowrap">Descanso</TableHead>
+                    <TableHead className="w-[100px] whitespace-nowrap">Jornada</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -3287,6 +3340,33 @@ function HistoryView({ role }: { role: Role }) {
                               </Badge>
                             </TooltipTrigger>
                             <TooltipContent>Día de descanso trabajado — prima 100% (art. 73 LFT){r.isSunday ? ' · Domingo' : ''}</TooltipContent>
+                          </Tooltip>
+                        ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {r.shiftType ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className={cn(
+                                'inline-flex items-center gap-1 text-xs font-medium',
+                                r.shiftType === 'NOCTURNA' && 'text-violet-600',
+                                r.shiftType === 'MIXTA' && 'text-amber-600',
+                                r.shiftType === 'DIURNA' && 'text-muted-foreground'
+                              )}>
+                                {r.shiftType === 'NOCTURNA' && <Moon className="h-3 w-3" />}
+                                {r.shiftType === 'MIXTA' && <Clock className="h-3 w-3" />}
+                                {r.shiftType === 'DIURNA' && <Sun className="h-3 w-3" />}
+                                {r.shiftType}
+                                {r.nightMinutes ? ` (${Math.round(r.nightMinutes)}m)` : ''}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {r.shiftType === 'NOCTURNA'
+                                ? 'Jornada nocturna — prima 25% (art. 61 LFT)'
+                                : r.shiftType === 'MIXTA'
+                                  ? 'Jornada mixta — prima 25% sobre horas nocturnas (art. 61 LFT)'
+                                  : 'Jornada diurna — sin prima nocturna'}
+                            </TooltipContent>
                           </Tooltip>
                         ) : '—'}
                       </TableCell>
@@ -5924,25 +6004,17 @@ function DocumentationView() {
   };
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-100">
-              <BookOpen className="h-5 w-5 text-teal-700" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Documentación del sistema</CardTitle>
-              <CardDescription className="mt-1">
-                Diagramas y guías técnicas del proyecto Control de Asistencia v2.2.0.
-                Disponibles en tres formatos: <strong>HTML</strong> (vista rápida en el navegador),
-                <strong> PNG</strong> (imagen de alta resolución para incluir en documentos) y
-                <strong> PDF</strong> (para imprimir o compartir).
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
+    <div className="space-y-6">
+      {/* ====== Manual de Usuario (interactivo, dentro de la app) ====== */}
+      <UserManual />
+
+      {/* ====== Documentos complementarios descargables ====== */}
+      <div className="flex items-center gap-2 pt-2">
+        <FileText className="h-5 w-5 text-zinc-400" />
+        <h2 className="text-lg font-semibold text-zinc-900">
+          Documentos complementarios
+        </h2>
+      </div>
 
       {/* Documento de cumplimiento LFT 2027 — descargable */}
       <Card className="border-emerald-200 bg-emerald-50/50">

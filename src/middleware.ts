@@ -5,6 +5,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
+import { CURRENT_PRIVACY_VERSION, PRIVACY_PUBLIC_PATHS } from '@/lib/privacy';
 
 interface SessionPayload {
   id: string;
@@ -13,13 +14,32 @@ interface SessionPayload {
   role: 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'SUPERVISOR' | 'EMPLOYEE';
   sucursalId: string | null;
   employeeId: string | null;
+  // LFPDPPP — flag de consentimiento (formato normalizado).
+  privacyAccepted?: boolean;
+  privacyVersion?: string;
+  // LFPDPPP — campos crudos de la BD (formato legacy cookie).
+  // Se usan para derivar privacyAccepted cuando el JWT no está disponible.
+  privacyAcceptedAt?: string | null;
+  privacyAcceptedVersion?: string | null;
 }
 
 function decodeLegacyCookie(cookie: string): SessionPayload | null {
   try {
     const json = Buffer.from(cookie, 'base64').toString('utf-8');
     const payload = JSON.parse(json);
-    if (payload && payload.id && payload.role) return payload;
+    if (payload && payload.id && payload.role) {
+      // Normalizar el consentimiento desde los campos crudos de la BD.
+      // La cookie legacy guarda privacyAcceptedAt (Date ISO) y
+      // privacyAcceptedVersion (string), NO el booleano privacyAccepted.
+      // El middleware necesita privacyAccepted para validar, así que lo
+      // derivamos aquí.
+      const acceptedVersion = payload.privacyAcceptedVersion || null;
+      const acceptedAt = payload.privacyAcceptedAt || null;
+      payload.privacyAccepted =
+        !!acceptedAt && acceptedVersion === CURRENT_PRIVACY_VERSION;
+      payload.privacyVersion = acceptedVersion;
+      return payload as SessionPayload;
+    }
   } catch {}
   return null;
 }
@@ -32,6 +52,16 @@ async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
       secret: process.env.NEXTAUTH_SECRET,
     });
     if (token && token.id && token.role) {
+      // Si el JWT tiene los campos crudos (privacyAcceptedAt/Version) pero
+      // no el booleano, derivarlos para compatibilidad con JWTs viejos.
+      const tokenPrivacyAt = (token as any).privacyAcceptedAt || null;
+      const tokenPrivacyVersion =
+        (token.privacyVersion as string) ||
+        (token as any).privacyAcceptedVersion ||
+        null;
+      const derivedPrivacyAccepted =
+        (token.privacyAccepted as boolean) ||
+        (!!tokenPrivacyAt && tokenPrivacyVersion === CURRENT_PRIVACY_VERSION);
       return {
         id: token.id as string,
         email: token.email as string,
@@ -39,11 +69,16 @@ async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
         role: token.role as SessionPayload['role'],
         sucursalId: (token.sucursalId as string) || null,
         employeeId: (token.employeeId as string) || null,
+        privacyAccepted: derivedPrivacyAccepted,
+        privacyVersion: tokenPrivacyVersion,
       };
     }
   } catch {}
 
   // 2. Cookie legacy `session_user` (base64, transición)
+  //    ⚠️ Brecha #3 — NO confiar en role/sucursalId del cookie sin firma.
+  //    La cookie legacy se admite solo para identificación básica; el
+  //    handler debe re-obtener rol/consentimiento desde la BD.
   const cookie = req.cookies.get('session_user')?.value;
   if (cookie) {
     const payload = decodeLegacyCookie(cookie);
@@ -62,6 +97,7 @@ async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
 
 const PUBLIC_PATHS = [
   '/api/auth/login',
+  '/api/auth/logout',
   '/api/auth/qr-login',
   '/api/auth/quick-login',
   '/api/auth/session',
@@ -87,15 +123,54 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Rutas públicas
+  // Rutas públicas (auth, health, descargas, seed)
   if (PUBLIC_PATHS.some((p) => path.startsWith(p))) {
+    return NextResponse.next();
+  }
+
+  // Rutas públicas LFPDPPP (aviso de privacidad, accept, status, mydata*) —
+  // mydata requiere sesión pero NO consentimiento (es el derecho de acceso).
+  if (PRIVACY_PUBLIC_PATHS.some((p) => path.startsWith(p))) {
     return NextResponse.next();
   }
 
   // Todo lo demás requiere sesión
   const session = await parseSession(req);
   if (!session) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    // Si es una ruta API → 401 JSON; si es página → redirect a login.
+    if (path.startsWith('/api/')) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    return NextResponse.redirect(new URL('/?login=required', req.url));
+  }
+
+  // ============================================================
+  // LFPDPPP — Validación de consentimiento del Aviso de Privacidad.
+  // Si el usuario no ha aceptado la versión vigente, solo puede
+  // acceder a /legal/aviso-de-privacidad. Todo lo demás queda bloqueado
+  // hasta que acepte (art. 17 — consentimiento informado y expreso).
+  // ============================================================
+  const hasAcceptedPrivacy =
+    session.privacyAccepted === true &&
+    session.privacyVersion === CURRENT_PRIVACY_VERSION;
+
+  if (!hasAcceptedPrivacy) {
+    // Rutas API → 403 con código específico para que el front muestre modal.
+    if (path.startsWith('/api/')) {
+      return NextResponse.json(
+        {
+          error: 'Debe aceptar el Aviso de Privacidad para continuar.',
+          code: 'PRIVACY_CONSENT_REQUIRED',
+          currentVersion: CURRENT_PRIVACY_VERSION,
+        },
+        { status: 403 }
+      );
+    }
+    // Páginas → redirect a la página del aviso con ?required=1.
+    const url = req.nextUrl.clone();
+    url.pathname = '/legal/aviso-de-privacidad';
+    url.search = '?required=1';
+    return NextResponse.redirect(url);
   }
 
   const role = session.role;

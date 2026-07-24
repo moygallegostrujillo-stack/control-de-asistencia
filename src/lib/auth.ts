@@ -23,6 +23,7 @@ import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { getToken } from 'next-auth/jwt';
 import { db } from './db';
+import { CURRENT_PRIVACY_VERSION } from './privacy';
 
 export interface AuthUser {
   id: string;
@@ -34,6 +35,9 @@ export interface AuthUser {
   sucursalName?: string | null;
   sucursalCodigoLocal?: string | null;
   mfaVerified?: boolean;
+  // LFPDPPP — flag de consentimiento (cargado desde BD en login).
+  privacyAccepted?: boolean;
+  privacyVersion?: string | null;
 }
 
 const SESSION_COOKIE = 'next-auth.session-token';
@@ -42,12 +46,28 @@ const SESSION_MAX_AGE = 8 * 3600;
 
 /**
  * Decodifica el cookie legacy (base64 JSON) — solo para transición.
+ * Normaliza el consentimiento de privacidad: la cookie legacy guarda
+ * privacyAcceptedAt/Version (campos crudos de la BD), NO el booleano
+ * privacyAccepted. Lo derivamos aquí para que getAuthUser retorne un
+ * payload consistente con el del JWT.
  */
 function decodeLegacyCookie(cookie: string): any | null {
   try {
     const json = Buffer.from(cookie, 'base64').toString('utf-8');
     const payload = JSON.parse(json);
-    if (payload && payload.id && payload.role) return payload;
+    if (payload && payload.id && payload.role) {
+      // Derivar privacyAccepted de privacyAcceptedAt/Version
+      const acceptedVersion = payload.privacyAcceptedVersion || null;
+      const acceptedAt = payload.privacyAcceptedAt || null;
+      if (payload.privacyAccepted === undefined) {
+        payload.privacyAccepted =
+          !!acceptedAt && acceptedVersion === CURRENT_PRIVACY_VERSION;
+      }
+      if (!payload.privacyVersion) {
+        payload.privacyVersion = acceptedVersion;
+      }
+      return payload;
+    }
   } catch {}
   return null;
 }
@@ -64,6 +84,16 @@ export async function getAuthUser(req?: NextRequest): Promise<AuthUser | null> {
       secret: process.env.NEXTAUTH_SECRET,
     });
     if (token && token.id && token.role) {
+      // Si el JWT tiene los campos crudos (privacyAcceptedAt/Version) pero
+      // no el booleano, derivarlos para compatibilidad con JWTs viejos.
+      const tokenPrivacyAt = (token as any).privacyAcceptedAt || null;
+      const tokenPrivacyVersion =
+        (token.privacyVersion as string) ||
+        (token as any).privacyAcceptedVersion ||
+        null;
+      const derivedPrivacyAccepted =
+        (token.privacyAccepted as boolean) ||
+        (!!tokenPrivacyAt && tokenPrivacyVersion === CURRENT_PRIVACY_VERSION);
       let payload: AuthUser = {
         id: token.id as string,
         email: token.email as string,
@@ -74,6 +104,8 @@ export async function getAuthUser(req?: NextRequest): Promise<AuthUser | null> {
         sucursalName: (token.sucursalName as string) || null,
         sucursalCodigoLocal: (token.sucursalCodigoLocal as string) || null,
         mfaVerified: (token.mfaVerified as boolean) || false,
+        privacyAccepted: derivedPrivacyAccepted,
+        privacyVersion: tokenPrivacyVersion,
       };
 
       // Hidratar sucursal name/codigo si no vienen en el token
@@ -208,6 +240,12 @@ export async function buildSessionCookies(payload: any): Promise<CookiePair[]> {
       sucursalName: payload.sucursalName,
       sucursalCodigoLocal: payload.sucursalCodigoLocal,
       mfaVerified: payload.mfaVerified ?? false,
+      // LFPDPPP — incluir flag de consentimiento para que el middleware
+      // lo valide sin consultar la BD en cada request.
+      // El payload puede venir de Prisma (privacyAcceptedAt/Version) o de un
+      // JWT existente (privacyAccepted/Version). Mapeamos ambos casos.
+      privacyAccepted: !!(payload.privacyAcceptedAt ?? payload.privacyAccepted),
+      privacyVersion: payload.privacyAcceptedVersion ?? payload.privacyVersion ?? null,
     },
     secret: process.env.NEXTAUTH_SECRET!,
     maxAge: SESSION_MAX_AGE,

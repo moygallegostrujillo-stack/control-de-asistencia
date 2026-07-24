@@ -1,0 +1,451 @@
+diff --git a/src/app/api/auth/refresh/route.ts b/src/app/api/auth/refresh/route.ts
+index dd810cb..33d98a4 100755
+--- a/src/app/api/auth/refresh/route.ts
++++ b/src/app/api/auth/refresh/route.ts
+@@ -1,20 +1,27 @@
+ // ============================================================
+ // POST /api/auth/refresh
+-// Requires auth. Since we use an 8hr `session_user` cookie (no
+-// real JWT refresh), this endpoint simply re-returns the current
+-// user with fresh data from the DB.
++//   Re-emite el JWT con datos frescos de la BD.
++//
++//   Es CRÍTICO para el flujo LFPDPPP: si un usuario tenía un JWT
++//   viejo con privacyAccepted=false (emitido antes de que el admin
++//   aceptara el aviso por él, o antes de que el SQL fix marcara su
++//   consentimiento), este endpoint re-emite el JWT con el flag
++//   actualizado desde la BD.
++//
++//   Este endpoint está en PRIVACY_PUBLIC_PATHS, así que puede llamarse
++//   SIN consentimiento previo (es justamente para resolver el bloqueo).
+ // ============================================================
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { db } from '@/lib/db';
+-import { getAuthUser, unauthorizedResponse } from '@/lib/auth';
++import { getAuthUser, unauthorizedResponse, buildSessionCookies, applySessionCookies } from '@/lib/auth';
+ 
+ export async function POST(req: NextRequest) {
+   try {
+     const authUser = await getAuthUser(req);
+     if (!authUser) return unauthorizedResponse();
+ 
+-    // Re-fetch the user to return fresh data (role/sucursal may have changed)
++    // Re-fetch the user to return fresh data (role/sucursal/privacy may have changed)
+     const user = await db.user.findUnique({
+       where: { id: authUser.id },
+       include: { sucursal: true, employee: true },
+@@ -24,6 +31,7 @@ export async function POST(req: NextRequest) {
+       return unauthorizedResponse();
+     }
+ 
++    // Construir el payload completo con datos frescos (incluye privacyAcceptedAt/Version)
+     const payload = {
+       id: user.id,
+       email: user.email,
+@@ -33,9 +41,31 @@ export async function POST(req: NextRequest) {
+       employeeId: user.employee?.id ?? null,
+       sucursalName: user.sucursal?.name ?? null,
+       sucursalCodigoLocal: user.sucursal?.codigoLocal ?? null,
++      mfaVerified: !!(user.mfaEnabled && user.mfaSecret),
++      privacyAcceptedAt: user.privacyAcceptedAt,
++      privacyAcceptedVersion: user.privacyAcceptedVersion,
+     };
+ 
+-    return NextResponse.json({ ok: true, user: payload });
++    // Re-emitir el JWT firmado con los datos actualizados
++    const cookiePairs = await buildSessionCookies(payload);
++    const res = NextResponse.json({
++      ok: true,
++      user: {
++        id: payload.id,
++        email: payload.email,
++        name: payload.name,
++        role: payload.role,
++        sucursalId: payload.sucursalId,
++        employeeId: payload.employeeId,
++        sucursalName: payload.sucursalName,
++        sucursalCodigoLocal: payload.sucursalCodigoLocal,
++        mfaVerified: payload.mfaVerified,
++        privacyAccepted: !!(user.privacyAcceptedAt && user.privacyAcceptedVersion === '1.0'),
++        privacyVersion: user.privacyAcceptedVersion,
++      },
++    });
++    applySessionCookies(res, cookiePairs);
++    return res;
+   } catch (error) {
+     console.error('[auth/refresh] error:', error);
+     return NextResponse.json(
+diff --git a/src/app/api/user/privacy/accept/route.ts b/src/app/api/user/privacy/accept/route.ts
+index 7348a95..e586bf0 100644
+--- a/src/app/api/user/privacy/accept/route.ts
++++ b/src/app/api/user/privacy/accept/route.ts
+@@ -4,11 +4,15 @@
+ //   Body: { version: string }
+ //   Requiere sesión activa. Registra privacyAcceptedAt, version, IP.
+ //   LFPDPPP art. 17 — consentimiento informado y expreso.
++//
++//   IMPORTANTE: Después de actualizar la BD, re-emite el JWT con
++//   privacyAccepted=true para que el middleware permita el acceso
++//   inmediatamente (sin necesidad de re-login).
+ // ============================================================
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { db } from '@/lib/db';
+-import { getAuthUser, unauthorizedResponse } from '@/lib/auth';
++import { getAuthUser, unauthorizedResponse, buildSessionCookies, applySessionCookies } from '@/lib/auth';
+ import { auditLog, getIpAndUA } from '@/lib/audit';
+ import { CURRENT_PRIVACY_VERSION } from '@/lib/privacy';
+ 
+@@ -42,13 +46,16 @@ export async function POST(req: NextRequest) {
+     const { ip, ua } = getIpAndUA(req);
+     const now = new Date();
+ 
+-    // Cargar el User real desde BD para tener el campo privacyAcceptedAt.
++    // Cargar el User real desde BD con todas las relaciones para re-emitir el JWT.
+     const dbUser = await db.user.findUnique({
+       where: { id: user.id },
+-      select: { id: true, privacyAcceptedAt: true, privacyAcceptedVersion: true },
++      include: { sucursal: true, employee: true },
+     });
+     if (!dbUser) return unauthorizedResponse();
+ 
++    const previousVersion = dbUser.privacyAcceptedVersion;
++    const previousAcceptedAt = dbUser.privacyAcceptedAt;
++
+     await db.user.update({
+       where: { id: user.id },
+       data: {
+@@ -68,18 +75,36 @@ export async function POST(req: NextRequest) {
+       userAgent: ua,
+       details: {
+         version: CURRENT_PRIVACY_VERSION,
+-        previousVersion: dbUser.privacyAcceptedVersion,
+-        previousAcceptedAt: dbUser.privacyAcceptedAt?.toISOString() || null,
++        previousVersion,
++        previousAcceptedAt: previousAcceptedAt?.toISOString() || null,
+         acceptedAt: now.toISOString(),
+         legalReference: 'LFPDPPP art. 17 (consentimiento informado y expreso)',
+       },
+     });
+ 
+-    return NextResponse.json({
++    // Re-emitir el JWT con privacyAccepted=true para que el middleware
++    // permita el acceso inmediatamente (sin necesidad de re-login).
++    const jwtPayload = {
++      id: dbUser.id,
++      email: dbUser.email,
++      name: dbUser.name,
++      role: dbUser.role,
++      sucursalId: dbUser.sucursalId,
++      employeeId: dbUser.employee?.id ?? null,
++      sucursalName: dbUser.sucursal?.name ?? null,
++      sucursalCodigoLocal: dbUser.sucursal?.codigoLocal ?? null,
++      mfaVerified: !!(dbUser.mfaEnabled && dbUser.mfaSecret),
++      privacyAcceptedAt: now,
++      privacyAcceptedVersion: CURRENT_PRIVACY_VERSION,
++    };
++    const cookiePairs = await buildSessionCookies(jwtPayload);
++    const res = NextResponse.json({
+       ok: true,
+       acceptedAt: now.toISOString(),
+       version: CURRENT_PRIVACY_VERSION,
+     });
++    applySessionCookies(res, cookiePairs);
++    return res;
+   } catch (error) {
+     console.error('POST /api/user/privacy/accept error:', error?.code || 'UNKNOWN');
+     return NextResponse.json(
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index b1f04fe..e1cd158 100755
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -23,6 +23,7 @@ import type { NextRequest } from 'next/server';
+ import { cookies } from 'next/headers';
+ import { getToken } from 'next-auth/jwt';
+ import { db } from './db';
++import { CURRENT_PRIVACY_VERSION } from './privacy';
+ 
+ export interface AuthUser {
+   id: string;
+@@ -45,12 +46,28 @@ const SESSION_MAX_AGE = 8 * 3600;
+ 
+ /**
+  * Decodifica el cookie legacy (base64 JSON) — solo para transición.
++ * Normaliza el consentimiento de privacidad: la cookie legacy guarda
++ * privacyAcceptedAt/Version (campos crudos de la BD), NO el booleano
++ * privacyAccepted. Lo derivamos aquí para que getAuthUser retorne un
++ * payload consistente con el del JWT.
+  */
+ function decodeLegacyCookie(cookie: string): any | null {
+   try {
+     const json = Buffer.from(cookie, 'base64').toString('utf-8');
+     const payload = JSON.parse(json);
+-    if (payload && payload.id && payload.role) return payload;
++    if (payload && payload.id && payload.role) {
++      // Derivar privacyAccepted de privacyAcceptedAt/Version
++      const acceptedVersion = payload.privacyAcceptedVersion || null;
++      const acceptedAt = payload.privacyAcceptedAt || null;
++      if (payload.privacyAccepted === undefined) {
++        payload.privacyAccepted =
++          !!acceptedAt && acceptedVersion === CURRENT_PRIVACY_VERSION;
++      }
++      if (!payload.privacyVersion) {
++        payload.privacyVersion = acceptedVersion;
++      }
++      return payload;
++    }
+   } catch {}
+   return null;
+ }
+@@ -67,6 +84,16 @@ export async function getAuthUser(req?: NextRequest): Promise<AuthUser | null> {
+       secret: process.env.NEXTAUTH_SECRET,
+     });
+     if (token && token.id && token.role) {
++      // Si el JWT tiene los campos crudos (privacyAcceptedAt/Version) pero
++      // no el booleano, derivarlos para compatibilidad con JWTs viejos.
++      const tokenPrivacyAt = (token as any).privacyAcceptedAt || null;
++      const tokenPrivacyVersion =
++        (token.privacyVersion as string) ||
++        (token as any).privacyAcceptedVersion ||
++        null;
++      const derivedPrivacyAccepted =
++        (token.privacyAccepted as boolean) ||
++        (!!tokenPrivacyAt && tokenPrivacyVersion === CURRENT_PRIVACY_VERSION);
+       let payload: AuthUser = {
+         id: token.id as string,
+         email: token.email as string,
+@@ -77,8 +104,8 @@ export async function getAuthUser(req?: NextRequest): Promise<AuthUser | null> {
+         sucursalName: (token.sucursalName as string) || null,
+         sucursalCodigoLocal: (token.sucursalCodigoLocal as string) || null,
+         mfaVerified: (token.mfaVerified as boolean) || false,
+-        privacyAccepted: (token.privacyAccepted as boolean) || false,
+-        privacyVersion: (token.privacyVersion as string) || null,
++        privacyAccepted: derivedPrivacyAccepted,
++        privacyVersion: tokenPrivacyVersion,
+       };
+ 
+       // Hidratar sucursal name/codigo si no vienen en el token
+diff --git a/src/lib/fetch-helper.ts b/src/lib/fetch-helper.ts
+index cd0ba8e..3322287 100755
+--- a/src/lib/fetch-helper.ts
++++ b/src/lib/fetch-helper.ts
+@@ -6,10 +6,70 @@ import { NextRequest } from 'next/server';
+  */
+ export { getIpAndUA } from './audit';
+ 
++// ============================================================
++// Auto-refresh del JWT cuando el middleware responde 403
++// PRIVACY_CONSENT_REQUIRED.
++//
++// Problema que resuelve:
++//   Si un usuario tenía un JWT viejo con privacyAccepted=false (emitido
++//   antes de que el admin marcara su consentimiento en la BD, p.ej. vía
++//   el SQL fix-privacy-consent.sql), el middleware bloquea TODAS las
++//   APIs con 403. El usuario ve "Error al cargar datos: Debe aceptar el
++//   Aviso de Privacidad" en todas las pestañas.
++//
++//   Con este auto-refresh, al detectar el 403, el frontend llama
++//   automáticamente a /api/auth/refresh (que re-emite el JWT con los
++//   datos frescos de la BD, incluyendo privacyAccepted=true). Luego
++//   reintenta la petición original, que ahora pasa el middleware.
++//
++//   Si el refresh también falla (p.ej. el usuario de verdad no ha
++//   aceptado el aviso), se redirige a /legal/aviso-de-privacidad.
++// ============================================================
++
++let isRefreshing = false;
++let refreshPromise: Promise<boolean> | null = null;
++
++async function refreshSession(): Promise<boolean> {
++  // Evitar múltiples refreshes simultáneos
++  if (isRefreshing && refreshPromise) {
++    return refreshPromise;
++  }
++
++  isRefreshing = true;
++  refreshPromise = (async () => {
++    try {
++      const res = await fetch('/api/auth/refresh', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++      });
++      if (!res.ok) return false;
++      const data = await res.json();
++      // Actualizar el payload en localStorage si el refresh incluyó el usuario
++      if (data?.user) {
++        try {
++          // Mantener compatibilidad con auth-store: guardar el payload fresco
++          localStorage.setItem('auth-payload', JSON.stringify(data.user));
++        } catch {
++          // ignore
++        }
++      }
++      return true;
++    } catch {
++      return false;
++    } finally {
++      isRefreshing = false;
++    }
++  })();
++
++  return refreshPromise;
++}
++
+ /**
+  * Wrapper de fetch que añade el header Authorization: Bearer <payload>
+  * a partir del usuario autenticado guardado en el store.
+  *
++ * Además, detecta el 403 PRIVACY_CONSENT_REQUIRED y auto-refresca el JWT.
++ *
+  * Uso en cliente:
+  *   const res = await authFetch('/api/attendance/today', { method: 'GET' });
+  */
+@@ -37,5 +97,58 @@ export async function authFetch(
+     headers['Authorization'] = authHeader;
+   }
+ 
+-  return fetch(url, { ...options, headers });
++  const res = await fetch(url, { ...options, headers });
++
++  // Detectar 403 PRIVACY_CONSENT_REQUIRED y auto-refrescar el JWT.
++  // Solo si la URL no es ya /api/auth/refresh o /api/user/privacy/*
++  // (para evitar loops infinitos).
++  if (res.status === 403) {
++    try {
++      const body = await res.clone().json();
++      if (body?.code === 'PRIVACY_CONSENT_REQUIRED') {
++        // No auto-refrescar si la petición ya es a un endpoint de privacy o auth
++        const isPrivacyOrAuthEndpoint =
++          url.startsWith('/api/auth/refresh') ||
++          url.startsWith('/api/user/privacy') ||
++          url.startsWith('/api/auth/login') ||
++          url.startsWith('/api/auth/logout');
++
++        if (!isPrivacyOrAuthEndpoint) {
++          const refreshed = await refreshSession();
++          if (refreshed) {
++            // Reintentar la petición original con el JWT nuevo.
++            // Las cookies httpOnly se envían automáticamente; el header
++            // Authorization se reconstruye con el payload actualizado.
++            let newAuthHeader = '';
++            try {
++              const stored = localStorage.getItem('auth-payload');
++              if (stored) {
++                newAuthHeader = `Bearer ${btoa(stored)}`;
++              }
++            } catch {
++              // ignore
++            }
++            const retryHeaders: Record<string, string> = {
++              'Content-Type': 'application/json',
++              ...(options.headers as Record<string, string> || {}),
++            };
++            if (newAuthHeader) {
++              retryHeaders['Authorization'] = newAuthHeader;
++            }
++            return fetch(url, { ...options, headers: retryHeaders });
++          } else {
++            // El refresh falló: el usuario realmente no ha aceptado.
++            // Redirigir a la página del aviso de privacidad.
++            if (typeof window !== 'undefined') {
++              window.location.href = '/legal/aviso-de-privacidad?required=1';
++            }
++          }
++        }
++      }
++    } catch {
++      // Si no se puede parsear el body, retornar la respuesta original
++    }
++  }
++
++  return res;
+ }
+diff --git a/src/lib/privacy.ts b/src/lib/privacy.ts
+index 573eee2..ab1e9a7 100644
+--- a/src/lib/privacy.ts
++++ b/src/lib/privacy.ts
+@@ -38,6 +38,8 @@ export const PRIVACY_PUBLIC_PATHS = [
+   '/api/auth/_log',
+   '/api/user/privacy/accept',
+   '/api/user/privacy/status',
++  '/api/auth/refresh',
++  '/api/auth/logout',
+   '/api/seed',
+ ];
+ 
+diff --git a/src/middleware.ts b/src/middleware.ts
+index 7bbdcf5..81837bc 100755
+--- a/src/middleware.ts
++++ b/src/middleware.ts
+@@ -14,16 +14,32 @@ interface SessionPayload {
+   role: 'GENERAL_ADMIN' | 'SUCURSAL_ADMIN' | 'SUPERVISOR' | 'EMPLOYEE';
+   sucursalId: string | null;
+   employeeId: string | null;
+-  // LFPDPPP — flag de consentimiento cargado desde JWT.
++  // LFPDPPP — flag de consentimiento (formato normalizado).
+   privacyAccepted?: boolean;
+   privacyVersion?: string;
++  // LFPDPPP — campos crudos de la BD (formato legacy cookie).
++  // Se usan para derivar privacyAccepted cuando el JWT no está disponible.
++  privacyAcceptedAt?: string | null;
++  privacyAcceptedVersion?: string | null;
+ }
+ 
+ function decodeLegacyCookie(cookie: string): SessionPayload | null {
+   try {
+     const json = Buffer.from(cookie, 'base64').toString('utf-8');
+     const payload = JSON.parse(json);
+-    if (payload && payload.id && payload.role) return payload;
++    if (payload && payload.id && payload.role) {
++      // Normalizar el consentimiento desde los campos crudos de la BD.
++      // La cookie legacy guarda privacyAcceptedAt (Date ISO) y
++      // privacyAcceptedVersion (string), NO el booleano privacyAccepted.
++      // El middleware necesita privacyAccepted para validar, así que lo
++      // derivamos aquí.
++      const acceptedVersion = payload.privacyAcceptedVersion || null;
++      const acceptedAt = payload.privacyAcceptedAt || null;
++      payload.privacyAccepted =
++        !!acceptedAt && acceptedVersion === CURRENT_PRIVACY_VERSION;
++      payload.privacyVersion = acceptedVersion;
++      return payload as SessionPayload;
++    }
+   } catch {}
+   return null;
+ }
+@@ -36,6 +52,16 @@ async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
+       secret: process.env.NEXTAUTH_SECRET,
+     });
+     if (token && token.id && token.role) {
++      // Si el JWT tiene los campos crudos (privacyAcceptedAt/Version) pero
++      // no el booleano, derivarlos para compatibilidad con JWTs viejos.
++      const tokenPrivacyAt = (token as any).privacyAcceptedAt || null;
++      const tokenPrivacyVersion =
++        (token.privacyVersion as string) ||
++        (token as any).privacyAcceptedVersion ||
++        null;
++      const derivedPrivacyAccepted =
++        (token.privacyAccepted as boolean) ||
++        (!!tokenPrivacyAt && tokenPrivacyVersion === CURRENT_PRIVACY_VERSION);
+       return {
+         id: token.id as string,
+         email: token.email as string,
+@@ -43,8 +69,8 @@ async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
+         role: token.role as SessionPayload['role'],
+         sucursalId: (token.sucursalId as string) || null,
+         employeeId: (token.employeeId as string) || null,
+-        privacyAccepted: (token.privacyAccepted as boolean) || false,
+-        privacyVersion: (token.privacyVersion as string) || null,
++        privacyAccepted: derivedPrivacyAccepted,
++        privacyVersion: tokenPrivacyVersion,
+       };
+     }
+   } catch {}
+@@ -71,6 +97,7 @@ async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
+ 
+ const PUBLIC_PATHS = [
+   '/api/auth/login',
++  '/api/auth/logout',
+   '/api/auth/qr-login',
+   '/api/auth/quick-login',
+   '/api/auth/session',

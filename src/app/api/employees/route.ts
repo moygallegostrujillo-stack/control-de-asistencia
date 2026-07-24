@@ -109,6 +109,8 @@ export async function POST(req: NextRequest) {
       baseSalary,
       hireDate,
       vacationBalanceDays,
+      rfc,
+      curp,
       schedules,
     } = body as {
       name?: string;
@@ -121,6 +123,8 @@ export async function POST(req: NextRequest) {
       baseSalary?: number;
       hireDate?: string;
       vacationBalanceDays?: number;
+      rfc?: string;
+      curp?: string;
       schedules?: Array<{
         dayOfWeek: number;
         startTime: string;
@@ -136,6 +140,22 @@ export async function POST(req: NextRequest) {
     if (!name || !email || !password || !employeeNumber || !position || !department) {
       return NextResponse.json(
         { error: 'Faltan campos requeridos: name, email, password, employeeNumber, position, department' },
+        { status: 400 }
+      );
+    }
+
+    // RFC y CURP son opcionales, pero si se capturan se valida la longitud
+    // máxima (RFC=13, CURP=18). No se normaliza (trim/lowercase): se guarda
+    // tal cual lo escribe el admin (mayúsculas normalmente).
+    if (rfc && rfc.length > 13) {
+      return NextResponse.json(
+        { error: 'El RFC no puede tener más de 13 caracteres' },
+        { status: 400 }
+      );
+    }
+    if (curp && curp.length > 18) {
+      return NextResponse.json(
+        { error: 'La CURP no puede tener más de 18 caracteres' },
         { status: 400 }
       );
     }
@@ -190,6 +210,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Unicidad de RFC (si se capturó). Los valores vacíos se guardan como
+    // NULL, y los NULL NO violan la restricción unique (SQL estándar).
+    if (rfc && rfc.trim() !== '') {
+      const dupRfc = await db.employee.findUnique({
+        where: { rfc },
+        select: { id: true },
+      });
+      if (dupRfc) {
+        return NextResponse.json(
+          { error: 'El RFC ya está registrado en otro empleado' },
+          { status: 409 }
+        );
+      }
+    }
+
+    // Unicidad de CURP (si se capturó).
+    if (curp && curp.trim() !== '') {
+      const dupCurp = await db.employee.findUnique({
+        where: { curp },
+        select: { id: true },
+      });
+      if (dupCurp) {
+        return NextResponse.json(
+          { error: 'La CURP ya está registrada en otro empleado' },
+          { status: 409 }
+        );
+      }
+    }
+
     // -----------------------------------------------------
     // Horario semanal — asignación MANUAL obligatoria.
     // El frontend envía el array `schedules` con los días
@@ -227,6 +276,10 @@ export async function POST(req: NextRequest) {
           hireDate: hireDate ? new Date(hireDate) : new Date(),
           baseSalary: baseSalary ?? null,
           vacationBalanceDays: vacationBalanceDays ?? 12,
+          // RFC/CURP: cadena vacía → NULL (para no violar unique con "").
+          // Se guarda tal cual (sin trim/lowercase).
+          rfc: rfc && rfc.trim() !== '' ? rfc : null,
+          curp: curp && curp.trim() !== '' ? curp : null,
           isActive: true,
         },
         select: { id: true, employeeNumber: true },
@@ -265,6 +318,8 @@ export async function POST(req: NextRequest) {
         department,
         sucursalId: targetSucursalId,
         baseSalary: baseSalary ?? null,
+        rfc: rfc && rfc.trim() !== '' ? rfc : null,
+        curp: curp && curp.trim() !== '' ? curp : null,
       },
     });
 

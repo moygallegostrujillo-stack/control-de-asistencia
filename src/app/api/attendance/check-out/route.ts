@@ -176,6 +176,9 @@ export async function POST(req: NextRequest) {
         restDayPremiumMinutes: calc.restDayPremiumMinutes || null,
         isSunday: calc.isSunday,
         status: finalStatus,
+        // Jornada nocturna / mixta (art. 60 y 61 LFT) — clasificación al check-out.
+        shiftType: calc.shiftType,
+        nightMinutes: calc.nightMinutes,
       },
     });
 
@@ -207,6 +210,14 @@ export async function POST(req: NextRequest) {
         isSunday: calc.isSunday,
         status: finalStatus,
         performedBy: user.email,
+        // Jornada nocturna / mixta (art. 60 y 61 LFT) — evidencia para nómina y prima nocturna.
+        shiftType: calc.shiftType,
+        nightMinutes: calc.nightMinutes,
+        legalMaxMinutes: calc.legalMaxMinutes,
+        legalOvertimeMinutes: calc.legalOvertimeMinutes,
+        nightPremiumNote: (calc.shiftType === 'NOCTURNA' || calc.shiftType === 'MIXTA') && calc.nightMinutes > 0
+          ? `Jornada ${calc.shiftType}: ${Math.round(calc.nightMinutes)} min nocturnos. Aplica prima nocturna 25% (art. 61 LFT + jurisprudencia) — calculada por nómina.`
+          : undefined,
       },
     });
 
@@ -284,6 +295,11 @@ export async function POST(req: NextRequest) {
       restDayPremiumMinutes: calc.restDayPremiumMinutes,
       isSunday: calc.isSunday,
       status: finalStatus,
+      // Jornada nocturna / mixta (art. 60 y 61 LFT)
+      shiftType: calc.shiftType,
+      nightMinutes: calc.nightMinutes,
+      legalMaxMinutes: calc.legalMaxMinutes,
+      legalOvertimeMinutes: calc.legalOvertimeMinutes,
     });
   } catch (error) {
     console.error('Check-out error:', error);

@@ -1,5 +1,12 @@
 // ============================================================
-// Control de Asistencia NOM-037 — Schema v2.2 (SQLite dev)
+// Control de Asistencia NOM-037 — Schema v2.2 (PostgreSQL)
+// ============================================================
+// ESTE ARCHIVO ES PARA PRODUCCIÓN (Vercel + Supabase).
+// Para desarrollo local, usar `schema.prisma` (SQLite).
+//
+// Cambiar entre los dos con:
+//   ./scripts/switch-schema.sh postgres   ← producción
+//   ./scripts/switch-schema.sh sqlite     ← dev local
 // ============================================================
 
 generator client {
@@ -7,10 +14,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider  = "sqlite"
   url       = env("DATABASE_URL")
 }
-
 
 // ============================================================
 // MODELO: Company (singleton) — datos de la empresa
@@ -50,6 +56,15 @@ model User {
   mfaSecret           String?  // TOTP secret (encrypted at rest via app-level AES)
   mfaBackupCodesHash  String?  // JSON array of bcrypt hashes
   mfaEnrolledAt       DateTime?
+  // --- LFPDPPP — Consentimiento del Aviso de Privacidad ---
+  // privacyAcceptedAt: fecha en que el usuario aceptó el aviso de privacidad.
+  // privacyAcceptedVersion: versión del aviso aceptada (ej. "1.0").
+  // privacyAcceptedIp: IP desde la cual aceptó (evidencia para auditoría INAI).
+  // Si privacyAcceptedAt es NULL → el middleware redirige a /legal/aviso-de-privacidad.
+  // Si privacyAcceptedVersion != CURRENT_PRIVACY_VERSION → se vuelve a pedir consentimiento.
+  privacyAcceptedAt        DateTime?
+  privacyAcceptedVersion   String?
+  privacyAcceptedIp        String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -61,9 +76,48 @@ model User {
   justificationsResolved  AttendanceRecord[]  @relation("JustificationResolver")
   attendanceCorrections   AttendanceRecord[]  @relation("AttendanceCorrector")
   dynamicQRs              DynamicQR[]          @relation("DynamicQRCreator")
+  privacyRequests         PrivacyRequest[]    @relation("PrivacyRequester")
+  privacyResolved         PrivacyRequest[]    @relation("PrivacyRequestResolver")
 
   @@index([sucursalId])
   @@index([role])
+  @@index([privacyAcceptedAt])
+}
+
+// ============================================================
+// MODELO: PrivacyRequest — Derechos ARCO (LFPDPPP art. 29-32)
+// ============================================================
+// Solicitudes formales que el titular (empleado) hace al responsable
+// (la empresa) para ejercer sus derechos:
+//   ACCESS         — Conocer qué datos personales se tienen (art. 29).
+//   RECTIFICATION  — Corregir datos inexactos (art. 30).
+//   CANCELLATION   — Solicitar supresión / "derecho al olvido" (art. 31).
+//                    ⚠️ CONFLICTO LEGISLATIVO: LFPDPPP art. 31 ordena suprimir,
+//                    pero LFT art. 804 obliga a conservar registros de asistencia
+//                    por 12 meses. Decisión de diseño: se anonimiza (se
+//                    reemplazan identificadores por hashes irreversibles) y se
+//                    conserva el registro probatorio sin identidad.
+//   OPPOSITION     — Oponerse al tratamiento para ciertas finalidades (art. 32).
+// ============================================================
+
+model PrivacyRequest {
+  id              String   @id @default(cuid())
+  userId          String
+  type            String   // ACCESS | RECTIFICATION | CANCELLATION | OPPOSITION
+  status          String   @default("PENDING") // PENDING | IN_PROGRESS | RESOLVED | REJECTED
+  requestDetails  String?  // JSON: { fields?: string[], reason?: string, targetData?: string }
+  resolutionNotes String?
+  createdAt       DateTime @default(now())
+  resolvedAt      DateTime?
+  resolvedById    String?
+
+  user          User     @relation("PrivacyRequester", fields: [userId], references: [id])
+  resolvedBy    User?    @relation("PrivacyRequestResolver", fields: [resolvedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
 }
 
 // ============================================================
@@ -107,6 +161,15 @@ model Employee {
   hireDate            DateTime @default(now())
   baseSalary          Float?
   vacationBalanceDays Int      @default(12)
+  // --- RFC y CURP (identificadores fiscales y de identidad, art. 804 LFT) ---
+  // RFC: Registro Federal de Contribuyentes (emite el SAT), 12-13 caracteres.
+  // CURP: Clave Única de Registro de Población (emite el RENAPO), 18 caracteres.
+  // Son OPCIONALES para no forzar la captura en empleados existentes que aún
+  // no los tienen. Son ÚNICOS porque RFC y CURP no se reparten entre personas
+  // físicas. Se guardan tal cual los captura el admin (mayúsculas normalmente),
+  // sin normalización automática (trim/lowercase).
+  rfc                 String?  @unique
+  curp                String?  @unique
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -182,6 +245,12 @@ model AttendanceRecord {
   restDayWorkedMinutes      Int?     // minutos trabajados en día de descanso (jornada completa, no overtime)
   restDayPremiumMinutes     Int?     // prima del 100% adicional (art. 73 LFT) = restDayWorkedMinutes
   isSunday                  Boolean  @default(false) // true si la fecha cae en domingo (para prima dominical art. 71)
+  // --- Jornada nocturna / mixta (art. 60 y 61 LFT) ---
+  // Clasificación automática al check-out según los minutos trabajados en
+  // horario nocturno (20:00-06:00). Para nómina: si es NOCTURNA o MIXTA,
+  // aplica prima nocturna del 25% sobre las horas diurnas (art. 61 + jurisprudencia).
+  shiftType                  String?  // "DIURNA" | "NOCTURNA" | "MIXTA" (art. 60 LFT)
+  nightMinutes               Int?     // minutos trabajados en horario nocturno (20:00-06:00)
   notes                     String?
   justification             String?
   justificationStatus       String?  // PENDING / APPROVED / REJECTED

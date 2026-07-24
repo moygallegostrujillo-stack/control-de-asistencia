@@ -83,6 +83,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       baseSalary,
       hireDate,
       vacationBalanceDays,
+      rfc,
+      curp,
       isActive,
       schedules,
     } = body as {
@@ -94,6 +96,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       baseSalary?: number | null;
       hireDate?: string;
       vacationBalanceDays?: number;
+      rfc?: string | null;
+      curp?: string | null;
       isActive?: boolean;
       schedules?: Array<{
         dayOfWeek: number;
@@ -152,6 +156,47 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       }
     }
 
+    // RFC y CURP: opcionales, validación de longitud máxima. No se normaliza.
+    // Se permite enviar rfc/curp === null o "" para borrar el valor.
+    if (rfc && rfc.length > 13) {
+      return NextResponse.json(
+        { error: 'El RFC no puede tener más de 13 caracteres' },
+        { status: 400 }
+      );
+    }
+    if (curp && curp.length > 18) {
+      return NextResponse.json(
+        { error: 'La CURP no puede tener más de 18 caracteres' },
+        { status: 400 }
+      );
+    }
+    // Unicidad de RFC (excluyendo al propio empleado).
+    if (rfc && rfc.trim() !== '') {
+      const dupRfc = await db.employee.findUnique({
+        where: { rfc },
+        select: { id: true },
+      });
+      if (dupRfc && dupRfc.id !== id) {
+        return NextResponse.json(
+          { error: 'El RFC ya está registrado en otro empleado' },
+          { status: 409 }
+        );
+      }
+    }
+    // Unicidad de CURP (excluyendo al propio empleado).
+    if (curp && curp.trim() !== '') {
+      const dupCurp = await db.employee.findUnique({
+        where: { curp },
+        select: { id: true },
+      });
+      if (dupCurp && dupCurp.id !== id) {
+        return NextResponse.json(
+          { error: 'La CURP ya está registrada en otro empleado' },
+          { status: 409 }
+        );
+      }
+    }
+
     // -----------------------------------------------------
     // Transacción: User + Employee + WorkSchedules
     // -----------------------------------------------------
@@ -176,6 +221,10 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       if (baseSalary !== undefined) empData.baseSalary = baseSalary;
       if (hireDate) empData.hireDate = new Date(hireDate);
       if (vacationBalanceDays !== undefined) empData.vacationBalanceDays = vacationBalanceDays;
+      // RFC/CURP: se actualizan solo si vienen en el body. Cadena vacía → NULL.
+      // Se guarda tal cual (sin trim/lowercase).
+      if (rfc !== undefined) empData.rfc = rfc && rfc.trim() !== '' ? rfc : null;
+      if (curp !== undefined) empData.curp = curp && curp.trim() !== '' ? curp : null;
       if (isActive !== undefined) empData.isActive = isActive;
       if (Object.keys(empData).length > 0) {
         await tx.employee.update({

@@ -9,6 +9,7 @@
 
 import type { AttendanceRecord, Sucursal, WorkSchedule } from '@prisma/client';
 import { getDayOfWeek, minutesBetween, toISODate } from './timezone';
+import { classifyShift, getLegalMaxMinutes, type ShiftType } from './shift-classifier';
 
 export interface OvertimeInput {
   record: AttendanceRecord;
@@ -35,6 +36,11 @@ export interface OvertimeResult {
   restDayWorkedMinutes: number; // minutos trabajados en descanso (jornada completa, no overtime)
   restDayPremiumMinutes: number; // prima del 100% adicional = restDayWorkedMinutes
   isSunday: boolean; // true si la fecha cae en domingo (art. 71 LFT, prima dominical opcional)
+  // --- Jornada nocturna / mixta (art. 60 y 61 LFT) ---
+  shiftType: ShiftType; // 'DIURNA' | 'NOCTURNA' | 'MIXTA' (art. 60 LFT)
+  nightMinutes: number; // minutos trabajados en horario nocturno (20:00-06:00)
+  legalMaxMinutes: number; // jornada máxima legal según shiftType (art. 61 LFT): 480/420/450
+  legalOvertimeMinutes: number; // excedente sobre la jornada máxima legal (para nómina/prima nocturna)
 }
 
 /**
@@ -98,6 +104,11 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
       restDayWorkedMinutes: 0,
       restDayPremiumMinutes: 0,
       isSunday: getDayOfWeek(record.date) === 0,
+      // Jornada nocturna/mixta (art. 60/61) — sin check-out no se puede clasificar.
+      shiftType: 'DIURNA',
+      nightMinutes: 0,
+      legalMaxMinutes: getLegalMaxMinutes('DIURNA'),
+      legalOvertimeMinutes: 0,
     };
   }
 
@@ -124,6 +135,8 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
   // Caso especial: día de descanso trabajado (art. 73 LFT).
   // La jornada completa se paga con prima del 100% (NO es overtime art. 66/68).
   if (isRestDayWorked) {
+    // Clasificar jornada también en descanso trabajado (para prima nocturna si aplica).
+    const { shiftType, nightMinutes } = classifyShift(record.checkInTime, record.checkOutTime);
     return {
       workedMinutes: netWorkedMinutes,
       overtimeMinutes: 0,
@@ -139,6 +152,13 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
       restDayWorkedMinutes: netWorkedMinutes,
       restDayPremiumMinutes: netWorkedMinutes, // prima del 100% = misma cantidad de minutos adicionales
       isSunday,
+      // Jornada nocturna/mixta (art. 60/61) — se registra para prima nocturna.
+      shiftType,
+      nightMinutes,
+      legalMaxMinutes: getLegalMaxMinutes(shiftType),
+      // En descanso trabajado, el excedente sobre la jornada legal se reporta
+      // pero no se paga como overtime art. 66/68 (se paga con prima del 100% art. 73).
+      legalOvertimeMinutes: Math.max(0, netWorkedMinutes - getLegalMaxMinutes(shiftType)),
     };
   }
 
@@ -196,6 +216,16 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
     status = 'EARLY_LEAVE';
   }
 
+  // --- Jornada nocturna / mixta (art. 60 y 61 LFT) ---
+  // Clasificar la jornada según los minutos en horario nocturno (20:00-06:00).
+  // El límite legal cambia según el tipo: DIURNA=8h, NOCTURNA=7h, MIXTA=7.5h.
+  const { shiftType, nightMinutes } = classifyShift(record.checkInTime, record.checkOutTime);
+  const legalMaxMinutes = getLegalMaxMinutes(shiftType);
+  // Excedente sobre la jornada máxima legal. Esto NO reemplaza al overtime
+  // basado en scheduledMinutes (que sigue siendo el umbral contractual), sino
+  // que es una referencia adicional para nómina y para prima nocturna.
+  const legalOvertimeMinutes = Math.max(0, netWorkedMinutes - legalMaxMinutes);
+
   return {
     workedMinutes: netWorkedMinutes,
     overtimeMinutes,
@@ -211,6 +241,11 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
     restDayWorkedMinutes: 0,
     restDayPremiumMinutes: 0,
     isSunday,
+    // Jornada nocturna/mixta (art. 60/61 LFT)
+    shiftType,
+    nightMinutes,
+    legalMaxMinutes,
+    legalOvertimeMinutes,
   };
 }
 

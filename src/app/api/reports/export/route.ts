@@ -444,6 +444,9 @@ async function buildDailyRows(
       // Prima por descanso trabajado (art. 73 LFT)
       'Día de Descanso Trabajado': r.isRestDayWorked ? 'Sí' : 'No',
       'Prima 100% (min)': restPremiumMin,
+      // Jornada nocturna/mixta (art. 60 y 61 LFT) — tipo de jornada y minutos nocturnos
+      'Jornada': r.shiftType || '—',
+      'Min. nocturnos': r.nightMinutes ?? 0,
       Estado: STATUS_ES[r.status] || r.status,
       'Justificación': r.justificationStatus || '—',
     });
@@ -460,6 +463,9 @@ async function buildDailyRows(
       'IP Salida': r.checkOutIp || '—',
       'Latitud Salida': r.checkOutLat ?? '—',
       'Longitud Salida': r.checkOutLong ?? '—',
+      // Jornada nocturna/mixta (art. 60 y 61 LFT) — tipo de jornada y minutos nocturnos
+      'Jornada': r.shiftType || '—',
+      'Min. nocturnos': r.nightMinutes ?? 0,
     });
   }
 
@@ -592,6 +598,9 @@ async function buildOvertimeRows(
       // Prima por descanso trabajado (art. 73 LFT)
       'Día de Descanso Trabajado': r.isRestDayWorked ? 'Sí' : 'No',
       'Prima 100% (min)': restPremiumMin,
+      // Jornada nocturna/mixta (art. 60 y 61 LFT) — tipo de jornada y minutos nocturnos
+      'Jornada': r.shiftType || '—',
+      'Min. nocturnos': r.nightMinutes ?? 0,
     });
   }
 

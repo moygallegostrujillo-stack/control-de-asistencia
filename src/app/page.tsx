@@ -5,6 +5,7 @@ import { useAuthStore, type SessionUser } from '@/store/auth-store';
 import { LoginForm } from '@/components/auth/login-form';
 import { AdminLayout } from '@/components/layout/admin-layout';
 import { EmployeeLayout } from '@/components/layout/employee-layout';
+import { PrivacyConsentModal } from '@/components/legal/privacy-consent-modal';
 import { Loader2 } from 'lucide-react';
 
 export default function Home() {
@@ -84,8 +85,18 @@ export default function Home() {
     user.role === 'SUCURSAL_ADMIN' ||
     user.role === 'SUPERVISOR'
   ) {
-    return <AdminLayout />;
+    return (
+      <>
+        <AdminLayout />
+        <PrivacyConsentModal />
+      </>
+    );
   }
 
-  return <EmployeeLayout />;
+  return (
+    <>
+      <EmployeeLayout />
+      <PrivacyConsentModal />
+    </>
+  );
 }

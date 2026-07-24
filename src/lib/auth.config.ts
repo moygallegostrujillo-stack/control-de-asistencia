@@ -183,6 +183,9 @@ export async function validateCredentials(
     sucursalName: user.sucursal?.name ?? null,
     sucursalCodigoLocal: user.sucursal?.codigoLocal ?? null,
     mfaVerified: !!(user.mfaEnabled && user.mfaSecret),
+    // LFPDPPP — propagar consentimiento al JWT via buildSessionCookies.
+    privacyAcceptedAt: (user as any).privacyAcceptedAt ?? null,
+    privacyAcceptedVersion: (user as any).privacyAcceptedVersion ?? null,
   };
 
   return { user: payload };
