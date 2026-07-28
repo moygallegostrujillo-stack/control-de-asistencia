@@ -322,7 +322,7 @@ export function LoginForm() {
                         <Input
                           id="email"
                           type="email"
-                          placeholder="admin@control.com"
+                          placeholder="tu@correo.com"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           className="pl-9"
@@ -358,13 +358,7 @@ export function LoginForm() {
                     </Button>
                   </form>
 
-                  <div className="mt-4 rounded-lg bg-zinc-50 p-3 text-xs text-zinc-600">
-                    <p className="font-semibold mb-1">Credenciales de prueba:</p>
-                    <p>• <span className="font-mono">admin@control.com</span> / Admin#2025</p>
-                    <p>• <span className="font-mono">admin.matriz@control.com</span> / Matriz#2025</p>
-                    <p>• <span className="font-mono">admin.sucursal1@control.com</span> / Suc1#2025</p>
-                    <p>• <span className="font-mono">ana.lopez@control.com</span> / Empleado#2025</p>
-                  </div>
+
                 </TabsContent>
 
                 <TabsContent value="quick" className="mt-4">

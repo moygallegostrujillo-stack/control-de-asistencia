@@ -1403,6 +1403,20 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
       toast.error('Las contraseñas no coinciden', { description: 'Verifica la contraseña y su confirmación.' });
       return;
     }
+    // --- Cambio 1: validación de contraseña en modo edición ---
+    // Si el admin escribe una nueva contraseña, debe tener mínimo 8 caracteres
+    // y coincidir con la confirmación. Si deja ambos campos en blanco, se conserva
+    // la contraseña actual (no se envía al backend).
+    if (isEdit && password) {
+      if (password.length < 8) {
+        toast.error('La nueva contraseña debe tener al menos 8 caracteres');
+        return;
+      }
+      if (password !== confirmPassword) {
+        toast.error('Las contraseñas no coinciden', { description: 'Verifica la nueva contraseña y su confirmación.' });
+        return;
+      }
+    }
     if (!isEdit && !employeeNumber) {
       toast.error('El número de empleado es requerido');
       return;
@@ -1436,6 +1450,8 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
         // RFC/CURP opcionales: cadena vacía → el backend la guarda como NULL.
         body.rfc = rfc;
         body.curp = curp;
+        // --- Cambio 1: incluir contraseña solo si el admin escribió una nueva ---
+        if (password) body.password = password;
         await apiSend(`/api/employees/${employee.id}`, 'PUT', body);
         toast.success('Empleado actualizado');
       } else {
@@ -1506,7 +1522,64 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
               </SelectContent>
             </Select>
           </div>
-          {!isEdit && (
+          {/* --- Cambio 1: contraseña --- */}
+          {/* En modo create: obligatoria, mínimo 6 caracteres. */}
+          {/* En modo edit: opcional, mínimo 8 caracteres. Si se deja en blanco, */}
+          {/* se conserva la contraseña actual. Solo admins (GA y SA) pueden editar. */}
+          {isEdit ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="f-pass">Nueva contraseña (opcional)</Label>
+                <div className="relative">
+                  <Input
+                    id="f-pass"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    minLength={8}
+                    placeholder="Dejar en blanco para mantener la actual"
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">Mínimo 8 caracteres. Dejar en blanco para conservar la actual.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="f-pass2">Confirmar nueva contraseña</Label>
+                <div className="relative">
+                  <Input
+                    id="f-pass2"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    minLength={8}
+                    placeholder="Repetir nueva contraseña"
+                    className={cn('pr-9', confirmPassword && confirmPassword !== password && 'border-red-400 focus-visible:ring-red-400')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                    aria-label={showConfirmPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {confirmPassword && confirmPassword !== password && (
+                  <p className="text-xs text-red-500">Las contraseñas no coinciden</p>
+                )}
+              </div>
+            </>
+          ) : (
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="f-pass">Contraseña *</Label>
@@ -3403,6 +3476,31 @@ function ReportsView({ role }: { role: Role }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [company, setCompany] = useState<CompanyRow | null>(null);
+  // --- Cambio 4: estado para el reporte STPS (Art. 804 LFT) ---
+  // Selector de mes/año y sucursal para generar el reporte legal en Excel o PDF.
+  const today = new Date();
+  const [stpsMes, setStpsMes] = useState<number>(today.getMonth() + 1);
+  const [stpsAnio, setStpsAnio] = useState<number>(today.getFullYear());
+  const [stpsSucursalId, setStpsSucursalId] = useState<string>('all');
+  const [stpsDownloading, setStpsDownloading] = useState<'xlsx' | 'pdf' | null>(null);
+
+  // --- Cambio 4: descarga del reporte STPS en Excel o PDF ---
+  // Abre el endpoint en una pestaña nueva para forzar la descarga.
+  function downloadStps(format: 'xlsx' | 'pdf') {
+    const params = new URLSearchParams();
+    params.set('periodo', 'mensual');
+    params.set('mes', String(stpsMes));
+    params.set('anio', String(stpsAnio));
+    params.set('format', format);
+    if (isGA && stpsSucursalId !== 'all') params.set('sucursalId', stpsSucursalId);
+    const url = `/api/reports/stps-format?${params.toString()}`;
+    setStpsDownloading(format);
+    // window.open dispara la descarga en el navegador (Content-Disposition: attachment)
+    window.open(url, '_blank');
+    toast.success(`Generando reporte STPS en ${format.toUpperCase()}…`);
+    // Liberar el spinner tras 3 s (la descarga es síncrona en el navegador)
+    setTimeout(() => setStpsDownloading(null), 3000);
+  }
 
   const subTypes: { id: ReportSubType; label: string }[] = isGA
     ? [
@@ -3468,6 +3566,98 @@ function ReportsView({ role }: { role: Role }) {
 
   return (
     <div className="space-y-4">
+      {/* --- Cambio 4: Reporte STPS (Art. 804 LFT) — descarga Excel + PDF --- */}
+      <Card className="border-emerald-200 bg-emerald-50/40">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                <Scale className="h-4 w-4" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Reporte STPS — Art. 804 LFT</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Reporte legal de asistencia con valor probatorio. Tres secciones: datos del patrón,
+                  catálogo de trabajadores y detalle diario. Disponible en Excel y PDF.
+                </p>
+              </div>
+            </div>
+            <Badge variant="outline" className="shrink-0 border-emerald-300 text-emerald-700 bg-white">
+              Legal
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Mes</Label>
+            <Select value={String(stpsMes)} onValueChange={(v) => setStpsMes(Number(v))}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => (
+                  <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Año</Label>
+            <Input
+              type="number"
+              value={stpsAnio}
+              onChange={(e) => setStpsAnio(Number(e.target.value))}
+              className="w-24"
+              min={2000}
+              max={2100}
+            />
+          </div>
+          {isGA && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Sucursal</Label>
+              <Select value={stpsSucursalId} onValueChange={setStpsSucursalId}>
+                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {sucursales.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{sucursalLabel(s.name, s.codigoLocal)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="flex gap-2 sm:ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadStps('xlsx')}
+              disabled={stpsDownloading !== null}
+              className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+            >
+              {stpsDownloading === 'xlsx' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">Descargar Excel</span>
+              <span className="sm:hidden">Excel</span>
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => downloadStps('pdf')}
+              disabled={stpsDownloading !== null}
+              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+            >
+              {stpsDownloading === 'pdf' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileDown className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">Descargar PDF</span>
+              <span className="sm:hidden">PDF</span>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Sub-report selector */}
       <div className="flex flex-wrap gap-2">
         {subTypes.map((st) => (
@@ -4652,7 +4842,11 @@ function CompanyView() {
         authFetch('/api/company'),
         authFetch('/api/holidays'),
       ]);
-      const c = cRes.ok ? await cRes.json() : null;
+      // --- Cambio 2: corregir parseo de la respuesta del API ---
+      // El endpoint GET /api/company devuelve { company: {...} | null }.
+      // Antes se leía c.razonSocial (undefined); ahora se lee c.company.razonSocial.
+      const cResp = cRes.ok ? await cRes.json() : null;
+      const c = cResp?.company ?? null;
       const h = hRes.ok ? await hRes.json() : { holidays: [] };
       setCompany(c);
       if (c) {

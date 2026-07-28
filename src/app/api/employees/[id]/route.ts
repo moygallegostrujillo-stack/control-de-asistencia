@@ -8,6 +8,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import {
   getAuthUser,
@@ -87,6 +88,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       curp,
       isActive,
       schedules,
+      password,
     } = body as {
       name?: string;
       email?: string;
@@ -106,6 +108,11 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         toleranceMinutes?: number;
         isWeeklyRest?: boolean;
       }>;
+      // --- Cambio 1: contraseña opcional al editar empleado ---
+      // Si se envía (no vacía), se valida mínimo 8 caracteres y se
+      // re-hashea con bcrypt (cost 12, mismo estándar que POST /api/employees).
+      // Si se envía vacía o no se envía, se conserva la contraseña actual.
+      password?: string;
     };
 
     const existing = await db.employee.findUnique({
@@ -127,6 +134,21 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     // SUCURSAL_ADMIN no puede mover empleados a otra sucursal.
     if (!isGeneralAdmin(user) && sucursalId && sucursalId !== existing.sucursalId) {
       return forbiddenResponse();
+    }
+
+    // --- Cambio 1: validación de contraseña opcional ---
+    // Solo admins (GENERAL_ADMIN y SUCURSAL_ADMIN) llegan aquí (isAdmin arriba).
+    // Si se envía password y no está vacío, debe tener mínimo 8 caracteres.
+    let newPasswordHash: string | null = null;
+    if (password !== undefined && password !== null && String(password).trim() !== '') {
+      if (String(password).length < 8) {
+        return NextResponse.json(
+          { error: 'La contraseña debe tener al menos 8 caracteres' },
+          { status: 400 }
+        );
+      }
+      // Mismo cost factor (12) que POST /api/employees y POST /api/users.
+      newPasswordHash = await bcrypt.hash(String(password), 12);
     }
 
     // Reforma LFT 2027 — art. 71 LFT: mínimo 1 día de descanso semanal.
@@ -206,6 +228,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       if (name) userData.name = name.trim();
       if (normalizedEmail) userData.email = normalizedEmail;
       if (isActive !== undefined) userData.isActive = isActive;
+      // --- Cambio 1: actualizar hash de contraseña si se proveyó una nueva ---
+      if (newPasswordHash) userData.passwordHash = newPasswordHash;
       if (Object.keys(userData).length > 0) {
         await tx.user.update({
           where: { id: existing.userId },
@@ -261,6 +285,10 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     });
 
     const { ip, ua } = getIpAndUA(req);
+    // --- Cambio 1: registrar en auditoría si se cambió la contraseña ---
+    // Nunca se guarda la contraseña en texto plano; solo el hecho de que se cambió.
+    // Se elimina `password` del body antes de auditar para no persistir texto plano.
+    const { password: _auditedPassword, ...bodyWithoutPassword } = body;
     await auditLog({
       userId: user.id,
       action: 'UPDATE_EMPLOYEE',
@@ -269,7 +297,10 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       sucursalId: existing.sucursalId,
       ipAddress: ip,
       userAgent: ua,
-      details: { changes: body },
+      details: {
+        changes: bodyWithoutPassword,
+        passwordChanged: newPasswordHash !== null,
+      },
     });
 
     return NextResponse.json({ employee: updated });

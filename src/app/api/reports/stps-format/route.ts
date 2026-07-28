@@ -1,7 +1,7 @@
 // ============================================================
 // /api/reports/stps-format — GET
 //   Reporte de asistencia en formato STPS (Art. 804 LFT).
-//   Devuelve un Excel multi-hoja listo para exhibir ante una
+//   Devuelve un Excel multi-hoja o un PDF listo para exhibir ante una
 //   inspección laboral de la STPS o en un juicio laboral.
 //
 //   Query params:
@@ -12,10 +12,11 @@
 //     mes         (1-12)     — Requerido si periodo=mensual
 //     anio        (requerido) — Ej. 2026
 //     semana      (1-53)     — Requerido si periodo=semanal (semana ISO)
-//     format      (opcional) — "xlsx" (default) | "json"
+//     format      (opcional) — "xlsx" (default) | "pdf" | "json"
 //
 //   Respuesta:
 //     - format=xlsx → archivo .xlsx multi-hoja (3 secciones)
+//     - format=pdf  → archivo .pdf con las 3 secciones (Letter, márgenes estándar)
 //     - format=json → JSON estructurado con todas las secciones
 //
 //   NO modifica esquemas ni endpoints existentes. Solo AGREGA
@@ -41,6 +42,8 @@ import {
   type FilaTrabajador,
   type FilaDetalleDiario,
 } from '@/lib/stps-report';
+// --- Cambio 4: generador PDF (pdfkit, puro JS, compatible con Vercel) ---
+import { buildStpsPdf } from '@/lib/stps-pdf';
 
 // Etiqueta para campos sin datos capturados.
 const NA = NO_CAPTURADO;
@@ -117,9 +120,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (!['xlsx', 'json'].includes(format)) {
+    if (!['xlsx', 'pdf', 'json'].includes(format)) {
       return NextResponse.json(
-        { error: 'format inválido (xlsx o json)' },
+        { error: 'format inválido (xlsx, pdf o json)' },
         { status: 400 }
       );
     }
@@ -160,6 +163,22 @@ export async function GET(req: NextRequest) {
     // --- Respuesta JSON (para depuración / integraciones) ---
     if (format === 'json') {
       return NextResponse.json(reporte);
+    }
+
+    // --- Cambio 4: Respuesta PDF (3 secciones, Letter, márgenes estándar) ---
+    if (format === 'pdf') {
+      const pdfBuffer = await buildStpsPdf(reporte);
+      const filename = `Reporte_STPS_${periodo.tipo}_${anio}${
+        periodoParam === 'mensual' && mes ? `_${String(mes).padStart(2, '0')}` : ''
+      }${periodoParam === 'semanal' && semana ? `_S${String(semana).padStart(2, '0')}` : ''}.pdf`;
+      return new NextResponse(pdfBuffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Content-Length': String(pdfBuffer.byteLength),
+        },
+      });
     }
 
     // --- Respuesta XLSX multi-hoja ---
