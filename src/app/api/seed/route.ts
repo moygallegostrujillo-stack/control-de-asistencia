@@ -1,18 +1,62 @@
 // ============================================================
 // /api/seed
 //   POST — Ejecuta el seed de la base de datos (prisma/seed.ts).
-//          Ruta pública (solo invocable manualmente) — listada en
-//          PUBLIC_PATHS del middleware.
-//          Ejecuta `bun run prisma/seed.ts` vía child_process y
-//          devuelve stdout/stderr y el código de salida.
-//          Si bun no está disponible o el script falla, devuelve
-//          instrucciones manuales con código 500.
+//
+//   ⚠️  TAREA 2 (AUDIT DE SEGURIDAD):
+//   Este endpoint ANTES era público (listado en PUBLIC_PATHS del
+//   middleware) y ejecutaba `bun run prisma/seed.ts` vía execSync
+//   SIN autenticación. Cualquiera podía reinicializar la BD.
+//
+//   Ahora:
+//   - Removido de PUBLIC_PATHS → el middleware exige sesión válida.
+//   - Además, este handler re-valida explícitamente rol GENERAL_ADMIN.
+//   - Si no hay sesión o el rol no es GENERAL_ADMIN → 401/403.
+//
+//   Ejecuta `bun run prisma/seed.ts` vía child_process y devuelve
+//   stdout/stderr y el código de salida. Si bun no está disponible
+//   o el script falla, devuelve instrucciones manuales con código 500.
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
+import { getAuthUser, forbiddenResponse, unauthorizedResponse } from '@/lib/auth';
+import { auditLog, getIpAndUA } from '@/lib/audit';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  // --- Tarea 2: Autenticación obligatoria + rol GENERAL_ADMIN ---
+  const user = await getAuthUser(req);
+  if (!user) {
+    return unauthorizedResponse();
+  }
+  if (user.role !== 'GENERAL_ADMIN') {
+    // Auditoría: registrar intento de invocación por rol no autorizado.
+    const { ip, ua } = getIpAndUA(req);
+    await auditLog({
+      userId: user.id,
+      action: 'SEED_FORBIDDEN',
+      entityType: 'System',
+      entityId: 'seed',
+      sucursalId: user.sucursalId || undefined,
+      ipAddress: ip,
+      userAgent: ua,
+      details: { role: user.role },
+    }).catch(() => undefined);
+    return forbiddenResponse();
+  }
+
+  // Auditoría: registrar ejecución autorizada.
+  const { ip, ua } = getIpAndUA(req);
+  await auditLog({
+    userId: user.id,
+    action: 'SEED_EXECUTED',
+    entityType: 'System',
+    entityId: 'seed',
+    sucursalId: user.sucursalId || undefined,
+    ipAddress: ip,
+    userAgent: ua,
+    details: {},
+  }).catch(() => undefined);
+
   let stdout = '';
   let stderr = '';
   let exitCode = 0;

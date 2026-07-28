@@ -1,12 +1,14 @@
 // ============================================================
-// NextAuth.js v4 — Config & Types (Phase A)
+// NextAuth.js v4 — Config & Types
 // ============================================================
-// Estrategia: JWT firmado con NEXTAUTH_SECRET (HMAC-SHA512).
-// Esto reemplaza la cookie base64 sin firma anterior.
+// Estrategia: JWT firmado con NEXTAUTH_SECRET (HMAC-SHA512 via jose).
 //
-// Backward-compat: el middleware y getAuthUser() aceptan AMBOS:
-//   1. JWT de NextAuth (next-auth.session-token) — preferido
-//   2. Cookie legacy `session_user` (base64 JSON) — transición
+// ⚠️ Tarea 3 (audit seguridad): el fallback a cookie legacy
+// `session_user` (base64 sin firma) fue ELIMINADO por completo
+// de middleware.ts y auth.ts. La ÚNICA cookie de sesión aceptada
+// ahora es `next-auth.session-token` (JWT firmado). Cualquier
+// cookie `session_user` residual es ignorada (aunque logout la
+// sigue borrando para limpiar navegadores con sesiones viejas).
 //
 // MFA: TOTP (RFC 6238) opcional para admins, usando otplib.
 // ============================================================

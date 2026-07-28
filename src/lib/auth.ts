@@ -1,21 +1,21 @@
 // ============================================================
-// Auth — NextAuth JWT (firmado) + fallback legacy cookie (transición)
+// Auth — NextAuth JWT (firmado) — fuente ÚNICA de sesión
 // ============================================================
 //
-// Phase A: migración a NextAuth.js v4 con JWT firmado.
-// - Cookie preferida: `next-auth.session-token` (JWT firmado)
-// - Fallback: `session_user` (base64 JSON, legacy — para no romper
-//   sesiones existentes durante la transición)
+// ⚠️  TAREA 3 (AUDIT DE SEGURIDAD):
+// Se eliminó el fallback a cookie legacy `session_user` y al
+// header `Authorization: Bearer <base64>`. Antes, cualquiera
+// podía fabricar un payload JSON con `role: "GENERAL_ADMIN"`,
+// codificarlo en base64 y enviarlo como cookie/header — el
+// sistema lo aceptaba como sesión válida SIN verificar firma.
 //
-// El JWT NO puede ser falsificado porque está firmado con
-// NEXTAUTH_SECRET (HMAC-SHA512 via jose).
+// Ahora la ÚNICA fuente de sesión válida es el JWT firmado por
+// NextAuth (`next-auth.session-token`, HMAC-SHA512 via jose con
+// NEXTAUTH_SECRET). El JWT no puede ser falsificado sin el secret.
 //
-// Seguridad (gap #15 — OWASP session security):
-// AMBAS cookies son httpOnly:true. La cookie legacy también es
-// httpOnly aunque sea de transición, porque NUNCA se lee desde
-// JavaScript del cliente — solo se decodifica server-side en
-// getAuthUser() y middleware. Así, un ataque XSS no podría
-// robarla. SameSite=strict previene CSRF. Secure=true en prod.
+// Los helpers `buildClearCookies` aún borran la cookie legacy
+// (por si quedaron sesiones viejas en navegadores), pero ya
+// NUNCA se acepta como autenticación.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -41,43 +41,23 @@ export interface AuthUser {
 }
 
 const SESSION_COOKIE = 'next-auth.session-token';
-const LEGACY_COOKIE = 'session_user';
+const LEGACY_COOKIE = 'session_user'; // Solo se borra en logout; ya NO se acepta como auth.
 const SESSION_MAX_AGE = 8 * 3600;
 
 /**
- * Decodifica el cookie legacy (base64 JSON) — solo para transición.
- * Normaliza el consentimiento de privacidad: la cookie legacy guarda
- * privacyAcceptedAt/Version (campos crudos de la BD), NO el booleano
- * privacyAccepted. Lo derivamos aquí para que getAuthUser retorne un
- * payload consistente con el del JWT.
- */
-function decodeLegacyCookie(cookie: string): any | null {
-  try {
-    const json = Buffer.from(cookie, 'base64').toString('utf-8');
-    const payload = JSON.parse(json);
-    if (payload && payload.id && payload.role) {
-      // Derivar privacyAccepted de privacyAcceptedAt/Version
-      const acceptedVersion = payload.privacyAcceptedVersion || null;
-      const acceptedAt = payload.privacyAcceptedAt || null;
-      if (payload.privacyAccepted === undefined) {
-        payload.privacyAccepted =
-          !!acceptedAt && acceptedVersion === CURRENT_PRIVACY_VERSION;
-      }
-      if (!payload.privacyVersion) {
-        payload.privacyVersion = acceptedVersion;
-      }
-      return payload;
-    }
-  } catch {}
-  return null;
-}
-
-/**
  * Obtiene el usuario autenticado.
- * Prioridad: NextAuth JWT → cookie legacy → Authorization header.
+ *
+ * ÚNICA fuente de sesión válida: el JWT firmado por NextAuth
+ * (`next-auth.session-token`). El JWT está firmado con
+ * NEXTAUTH_SECRET (HMAC-SHA512 via jose), por lo que NO puede
+ * ser falsificado sin el secret.
+ *
+ * ⚠️ Tarea 3 (audit seguridad): el fallback a cookie legacy
+ * `session_user` y al header `Authorization: Bearer <base64>`
+ * fue REMOVIDO. Eran base64 sin firma criptográfica y cualquiera
+ * podía fabricarlos con `role: "GENERAL_ADMIN"`.
  */
 export async function getAuthUser(req?: NextRequest): Promise<AuthUser | null> {
-  // 1. NextAuth JWT (firmado, seguro)
   try {
     const token = await getToken({
       req: req as any,
@@ -123,38 +103,6 @@ export async function getAuthUser(req?: NextRequest): Promise<AuthUser | null> {
     }
   } catch {
     // getToken falla si no hay secret o cookie inválida
-  }
-
-  // 2. Cookie legacy (transición — solo lectura)
-  try {
-    const cookieStore = await cookies();
-    const legacy = cookieStore.get(LEGACY_COOKIE)?.value;
-    if (legacy) {
-      const payload = decodeLegacyCookie(legacy);
-      if (payload) {
-        // Hidratar sucursal si hace falta
-        if (payload.sucursalId && !payload.sucursalName) {
-          const suc = await db.sucursal.findUnique({
-            where: { id: payload.sucursalId },
-            select: { name: true, codigoLocal: true },
-          });
-          if (suc) {
-            payload.sucursalName = suc.name;
-            payload.sucursalCodigoLocal = suc.codigoLocal;
-          }
-        }
-        return payload as AuthUser;
-      }
-    }
-  } catch {}
-
-  // 3. Authorization header Bearer <base64> (legacy, para mobile/CLI)
-  if (req) {
-    const authHeader = req.headers.get('authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      const payload = decodeLegacyCookie(authHeader.slice(7));
-      if (payload) return payload as AuthUser;
-    }
   }
 
   return null;
@@ -265,22 +213,12 @@ export async function buildSessionCookies(payload: any): Promise<CookiePair[]> {
     },
   };
 
-  // 2. Legacy (base64 sin firma, transición — 1h para forzar migración)
-  //    httpOnly:true porque NUNCA se lee desde JS del cliente (gap #15).
-  const legacyToken = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
-  const legacyCookie: CookiePair = {
-    name: LEGACY_COOKIE,
-    value: legacyToken,
-    options: {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: isProd,
-      maxAge: 3600,
-      path: '/',
-    },
-  };
-
-  return [jwtCookie, legacyCookie];
+  // ⚠️ Tarea 3 (audit seguridad): la cookie legacy `session_user` ya NO se
+  // emite. Era base64 sin firma y cualquiera podía fabricarla con
+  // role: "GENERAL_ADMIN". La ÚNICA cookie de sesión válida ahora es el
+  // JWT firmado por NextAuth. `buildClearCookies` sigue borrando la
+  // legacy en logout para limpiar navegadores con sesiones viejas.
+  return [jwtCookie];
 }
 
 /**

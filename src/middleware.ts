@@ -1,6 +1,12 @@
 // ============================================================
-// Middleware — Protege /api/* con NextAuth JWT + RBAC
-// (con fallback a cookie legacy para transición)
+// Middleware — Protege /api/* con NextAuth JWT (firmado) + RBAC
+// ============================================================
+//
+// ⚠️ TAREA 3 (AUDIT DE SEGURIDAD):
+// Se eliminó `decodeLegacyCookie` y el fallback a cookie `session_user`
+// y al header `Authorization: Bearer <base64>`. Eran base64 sin firma
+// criptográfica y cualquiera podía fabricarlos con `role: "GENERAL_ADMIN"`.
+// La ÚNICA fuente de sesión válida ahora es el JWT firmado por NextAuth.
 // ============================================================
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -17,35 +23,13 @@ interface SessionPayload {
   // LFPDPPP — flag de consentimiento (formato normalizado).
   privacyAccepted?: boolean;
   privacyVersion?: string;
-  // LFPDPPP — campos crudos de la BD (formato legacy cookie).
-  // Se usan para derivar privacyAccepted cuando el JWT no está disponible.
-  privacyAcceptedAt?: string | null;
-  privacyAcceptedVersion?: string | null;
-}
-
-function decodeLegacyCookie(cookie: string): SessionPayload | null {
-  try {
-    const json = Buffer.from(cookie, 'base64').toString('utf-8');
-    const payload = JSON.parse(json);
-    if (payload && payload.id && payload.role) {
-      // Normalizar el consentimiento desde los campos crudos de la BD.
-      // La cookie legacy guarda privacyAcceptedAt (Date ISO) y
-      // privacyAcceptedVersion (string), NO el booleano privacyAccepted.
-      // El middleware necesita privacyAccepted para validar, así que lo
-      // derivamos aquí.
-      const acceptedVersion = payload.privacyAcceptedVersion || null;
-      const acceptedAt = payload.privacyAcceptedAt || null;
-      payload.privacyAccepted =
-        !!acceptedAt && acceptedVersion === CURRENT_PRIVACY_VERSION;
-      payload.privacyVersion = acceptedVersion;
-      return payload as SessionPayload;
-    }
-  } catch {}
-  return null;
 }
 
 async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
-  // 1. NextAuth JWT (firmado, seguro) — preferido
+  // ⚠️ Tarea 3 (audit seguridad): la ÚNICA fuente de sesión válida es el
+  // JWT firmado por NextAuth (`next-auth.session-token`, HMAC-SHA512 via
+  // jose con NEXTAUTH_SECRET). El fallback a cookie legacy `session_user`
+  // y al header `Authorization: Bearer <base64>` fue REMOVIDO.
   try {
     const token = await getToken({
       req: req as any,
@@ -75,23 +59,6 @@ async function parseSession(req: NextRequest): Promise<SessionPayload | null> {
     }
   } catch {}
 
-  // 2. Cookie legacy `session_user` (base64, transición)
-  //    ⚠️ Brecha #3 — NO confiar en role/sucursalId del cookie sin firma.
-  //    La cookie legacy se admite solo para identificación básica; el
-  //    handler debe re-obtener rol/consentimiento desde la BD.
-  const cookie = req.cookies.get('session_user')?.value;
-  if (cookie) {
-    const payload = decodeLegacyCookie(cookie);
-    if (payload) return payload;
-  }
-
-  // 3. Authorization header Bearer <base64> (legacy, mobile/CLI)
-  const authHeader = req.headers.get('authorization');
-  if (authHeader?.startsWith('Bearer ')) {
-    const payload = decodeLegacyCookie(authHeader.slice(7));
-    if (payload) return payload;
-  }
-
   return null;
 }
 
@@ -108,11 +75,12 @@ const PUBLIC_PATHS = [
   '/api/auth/callback',
   '/api/auth/_log',
   '/api/health',
-  '/api/seed',
   '/api/download',
-  '/api/download-env',
   '/api/diagrama/download',
   '/api/route',
+  // ⚠️ Tarea 1 (audit seguridad): /api/download-env y /api/seed REMOVIDOS de
+  // rutas públicas. /api/download-env fue eliminado por completo (exponía .env).
+  // /api/seed ahora requiere sesión + rol GENERAL_ADMIN (ver handler).
 ];
 
 export async function middleware(req: NextRequest) {

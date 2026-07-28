@@ -67,9 +67,18 @@ server.log
 /Caddyfile
 # Archivos sensibles / internos (no commitear)
 /tool-results/
-/public/usuarios-contrasenas.txt
+# ⚠️ Tarea 4 (audit seguridad): NUNCA commitear .env, *.zip con config,
+# ni archivos de credenciales en /public. Next.js los serviría sin auth.
+/public/.env
+/public/.env.*
 /public/env.zip
+/public/env-files.zip
+/public/env-files.*
+/public/usuarios-contrasenas.txt
 /public/control-de-asistencia.zip
+/public/secrets.*
+/public/*.pem
+/public/*.key
 /agent-ctx/
 
 # Mini-service: keep code, ignore logs and node_modules
