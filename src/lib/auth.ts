@@ -88,15 +88,39 @@ export async function getAuthUser(req?: NextRequest): Promise<AuthUser | null> {
         privacyVersion: tokenPrivacyVersion,
       };
 
-      // Hidratar sucursal name/codigo si no vienen en el token
-      if (payload.sucursalId && !payload.sucursalName) {
-        const suc = await db.sucursal.findUnique({
-          where: { id: payload.sucursalId },
-          select: { name: true, codigoLocal: true },
-        });
-        if (suc) {
-          payload.sucursalName = suc.name;
-          payload.sucursalCodigoLocal = suc.codigoLocal;
+      // ----------------------------------------------------------
+      // FIX: sucursal SIEMPRE se re-lee de la BD (no del JWT).
+      // ----------------------------------------------------------
+      // Antes solo se hidrataba el nombre si el JWT NO lo traía, lo
+      // que hacía que el id/name/codigo del JWT (emitido en login)
+      // se mantuvieran "congelados" hasta que expirara el token
+      // (hasta 8 horas). Si un SUCURSAL_ADMIN/SUPERVISOR/EMPLEADO
+      // era transferido de sucursal, seguía viendo su sucursal vieja
+      // y — peor — los endpoints que filtran por getSucursalFilter()
+      // seguían usando la sucursal vieja del JWT, accediendo a datos
+      // de la sucursal equivocada.
+      //
+      // Ahora consultamos el User con su sucursal actual en cada
+      // getAuthUser(). Es un findUnique indexado por id (~1ms),
+      // despreciable frente a la garantía de consistencia.
+      // ----------------------------------------------------------
+      const freshUser = await db.user.findUnique({
+        where: { id: payload.id },
+        select: {
+          sucursalId: true,
+          employee: { select: { id: true } },
+          sucursal: { select: { name: true, codigoLocal: true } },
+        },
+      });
+      if (freshUser) {
+        payload.sucursalId = freshUser.sucursalId;
+        payload.employeeId = freshUser.employee?.id ?? payload.employeeId;
+        if (freshUser.sucursal) {
+          payload.sucursalName = freshUser.sucursal.name;
+          payload.sucursalCodigoLocal = freshUser.sucursal.codigoLocal;
+        } else {
+          payload.sucursalName = null;
+          payload.sucursalCodigoLocal = null;
         }
       }
       return payload;

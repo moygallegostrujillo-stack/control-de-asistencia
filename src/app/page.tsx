@@ -43,6 +43,47 @@ export default function Home() {
     };
   }, [setUser]);
 
+  // ----------------------------------------------------------
+  // FIX: refrescar el store del frontend al recuperar el foco
+  // de la ventana. Así, si un admin transfirió al empleado de
+  // sucursal (o cambió su rol) mientras él tenía la pestaña
+  // abierta en segundo plano, al volver a la pestaña el header
+  // y los datos se actualizan sin necesidad de recargar manual.
+  // ----------------------------------------------------------
+  useEffect(() => {
+    if (!user) return;
+    let refreshing = false;
+    const refreshMe = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            setUser(data.user as SessionUser);
+          }
+        }
+      } catch {
+        // silencioso
+      } finally {
+        refreshing = false;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshMe();
+      }
+    };
+    const onFocus = () => refreshMe();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [user, setUser]);
+
   // Logout forzado por 401s consecutivos
   useEffect(() => {
     if (shouldForceLogout) {
