@@ -8,7 +8,14 @@
 // ============================================================
 
 import type { AttendanceRecord, Sucursal, WorkSchedule } from '@prisma/client';
-import { getDayOfWeek, minutesBetween, toISODate } from './timezone';
+import { DateTime } from 'luxon';
+import {
+  MEXICO_TZ,
+  buildDateTimeInMexico,
+  getDayOfWeek,
+  minutesBetween,
+  toISODate,
+} from './timezone';
 import { classifyShift, getLegalMaxMinutes, type ShiftType } from './shift-classifier';
 
 export interface OvertimeInput {
@@ -174,17 +181,43 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
       scheduledMinutes = (eh * 60 + em) - (sh * 60 + sm);
       if (scheduledMinutes < 0) scheduledMinutes += 24 * 60; // turno nocturno
 
-      // Late check (check-in)
+      // ----------------------------------------------------------
+      // FIX CRÍTICO DE ZONA HORARIA (bug de retardos falsos)
+      // ----------------------------------------------------------
+      // Antes se usaba `new Date(record.date).setHours(sh, sm, 0, 0)`,
+      // que interpreta la hora en la TZ DEL SERVIDOR. En Vercel el
+      // servidor corre en UTC, por lo que "09:00" se interpretaba como
+      // 09:00 UTC (= 03:00 Mexico City). Como el check-in real ocurre
+      // a las 09:00 Mexico (= 15:00 UTC), la comparación
+      //   checkInTime(15:00 UTC) > expected(09:00 UTC) + tol
+      // SIEMPRE daba true → todos los registros con salida quedaban
+      // marcados como LATE, ignorando la tolerancia configurada.
+      //
+      // Solución: construir las fechas con buildDateTimeInMexico, que
+      // interpreta "HH:mm" en America/Mexico_City (UTC-6) y devuelve
+      // el instante UTC correcto. Esto coincide con la lógica que ya
+      // usaba correctamente la ruta /api/attendance/check-in.
+      // ----------------------------------------------------------
+      const dateISO = toISODate(record.date);
       const tolMs = schedule.toleranceMinutes * 60_000;
-      const expectedCheckIn = new Date(record.date);
-      expectedCheckIn.setHours(sh, sm, 0, 0);
+
+      // Late check (check-in) — hora esperada en Mexico City
+      const expectedCheckIn = buildDateTimeInMexico(dateISO, schedule.startTime);
       if (record.checkInTime.getTime() > expectedCheckIn.getTime() + tolMs) {
         isLate = true;
       }
 
-      // Early leave check (check-out)
-      const expectedCheckOut = new Date(record.date);
-      expectedCheckOut.setHours(eh, em, 0, 0);
+      // Early leave check (check-out) — hora esperada en Mexico City.
+      // Para turnos nocturnos (endTime <= startTime), la salida es
+      // al día siguiente.
+      let checkoutISO = dateISO;
+      if (eh * 60 + em <= sh * 60 + sm) {
+        const nextDay = DateTime.fromFormat(dateISO, 'yyyy-MM-dd', {
+          zone: MEXICO_TZ,
+        }).plus({ days: 1 });
+        checkoutISO = nextDay.toFormat('yyyy-MM-dd');
+      }
+      const expectedCheckOut = buildDateTimeInMexico(checkoutISO, schedule.endTime);
       if (record.checkOutTime.getTime() < expectedCheckOut.getTime() - tolMs) {
         isEarlyLeave = true;
       }

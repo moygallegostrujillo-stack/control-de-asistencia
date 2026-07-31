@@ -5262,6 +5262,9 @@ interface MfaSetupResponse {
 }
 
 function SettingsView() {
+  const { user } = useAuthStore();
+  const isGA = user?.role === 'GENERAL_ADMIN';
+
   // Estado de MFA (cargado desde /api/auth/me)
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null);
   const [mfaEnrolledAt, setMfaEnrolledAt] = useState<string | null>(null);
@@ -5281,6 +5284,50 @@ function SettingsView() {
   const [disableToken, setDisableToken] = useState('');
   const [disableUseBackup, setDisableUseBackup] = useState(false);
   const [disableBackupCode, setDisableBackupCode] = useState('');
+
+  // --- Recálculo de status (bug TZ retardos falsos) ---
+  const [recalcLoading, setRecalcLoading] = useState(false);
+  const [recalcDryRunLoading, setRecalcDryRunLoading] = useState(false);
+  const [recalcResult, setRecalcResult] = useState<{
+    scanned: number;
+    changed: number;
+    dryRun: boolean;
+    details: Array<{
+      employeeName: string;
+      date: string;
+      checkInTime: string;
+      expectedCheckIn: string;
+      toleranceMinutes: number;
+      oldStatus: string;
+      newStatus: string;
+    }>;
+  } | null>(null);
+
+  const runRecalc = async (dryRun: boolean) => {
+    if (dryRun) {
+      setRecalcDryRunLoading(true);
+    } else {
+      setRecalcLoading(true);
+    }
+    try {
+      const data = await apiSend<{ scanned: number; changed: number; dryRun: boolean; details: any[] }>(
+        '/api/admin/recalc-status',
+        'POST',
+        { dryRun }
+      );
+      setRecalcResult(data);
+      if (dryRun) {
+        toast.info(`Simulación: ${data.scanned} registros revisados, ${data.changed} cambiarían de status.`);
+      } else {
+        toast.success(`Recálculo completado: ${data.changed} registros corregidos de ${data.scanned} revisados.`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al recalcular');
+    } finally {
+      setRecalcDryRunLoading(false);
+      setRecalcLoading(false);
+    }
+  };
 
   // Cargar estado de MFA al montar
   const refreshMfaStatus = useCallback(async () => {
@@ -5535,6 +5582,152 @@ function SettingsView() {
           )}
         </CardContent>
       </Card>
+
+      {/* ============================================================ */}
+      {/* CARD: Herramientas de mantenimiento (solo GENERAL_ADMIN) */}
+      {/* ============================================================ */}
+      {isGA && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Database className="h-5 w-5 text-amber-600" />
+                  Herramientas de mantenimiento
+                </CardTitle>
+                <CardDescription className="max-w-2xl">
+                  Corrección de estatus de asistencia afectados por bug de zona horaria
+                  (registros marcados como retardo sin respetar la tolerancia configurada).
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="space-y-1.5 text-sm">
+                  <p className="font-medium text-amber-900">
+                    Bug corregido: retardos falsos por zona horaria
+                  </p>
+                  <p className="text-amber-800">
+                    Antes de este fix, al registrar la salida se recalculaba el estatus
+                    usando la zona horaria del servidor (UTC en Vercel) en lugar de
+                    Mexico City. Esto hacía que <strong>toda entrada después de las 03:00
+                    hora local</strong> se marcara como retardo, ignorando la tolerancia
+                    de 10 minutos configurada en el horario del empleado.
+                  </p>
+                  <p className="text-amber-800">
+                    Usa primero <strong>&laquo;Simular&raquo;</strong> para ver cuántos
+                    registros se corregirán, y luego <strong>&laquo;Recalcular&raquo;</strong>
+                    para aplicar los cambios. Solo se revisan registros con entrada y
+                    salida de los últimos 90 días.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => runRecalc(true)}
+                disabled={recalcDryRunLoading || recalcLoading}
+              >
+                {recalcDryRunLoading ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Simulando...</>
+                ) : (
+                  <><RefreshCw className="h-4 w-4 mr-1" /> Simular recálculo</>
+                )}
+              </Button>
+              <Button
+                onClick={() => runRecalc(false)}
+                disabled={recalcDryRunLoading || recalcLoading}
+              >
+                {recalcLoading ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Recalculando...</>
+                ) : (
+                  <><RefreshCw className="h-4 w-4 mr-1" /> Recalcular ahora</>
+                )}
+              </Button>
+            </div>
+
+            {recalcResult && (
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm font-medium text-zinc-900">
+                    {recalcResult.dryRun ? 'Resultado de la simulación' : 'Recálculo aplicado'}
+                  </p>
+                  <div className="flex gap-4 text-sm">
+                    <span className="text-zinc-600">
+                      Revisados: <strong className="text-zinc-900">{recalcResult.scanned}</strong>
+                    </span>
+                    <span className="text-zinc-600">
+                      {recalcResult.dryRun ? 'Cambiarían' : 'Corregidos'}:{" "}
+                      <strong className={recalcResult.changed > 0 ? 'text-emerald-700' : 'text-zinc-900'}>
+                        {recalcResult.changed}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+
+                {recalcResult.details.length > 0 && (
+                  <div className="max-h-80 overflow-y-auto rounded-md border border-zinc-200 bg-white">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="h-9 text-xs">Empleado</TableHead>
+                          <TableHead className="h-9 text-xs">Fecha</TableHead>
+                          <TableHead className="h-9 text-xs">Entrada</TableHead>
+                          <TableHead className="h-9 text-xs">Esperada</TableHead>
+                          <TableHead className="h-9 text-xs">Tol.</TableHead>
+                          <TableHead className="h-9 text-xs">Antes</TableHead>
+                          <TableHead className="h-9 text-xs">Después</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {recalcResult.details.slice(0, 100).map((d, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="py-2 text-xs font-medium">{d.employeeName}</TableCell>
+                            <TableCell className="py-2 text-xs">{d.date}</TableCell>
+                            <TableCell className="py-2 text-xs font-mono">{d.checkInTime}</TableCell>
+                            <TableCell className="py-2 text-xs font-mono text-muted-foreground">{d.expectedCheckIn}</TableCell>
+                            <TableCell className="py-2 text-xs">{d.toleranceMinutes}min</TableCell>
+                            <TableCell className="py-2 text-xs">
+                              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                                {d.oldStatus === 'LATE' ? 'Retardo' : d.oldStatus === 'EARLY_LEAVE' ? 'Sal. temprana' : d.oldStatus === 'PRESENT' ? 'Presente' : d.oldStatus}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="py-2 text-xs">
+                              <Badge variant="outline" className={
+                                d.newStatus === 'PRESENT'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200 text-[10px]'
+                              }>
+                                {d.newStatus === 'LATE' ? 'Retardo' : d.newStatus === 'EARLY_LEAVE' ? 'Sal. temprana' : 'Presente'}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {recalcResult.details.length > 100 && (
+                      <p className="p-2 text-xs text-center text-muted-foreground">
+                        Mostrando 100 de {recalcResult.details.length} cambios.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {recalcResult.changed === 0 && (
+                  <p className="text-sm text-zinc-600">
+                    No hay registros que corregir en el período revisado. Todo está en orden.
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ============================================================ */}
       {/* DIALOG: Activación MFA (3 pasos) */}
