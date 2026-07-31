@@ -582,6 +582,11 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
   const { preselectedEmployeeId, setPreselectedEmployeeId } = useAppStore();
   const [correctionRecord, setCorrectionRecord] = useState<any | null>(null);
 
+  // --- Explorador de asistencia: fecha, filtro de estatus, búsqueda ---
+  const [selectedDate, setSelectedDate] = useState<string>(''); // '' = hoy
+  const [statusFilter, setStatusFilter] = useState<string>('all'); // all|PRESENT|LATE|ABSENT|ON_BREAK|EARLY_LEAVE
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
   // Cargar sucursales para el selector (GA only)
   useEffect(() => {
     if (!isGA) return;
@@ -604,7 +609,7 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
     ? (selectedSucursalId === 'all' ? null : selectedSucursalId)
     : userSucursalId;
 
-  const { data, isLoading, isFetching, isError, error, refetch, dataUpdatedAt } = useAttendanceToday(effectiveSucursalId);
+  const { data, isLoading, isFetching, isError, error, refetch, dataUpdatedAt } = useAttendanceToday(effectiveSucursalId, selectedDate || undefined);
 
   const prevCountRef = useRef(0);
 
@@ -671,6 +676,53 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
     }));
   }, [records, absents]);
 
+  // --- Filtrado de registros por estatus + búsqueda de texto ---
+  const isOnBreak = (r: any) =>
+    (r.mealStart && !r.mealEnd) || (r.restStart && !r.restEnd);
+
+  const filteredRecords = useMemo(() => {
+    let result = records;
+    // Filtro por estatus
+    if (statusFilter === 'PRESENT') result = result.filter((r) => r.status === 'PRESENT');
+    else if (statusFilter === 'LATE') result = result.filter((r) => r.status === 'LATE');
+    else if (statusFilter === 'EARLY_LEAVE') result = result.filter((r) => r.status === 'EARLY_LEAVE');
+    else if (statusFilter === 'ON_BREAK') result = result.filter((r) => isOnBreak(r));
+    // Búsqueda por texto (nombre o número de empleado)
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter((r) => {
+        const name = (r.employee?.user?.name || r.employeeName || '').toLowerCase();
+        const empNum = (r.employee?.employeeNumber || r.employeeNumber || '').toLowerCase();
+        const sucCode = (r.employee?.sucursal?.codigoLocal || '').toString().toLowerCase();
+        const sucName = (r.employee?.sucursal?.name || r.sucursalName || '').toLowerCase();
+        return name.includes(q) || empNum.includes(q) || sucCode.includes(q) || sucName.includes(q);
+      });
+    }
+    return result;
+  }, [records, statusFilter, searchQuery]);
+
+  const filteredAbsents = useMemo(() => {
+    if (statusFilter !== 'all' && statusFilter !== 'ABSENT') return [];
+    let result = absents;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter((a) => {
+        const name = (a.name || '').toLowerCase();
+        const empNum = (a.employeeNumber || '').toLowerCase();
+        const sucName = (a.sucursalName || '').toLowerCase();
+        return name.includes(q) || empNum.includes(q) || sucName.includes(q);
+      });
+    }
+    return result;
+  }, [absents, statusFilter, searchQuery]);
+
+  // Helper para formatear la fecha seleccionada en label
+  const dateLabel = useMemo(() => {
+    if (!selectedDate) return 'Asistencia de hoy';
+    const d = new Date(selectedDate + 'T06:00:00.000Z');
+    return `Asistencia del ${formatDateInMexico(d)}`;
+  }, [selectedDate]);
+
   function handleOpenCorrection(record: any) {
     setCorrectionRecord(record);
   }
@@ -707,7 +759,7 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
           />
           <KpiCard
             icon={CheckCircle2}
-            label="Asistencia hoy"
+            label={selectedDate ? "Asistencia del día" : "Asistencia hoy"}
             value={`${asistenciaPct}%`}
             sub={`${present + late} de ${totalEmpleados}`}
             tone="emerald"
@@ -723,7 +775,7 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
             icon={Clock}
             label="Horas extra"
             value={`${overtimeHours} h`}
-            sub="Acumuladas hoy"
+            sub={selectedDate ? "Acumuladas del día" : "Acumuladas hoy"}
             tone="zinc"
           />
         </div>
@@ -769,20 +821,215 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
         {isLoading && <LoadingState rows={6} />}
         {isError && <ErrorState message={(error as Error)?.message || 'Error desconocido'} />}
 
+        {/* --- Explorador de asistencia: controles de fecha + filtros + búsqueda --- */}
+        {!isLoading && !isError && (
+          <div className="space-y-3">
+            {/* Fila 1: selector de fecha + botones rápidos + buscador */}
+            <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="dash-date" className="text-xs text-muted-foreground">Fecha</Label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    id="dash-date"
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-44"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => setSelectedDate('')}
+                  >
+                    Hoy
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 1);
+                      setSelectedDate(d.toISOString().slice(0, 10));
+                    }}
+                  >
+                    Ayer
+                  </Button>
+                  {selectedDate && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={() => {
+                        const d = new Date(selectedDate + 'T06:00:00.000Z');
+                        d.setDate(d.getDate() - 1);
+                        setSelectedDate(d.toISOString().slice(0, 10));
+                      }}
+                      title="Día anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {selectedDate && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={() => {
+                        const d = new Date(selectedDate + 'T06:00:00.000Z');
+                        d.setDate(d.getDate() + 1);
+                        setSelectedDate(d.toISOString().slice(0, 10));
+                      }}
+                      title="Día siguiente"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 lg:max-w-xs lg:ml-auto">
+                <Label htmlFor="dash-search" className="text-xs text-muted-foreground">Buscar</Label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="dash-search"
+                    type="text"
+                    placeholder="Nombre, # empleado o sucursal…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      title="Limpiar"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Fila 2: pills de filtro por estatus con conteos */}
+            <div className="flex flex-wrap gap-2">
+              <StatusPill
+                label="Todos"
+                count={stats?.total ?? 0}
+                active={statusFilter === 'all'}
+                onClick={() => setStatusFilter('all')}
+                tone="zinc"
+              />
+              <StatusPill
+                label="Presentes"
+                count={present}
+                active={statusFilter === 'PRESENT'}
+                onClick={() => setStatusFilter('PRESENT')}
+                tone="emerald"
+                icon={CheckCircle2}
+              />
+              <StatusPill
+                label="Retardos"
+                count={late}
+                active={statusFilter === 'LATE'}
+                onClick={() => setStatusFilter('LATE')}
+                tone="amber"
+                icon={AlertTriangle}
+              />
+              <StatusPill
+                label="Ausentes"
+                count={absent}
+                active={statusFilter === 'ABSENT'}
+                onClick={() => setStatusFilter('ABSENT')}
+                tone="rose"
+                icon={UserX}
+              />
+              <StatusPill
+                label="En descanso"
+                count={onBreak}
+                active={statusFilter === 'ON_BREAK'}
+                onClick={() => setStatusFilter('ON_BREAK')}
+                tone="blue"
+                icon={Coffee}
+              />
+              {(stats?.earlyLeave ?? 0) > 0 && (
+                <StatusPill
+                  label="Salida temprano"
+                  count={stats?.earlyLeave ?? 0}
+                  active={statusFilter === 'EARLY_LEAVE'}
+                  onClick={() => setStatusFilter('EARLY_LEAVE')}
+                  tone="purple"
+                  icon={Clock}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Attendance table */}
         {!isLoading && !isError && (
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-base">Asistencia de hoy</CardTitle>
-                  <CardDescription>{records.length} registros · {absents.length} ausentes</CardDescription>
+                  <CardTitle className="text-base">{dateLabel}</CardTitle>
+                  <CardDescription>
+                    {statusFilter === 'ABSENT'
+                      ? `${filteredAbsents.length} ausente(s)`
+                      : `${filteredRecords.length} registro(s) · ${filteredAbsents.length} ausente(s)`}
+                    {selectedDate && ' · fecha histórica'}
+                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {records.length === 0 ? (
-                <EmptyState icon={CheckCircle2} title="Sin registros aún" subtitle="Los check-ins aparecerán aquí automáticamente." />
+              {/* Tabla de ausentes (cuando el filtro es ABSENT o all con búsqueda) */}
+              {statusFilter === 'ABSENT' ? (
+                filteredAbsents.length === 0 ? (
+                  <EmptyState icon={CheckCircle2} title="Sin ausentes" subtitle="No hay empleados sin registro para esta fecha." />
+                ) : (
+                  <div className={`max-h-96 overflow-y-auto overflow-x-auto ${SCROLLBAR_CLASS}`}>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50">
+                          <TableHead className="w-[260px] whitespace-nowrap">Empleado</TableHead>
+                          {isGA && <TableHead className="w-[110px] whitespace-nowrap">Sucursal</TableHead>}
+                          <TableHead className="whitespace-nowrap">Estado</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredAbsents.map((a: any) => (
+                          <TableRow key={a.id} className="hover:bg-muted/40">
+                            <TableCell className="whitespace-nowrap font-medium">
+                              <div className="flex flex-col">
+                                <span>{a.name}</span>
+                                {a.employeeNumber && <span className="text-xs text-muted-foreground">#{a.employeeNumber}</span>}
+                              </div>
+                            </TableCell>
+                            {isGA && (
+                              <TableCell className="whitespace-nowrap text-muted-foreground">
+                                {a.sucursalName || '—'}
+                              </TableCell>
+                            )}
+                            <TableCell>
+                              <Badge variant="destructive" className="bg-rose-100 text-rose-700 hover:bg-rose-100 border-rose-200">Ausente</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )
+              ) : filteredRecords.length === 0 ? (
+                <EmptyState icon={Search} title="Sin coincidencias" subtitle="Ajusta el filtro de estatus o el término de búsqueda." />
               ) : (
                 <div className={`max-h-96 overflow-y-auto overflow-x-auto ${SCROLLBAR_CLASS}`}>
                   <Table>
@@ -801,7 +1048,7 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {records.map((r: any) => {
+                      {filteredRecords.map((r: any) => {
                         const name = r.employee?.user?.name || r.employeeName || '—';
                         const empNumber = r.employee?.employeeNumber || r.employeeNumber || '';
                         const sucName = r.employee?.sucursal?.name || r.sucursalName || '—';
@@ -906,16 +1153,16 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <UserX className="h-4 w-4 text-rose-500" />
-                Ausentes hoy
+                {selectedDate ? 'Ausentes del día' : 'Ausentes hoy'}
               </CardTitle>
-              <CardDescription>{absents.length} empleado(s) sin registro</CardDescription>
+              <CardDescription>{filteredAbsents.length} empleado(s) sin registro</CardDescription>
             </CardHeader>
             <CardContent>
-              {absents.length === 0 ? (
+              {filteredAbsents.length === 0 ? (
                 <EmptyState icon={CheckCircle2} title="Sin ausentes" subtitle="Todos los empleados programados registraron asistencia." />
               ) : (
                 <div className={`max-h-72 overflow-y-auto ${SCROLLBAR_CLASS} space-y-2`}>
-                  {absents.map((a: any) => (
+                  {filteredAbsents.map((a: any) => (
                     <div key={a.id} className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/30">
                       <div>
                         <p className="text-sm font-medium">{a.name}</p>
@@ -999,6 +1246,52 @@ function KpiCard({ icon: Icon, label, value, sub, tone }: { icon: React.ElementT
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// --- Pill de filtro por estatus (clicable, muestra conteo) ---
+function StatusPill({ label, count, active, onClick, tone, icon: Icon }: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  tone: 'zinc' | 'emerald' | 'amber' | 'rose' | 'blue' | 'purple';
+  icon?: React.ElementType;
+}) {
+  const toneActive: Record<string, string> = {
+    zinc: 'bg-zinc-900 text-white border-zinc-900',
+    emerald: 'bg-emerald-600 text-white border-emerald-600',
+    amber: 'bg-amber-500 text-white border-amber-500',
+    rose: 'bg-rose-600 text-white border-rose-600',
+    blue: 'bg-sky-600 text-white border-sky-600',
+    purple: 'bg-violet-600 text-white border-violet-600',
+  };
+  const toneIdle: Record<string, string> = {
+    zinc: 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50',
+    emerald: 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50',
+    amber: 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50',
+    rose: 'bg-white text-rose-700 border-rose-200 hover:bg-rose-50',
+    blue: 'bg-white text-sky-700 border-sky-200 hover:bg-sky-50',
+    purple: 'bg-white text-violet-700 border-violet-200 hover:bg-violet-50',
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+        active ? toneActive[tone] : toneIdle[tone]
+      )}
+    >
+      {Icon && <Icon className="h-3.5 w-3.5" />}
+      <span>{label}</span>
+      <span className={cn(
+        'ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+        active ? 'bg-white/25' : 'bg-muted text-muted-foreground'
+      )}>
+        {count}
+      </span>
+    </button>
   );
 }
 
