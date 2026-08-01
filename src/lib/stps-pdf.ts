@@ -3,34 +3,63 @@
 // Generador de PDF para el reporte STPS (Art. 804 LFT).
 //
 // Tres secciones obligatorias (mismo contenido que el Excel):
-//   1. Datos del Patrón
-//   2. Catálogo de Trabajadores (resumen del periodo)
-//   3. Detalle Diario por Trabajador
+//   1. Datos del Patrón           — portrait
+//   2. Catálogo de Trabajadores   — LANDSCAPE (tabla ancha)
+//   3. Detalle Diario por Trabajador — LANDSCAPE (tabla ancha)
 //
-// Formato: Letter (carta), márgenes estándar 2.5 cm.
+// Mejoras clave vs. versión anterior:
+//   • Secciones 2 y 3 en landscape (792pt de ancho útil) para que
+//     las 12 columnas quepan sin escalamiento ni truncado de página.
+//   • Truncado de texto con ellipsis (…) — los nombres/puestos largos
+//     ya no se envuelven a múltiples líneas (evita superposición).
+//   • Fuente 8pt (antes 7pt) para mejor legibilidad.
+//   • Altura de fila 18pt (antes 14pt) con padding vertical correcto.
+//   • Bordes verticales entre columnas + borde inferior por fila.
+//   • Función truncateText() que mide el ancho real con widthOfString.
+//
+// Formato: Letter, márgenes 1.98 cm (56 pt).
 // Tipografía: Helvetica (integrada en pdfkit, sin dependencias externas).
-//
-// NO depende de Puppeteer ni de un navegador; funciona en Vercel
-// (Node.js serverless) porque pdfkit es puro JavaScript.
+// Compatible con Vercel (puro JavaScript, sin Puppeteer).
 // ============================================================
 
 import PDFDocument from 'pdfkit';
 import type { StpsReport } from './stps-report';
 
 // --- Constantes de layout (puntos; 1 pt = 1/72 inch) ---
-// Letter = 612 x 792 pts. Márgenes 2.5 cm ≈ 71 pt.
-const PAGE_WIDTH = 612;
-const PAGE_HEIGHT = 792;
-const MARGIN = 56; // ~1.98 cm — estándar para documentos formales
-const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+// Letter portrait  = 612 x 792 pts
+// Letter landscape = 792 x 612 pts
+// Márgenes 56 pt ≈ 1.98 cm
+const MARGIN = 56;
 
-// Colores (valores RGB 0-1 para pdfkit)
-const COLOR_PRIMARY: [number, number, number] = [0.122, 0.306, 0.471]; // #1F4E78 (azul oscuro corporativo)
-const COLOR_HEADER_BG: [number, number, number] = [0.122, 0.306, 0.471];
-const COLOR_TEXT: [number, number, number] = [0.13, 0.13, 0.13];
-const COLOR_MUTED: [number, number, number] = [0.45, 0.45, 0.45];
-const COLOR_BORDER: [number, number, number] = [0.75, 0.75, 0.75];
-const COLOR_ZEBRA: [number, number, number] = [0.96, 0.96, 0.96];
+// Portrait (Sección 1 — Datos del Patrón)
+const PT_W = 612;
+const PT_H = 792;
+const PT_CONTENT_W = PT_W - MARGIN * 2; // 500
+
+// Landscape (Secciones 2 y 3 — tablas anchas)
+const LS_W = 792;
+const LS_H = 612;
+const LS_CONTENT_W = LS_W - MARGIN * 2; // 680
+
+// Colores como HEX STRINGS.
+// NOTA: pdfkit 0.19.1 tiene un bug donde los arrays RGB [r,g,b] con valores
+// 0-1 se interpretan como 0-255 y se dividen incorrectamente (0.96 → 0.0037).
+// Los hex strings ('#1F4E78') funcionan correctamente.
+const COLOR_PRIMARY = '#1F4E78'; // azul oscuro corporativo
+const COLOR_HEADER_BG = '#1F4E78';
+const COLOR_TEXT = '#212121';
+const COLOR_MUTED = '#737373';
+const COLOR_BORDER = '#BFBFBF';
+const COLOR_GRID = '#D9D9D9';
+const COLOR_ZEBRA = '#F5F5F5';
+
+// Tipografía
+const FONT_BODY = 8;
+const FONT_HEADER = 8;
+const FONT_SECTION_TITLE = 12;
+const FONT_DOC_TITLE = 15;
+const ROW_HEIGHT = 18;
+const HEADER_HEIGHT = 18;
 
 // ============================================================
 // Función principal: genera un Buffer con el PDF.
@@ -38,9 +67,9 @@ const COLOR_ZEBRA: [number, number, number] = [0.96, 0.96, 0.96];
 export async function buildStpsPdf(reporte: StpsReport): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      // pdfkit accepts custom page size [width, height]
+      // Documento arranca en PORTRAIT para la portada + Sección 1.
       const doc = new PDFDocument({
-        size: [PAGE_WIDTH, PAGE_HEIGHT],
+        size: [PT_W, PT_H],
         margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
         info: {
           Title: `Reporte STPS — ${reporte.periodo.descripcion}`,
@@ -55,32 +84,28 @@ export async function buildStpsPdf(reporte: StpsReport): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // ===== Encabezado del documento =====
-      drawDocumentHeader(doc, reporte);
-
-      // ===== Sección 1: Datos del Patrón =====
+      // ===== Portada + Sección 1 (portrait) =====
+      drawDocumentHeader(doc, reporte, PT_CONTENT_W);
       drawSectionPatron(doc, reporte);
 
-      // ===== Sección 2: Catálogo de Trabajadores =====
-      doc.addPage();
+      // ===== Sección 2 — Catálogo (LANDSCAPE) =====
+      doc.addPage({ size: [LS_W, LS_H], margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN } });
       drawSectionTrabajadores(doc, reporte);
 
-      // ===== Sección 3: Detalle Diario por Trabajador =====
-      // Una sub-sección por empleado, con salto de página entre ellos.
+      // ===== Sección 3 — Detalle Diario por Trabajador (LANDSCAPE) =====
       const detalleConDatos = reporte.detalle.filter((d) => d.filas.length > 0);
       if (detalleConDatos.length > 0) {
         for (const d of detalleConDatos) {
-          doc.addPage();
+          doc.addPage({ size: [LS_W, LS_H], margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN } });
           drawSectionDetalleEmpleado(doc, d, reporte);
         }
       } else {
-        // Si nadie tiene registros, agregar una hoja con nota.
-        doc.addPage();
+        doc.addPage({ size: [LS_W, LS_H], margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN } });
         drawEmptyDetalle(doc);
       }
 
       // ===== Pie de página final =====
-      drawFooter(doc, reporte);
+      drawFooter(doc, reporte, doc.page.width === LS_W ? LS_CONTENT_W : PT_CONTENT_W);
 
       doc.end();
     } catch (err) {
@@ -92,14 +117,17 @@ export async function buildStpsPdf(reporte: StpsReport): Promise<Buffer> {
 // ============================================================
 // Encabezado del documento (título + fecha de generación)
 // ============================================================
-function drawDocumentHeader(doc: PDFKit.PDFDocument, reporte: StpsReport): void {
+function drawDocumentHeader(
+  doc: PDFKit.PDFDocument,
+  reporte: StpsReport,
+  contentWidth: number
+): void {
   const y = doc.y;
-  // Título principal
   doc.fillColor(COLOR_PRIMARY)
     .font('Helvetica-Bold')
-    .fontSize(15)
+    .fontSize(FONT_DOC_TITLE)
     .text('REPORTE DE ASISTENCIA — FORMATO STPS (Art. 804 LFT)', MARGIN, y, {
-      width: CONTENT_WIDTH,
+      width: contentWidth,
       align: 'center',
     });
 
@@ -117,16 +145,15 @@ function drawDocumentHeader(doc: PDFKit.PDFDocument, reporte: StpsReport): void 
     });
 
   doc.moveDown(0.8);
-  // Línea separadora
-  drawSeparatorLine(doc);
+  drawSeparatorLine(doc, contentWidth);
   doc.moveDown(0.5);
 }
 
 // ============================================================
-// Sección 1 — Datos del Patrón
+// Sección 1 — Datos del Patrón (portrait)
 // ============================================================
 function drawSectionPatron(doc: PDFKit.PDFDocument, reporte: StpsReport): void {
-  drawSectionTitle(doc, 'SECCIÓN 1 — DATOS DEL PATRÓN');
+  drawSectionTitle(doc, 'SECCIÓN 1 — DATOS DEL PATRÓN', PT_CONTENT_W);
 
   const p = reporte.patron;
   const filas: [string, string][] = [
@@ -141,41 +168,36 @@ function drawSectionPatron(doc: PDFKit.PDFDocument, reporte: StpsReport): void {
   ];
 
   const labelWidth = 180;
-  const valueWidth = CONTENT_WIDTH - labelWidth;
+  const valueWidth = PT_CONTENT_W - labelWidth;
   const rowHeight = 18;
 
-  for (const [k, v] of filas) {
+  filas.forEach(([k, v], idx) => {
     const y = doc.y;
-    // Fondo alterno para legibilidad
-    const idx = filas.indexOf([k, v]);
     if (idx % 2 === 1) {
-      doc.rect(MARGIN, y, CONTENT_WIDTH, rowHeight).fill(COLOR_ZEBRA);
+      doc.rect(MARGIN, y, PT_CONTENT_W, rowHeight).fill(COLOR_ZEBRA as any);
     }
-    // Etiqueta
     doc.fillColor(COLOR_TEXT)
       .font('Helvetica-Bold')
       .fontSize(9)
-      .text(k, MARGIN + 6, y + 4, { width: labelWidth - 6 });
-    // Valor
+      .text(k, MARGIN + 6, y + 5, { width: labelWidth - 6 });
     doc.font('Helvetica')
       .fontSize(9)
-      .text(v, MARGIN + labelWidth + 4, y + 4, { width: valueWidth - 6 });
-    // Borde inferior
+      .text(v || '—', MARGIN + labelWidth + 4, y + 5, { width: valueWidth - 6 });
     doc.strokeColor(COLOR_BORDER)
       .lineWidth(0.5)
       .moveTo(MARGIN, y + rowHeight)
-      .lineTo(MARGIN + CONTENT_WIDTH, y + rowHeight)
+      .lineTo(MARGIN + PT_CONTENT_W, y + rowHeight)
       .stroke();
     doc.y = y + rowHeight;
-  }
+  });
   doc.moveDown(1);
 }
 
 // ============================================================
-// Sección 2 — Catálogo de Trabajadores
+// Sección 2 — Catálogo de Trabajadores (LANDSCAPE)
 // ============================================================
 function drawSectionTrabajadores(doc: PDFKit.PDFDocument, reporte: StpsReport): void {
-  drawSectionTitle(doc, 'SECCIÓN 2 — CATÁLOGO DE TRABAJADORES');
+  drawSectionTitle(doc, 'SECCIÓN 2 — CATÁLOGO DE TRABAJADORES', LS_CONTENT_W);
 
   if (reporte.trabajadores.length === 0) {
     doc.fillColor(COLOR_MUTED)
@@ -185,71 +207,42 @@ function drawSectionTrabajadores(doc: PDFKit.PDFDocument, reporte: StpsReport): 
     return;
   }
 
-  // Columnas (encabezado). Anchos en puntos, suman CONTENT_WIDTH.
-  // Para que quepan en Letter, reducimos algunas columnas y usamos
-  // orientación portrait con tabla compacta.
+  // Columnas optimizadas para landscape (680pt disponibles).
+  // RFC/CURP con ancho suficiente para "NO CAPTURADO" completo (sin truncar).
   const cols = [
-    { header: 'N°', key: 'numeroEmpleado', width: 36 },
-    { header: 'Nombre', key: 'nombreCompleto', width: 110 },
-    { header: 'RFC', key: 'rfc', width: 60 },
-    { header: 'CURP', key: 'curp', width: 70 },
-    { header: 'Puesto', key: 'puesto', width: 55 },
-    { header: 'Sucursal', key: 'sucursal', width: 55 },
-    { header: 'Días Trab.', key: 'diasTrabajados', width: 36, align: 'right' },
-    { header: 'Hrs. Trab.', key: 'totalHorasTrabajadas', width: 36, align: 'right' },
-    { header: 'HE Doble', key: 'totalHorasExtraDobles', width: 34, align: 'right' },
-    { header: 'HE Triple', key: 'totalHorasExtraTriples', width: 34, align: 'right' },
-    { header: 'Faltas', key: 'diasFaltaSinJustificar', width: 30, align: 'right' },
-    { header: 'Vacac.', key: 'diasVacacionesDisfrutados', width: 30, align: 'right' },
+    { header: 'N°', key: 'numeroEmpleado', width: 38, align: 'left' as const },
+    { header: 'Nombre', key: 'nombreCompleto', width: 120, align: 'left' as const },
+    { header: 'RFC', key: 'rfc', width: 76, align: 'left' as const },
+    { header: 'CURP', key: 'curp', width: 78, align: 'left' as const },
+    { header: 'Puesto', key: 'puesto', width: 82, align: 'left' as const },
+    { header: 'Sucursal', key: 'sucursal', width: 78, align: 'left' as const },
+    { header: 'Días', key: 'diasTrabajados', width: 30, align: 'right' as const },
+    { header: 'Hrs.', key: 'totalHorasTrabajadas', width: 34, align: 'right' as const },
+    { header: 'HE Dob', key: 'totalHorasExtraDobles', width: 38, align: 'right' as const },
+    { header: 'HE Trip', key: 'totalHorasExtraTriples', width: 38, align: 'right' as const },
+    { header: 'Faltas', key: 'diasFaltaSinJustificar', width: 33, align: 'right' as const },
+    { header: 'Vacac.', key: 'diasVacacionesDisfrutados', width: 35, align: 'right' as const },
   ];
-  // Verificar que los anchos no excedan CONTENT_WIDTH
-  const totalColsWidth = cols.reduce((s, c) => s + c.width, 0);
-  if (totalColsWidth > CONTENT_WIDTH) {
-    // Escalar proporcionalmente si excede (caso extremo)
-    const scale = CONTENT_WIDTH / totalColsWidth;
-    cols.forEach((c) => (c.width = Math.floor(c.width * scale)));
-  }
+  // Total: 38+120+76+78+82+78+30+34+38+38+33+35 = 680 ✅
 
   drawTableHeader(doc, cols);
 
-  // Filas de datos
-  doc.font('Helvetica').fontSize(7);
-  const rowHeight = 14;
   let zebra = false;
   for (const t of reporte.trabajadores) {
-    if (doc.y + rowHeight > PAGE_HEIGHT - MARGIN - 30) {
-      doc.addPage();
+    if (doc.y + ROW_HEIGHT > LS_H - MARGIN - 20) {
+      doc.addPage({ size: [LS_W, LS_H], margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN } });
       drawTableHeader(doc, cols);
-      doc.font('Helvetica').fontSize(7);
       zebra = false;
     }
-    const y = doc.y;
-    if (zebra) {
-      doc.rect(MARGIN, y, CONTENT_WIDTH, rowHeight).fill(COLOR_ZEBRA);
-    }
+    drawTableRow(doc, cols, t, zebra);
     zebra = !zebra;
-    let x = MARGIN;
-    for (const c of cols) {
-      const val = (t as any)[c.key];
-      const txt = val === null || val === undefined || val === '' ? '—' : String(val);
-      doc.fillColor(COLOR_TEXT)
-        .font('Helvetica')
-        .fontSize(7)
-        .text(txt, x + 2, y + 3, {
-          width: c.width - 4,
-          align: (c.align as 'left' | 'right' | 'center') || 'left',
-        });
-      x += c.width;
-    }
-    doc.y = y + rowHeight;
   }
-  // Borde inferior de la tabla
-  drawSeparatorLine(doc);
+  drawSeparatorLine(doc, LS_CONTENT_W);
   doc.moveDown(1);
 }
 
 // ============================================================
-// Sección 3 — Detalle Diario por Trabajador
+// Sección 3 — Detalle Diario por Trabajador (LANDSCAPE)
 // ============================================================
 function drawSectionDetalleEmpleado(
   doc: PDFKit.PDFDocument,
@@ -259,84 +252,68 @@ function drawSectionDetalleEmpleado(
   // Subtítulo con identificación del empleado
   doc.fillColor(COLOR_PRIMARY)
     .font('Helvetica-Bold')
-    .fontSize(12)
-    .text(`SECCIÓN 3 — DETALLE DIARIO`, { align: 'left' });
+    .fontSize(FONT_SECTION_TITLE)
+    .text('SECCIÓN 3 — DETALLE DIARIO', { align: 'left' });
   doc.moveDown(0.2);
   doc.fillColor(COLOR_TEXT)
     .font('Helvetica-Bold')
     .fontSize(10)
-    .text(`Empleado: ${d.nombre} (N° ${d.numero})`, { align: 'left' });
+    .text(`Empleado: ${truncateText(doc, d.nombre, 400, 'Helvetica-Bold', 10)} (N° ${d.numero})`, {
+      align: 'left',
+    });
   doc.moveDown(0.3);
   doc.fillColor(COLOR_MUTED)
     .font('Helvetica')
     .fontSize(8)
     .text(`Periodo: ${reporte.periodo.descripcion}`, { align: 'left' });
   doc.moveDown(0.5);
-  drawSeparatorLine(doc);
+  drawSeparatorLine(doc, LS_CONTENT_W);
   doc.moveDown(0.3);
 
-  // Columnas del detalle diario
+  // Columnas del detalle diario — optimizadas para landscape (680pt)
   const cols = [
-    { header: 'Fecha', key: 'fecha', width: 60 },
-    { header: 'Entrada', key: 'entrada', width: 40 },
-    { header: 'Salida', key: 'salida', width: 40 },
-    { header: 'Comida (min)', key: 'tiempoComidaMin', width: 50, align: 'right' },
-    { header: 'Hrs. Trab.', key: 'totalHorasDia', width: 45, align: 'right' },
-    { header: 'HE Doble', key: 'horasExtraDobles', width: 45, align: 'right' },
-    { header: 'HE Triple', key: 'horasExtraTriples', width: 45, align: 'right' },
-    { header: 'Min. Noct.', key: 'minutosNocturnos', width: 45, align: 'right' },
-    { header: 'Jornada', key: 'jornada', width: 50 },
-    { header: 'Geofence', key: 'fueraGeofence', width: 60 },
-    { header: 'Status', key: 'status', width: 55 },
-    { header: 'Desc. Trab.', key: 'descansoSemanalTrabajado', width: 45, align: 'right' },
+    { header: 'Fecha', key: 'fecha', width: 62, align: 'left' as const },
+    { header: 'Entrada', key: 'entrada', width: 42, align: 'center' as const },
+    { header: 'Salida', key: 'salida', width: 42, align: 'center' as const },
+    { header: 'Comida', key: 'tiempoComidaMin', width: 48, align: 'right' as const },
+    { header: 'Hrs.Trab', key: 'totalHorasDia', width: 46, align: 'right' as const },
+    { header: 'HE Dob', key: 'horasExtraDobles', width: 42, align: 'right' as const },
+    { header: 'HE Trip', key: 'horasExtraTriples', width: 46, align: 'right' as const },
+    { header: 'Min.Noct', key: 'minutosNocturnos', width: 46, align: 'right' as const },
+    { header: 'Jornada', key: 'jornada', width: 52, align: 'left' as const },
+    { header: 'Geofence', key: 'fueraGeofence', width: 52, align: 'center' as const },
+    { header: 'Status', key: 'status', width: 56, align: 'center' as const },
+    { header: 'Desc.Trab', key: 'descansoSemanalTrabajado', width: 56, align: 'right' as const },
   ];
+  // Total: 62+42+42+48+46+42+46+46+52+52+56+56 = 650 → 30pt buffer para margen seguro
 
   drawTableHeader(doc, cols);
 
-  doc.font('Helvetica').fontSize(7);
-  const rowHeight = 14;
   let zebra = false;
   for (const f of d.filas) {
-    if (doc.y + rowHeight > PAGE_HEIGHT - MARGIN - 30) {
-      doc.addPage();
-      // Repetir encabezado de tabla en la nueva página
+    if (doc.y + ROW_HEIGHT > LS_H - MARGIN - 20) {
+      doc.addPage({ size: [LS_W, LS_H], margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN } });
       doc.fillColor(COLOR_MUTED)
         .font('Helvetica-Oblique')
         .fontSize(8)
-        .text(`(continuación) ${d.nombre} — N° ${d.numero}`, { align: 'left' });
+        .text(`(continuación) ${truncateText(doc, d.nombre, 400, 'Helvetica-Oblique', 8)} — N° ${d.numero}`, {
+          align: 'left',
+        });
       doc.moveDown(0.3);
       drawTableHeader(doc, cols);
-      doc.font('Helvetica').fontSize(7);
       zebra = false;
     }
-    const y = doc.y;
-    if (zebra) {
-      doc.rect(MARGIN, y, CONTENT_WIDTH, rowHeight).fill(COLOR_ZEBRA);
-    }
+    drawTableRow(doc, cols, f, zebra);
     zebra = !zebra;
-    let x = MARGIN;
-    for (const c of cols) {
-      const val = (f as any)[c.key];
-      const txt = val === null || val === undefined || val === '' ? '—' : String(val);
-      doc.fillColor(COLOR_TEXT)
-        .font('Helvetica')
-        .fontSize(7)
-        .text(txt, x + 2, y + 3, {
-          width: c.width - 4,
-          align: (c.align as 'left' | 'right' | 'center') || 'left',
-        });
-      x += c.width;
-    }
-    doc.y = y + rowHeight;
   }
-  drawSeparatorLine(doc);
+  drawSeparatorLine(doc, LS_CONTENT_W);
 }
 
 // ============================================================
 // Hoja vacía cuando no hay detalle diario
 // ============================================================
 function drawEmptyDetalle(doc: PDFKit.PDFDocument): void {
-  drawSectionTitle(doc, 'SECCIÓN 3 — DETALLE DIARIO POR TRABAJADOR');
+  drawSectionTitle(doc, 'SECCIÓN 3 — DETALLE DIARIO POR TRABAJADOR', LS_CONTENT_W);
   doc.fillColor(COLOR_MUTED)
     .font('Helvetica-Oblique')
     .fontSize(10)
@@ -347,51 +324,99 @@ function drawEmptyDetalle(doc: PDFKit.PDFDocument): void {
 // Utilidades de dibujo
 // ============================================================
 
-function drawSectionTitle(doc: PDFKit.PDFDocument, title: string): void {
+function drawSectionTitle(doc: PDFKit.PDFDocument, title: string, contentWidth: number): void {
   const y = doc.y;
-  // Fondo azul corporativo
-  doc.rect(MARGIN, y, CONTENT_WIDTH, 22).fill(COLOR_HEADER_BG);
+  doc.rect(MARGIN, y, contentWidth, 24).fill(COLOR_HEADER_BG as any);
   doc.fillColor('white')
     .font('Helvetica-Bold')
-    .fontSize(11)
-    .text(title, MARGIN + 8, y + 6, { width: CONTENT_WIDTH - 16 });
-  doc.y = y + 22;
+    .fontSize(FONT_SECTION_TITLE)
+    .text(title, MARGIN + 8, y + 6, { width: contentWidth - 16 });
+  doc.y = y + 24;
   doc.moveDown(0.4);
 }
 
 function drawTableHeader(
   doc: PDFKit.PDFDocument,
-  cols: { header: string; width: number; align?: string }[]
+  cols: { header: string; width: number; align?: 'left' | 'right' | 'center' }[]
 ): void {
   const y = doc.y;
-  doc.rect(MARGIN, y, CONTENT_WIDTH, 16).fill(COLOR_HEADER_BG);
+  // Fondo azul corporativo para todo el encabezado
+  doc.rect(MARGIN, y, cols.reduce((s, c) => s + c.width, 0), HEADER_HEIGHT).fill(COLOR_HEADER_BG as any);
+
   let x = MARGIN;
   for (const c of cols) {
+    const headerTxt = truncateText(doc, c.header, c.width - 6, 'Helvetica-Bold', FONT_HEADER);
     doc.fillColor('white')
       .font('Helvetica-Bold')
-      .fontSize(7)
-      .text(c.header, x + 2, y + 4, {
-        width: c.width - 4,
-        align: (c.align as 'left' | 'right' | 'center') || 'left',
+      .fontSize(FONT_HEADER)
+      .text(headerTxt, x + 3, y + 5, {
+        width: c.width - 6,
+        align: c.align || 'left',
       });
     x += c.width;
   }
-  doc.y = y + 16;
+  doc.y = y + HEADER_HEIGHT;
 }
 
-function drawSeparatorLine(doc: PDFKit.PDFDocument): void {
+function drawTableRow(
+  doc: PDFKit.PDFDocument,
+  cols: { header: string; width: number; align?: 'left' | 'right' | 'center' }[],
+  row: Record<string, any>,
+  zebra: boolean
+): void {
+  const y = doc.y;
+  const totalWidth = cols.reduce((s, c) => s + c.width, 0);
+
+  // Fondo zebra (gris muy claro) — se dibuja ANTES que el texto
+  if (zebra) {
+    doc.rect(MARGIN, y, totalWidth, ROW_HEIGHT).fill(COLOR_ZEBRA as any);
+  }
+
+  // Borde inferior de la fila (siempre visible para estructura)
+  doc.strokeColor(COLOR_GRID)
+    .lineWidth(0.3)
+    .moveTo(MARGIN, y + ROW_HEIGHT)
+    .lineTo(MARGIN + totalWidth, y + ROW_HEIGHT)
+    .stroke();
+
+  // Contenido de cada celda
+  let x = MARGIN;
+  for (const c of cols) {
+    const val = row[c.key];
+    const raw = val === null || val === undefined || val === '' ? '—' : String(val);
+    // TRUNCAR texto al ancho de columna para evitar wrapping y superposición
+    const txt = truncateText(doc, raw, c.width - 6, 'Helvetica', FONT_BODY);
+
+    doc.fillColor(COLOR_TEXT)
+      .font('Helvetica')
+      .fontSize(FONT_BODY)
+      .text(txt, x + 3, y + 5, {
+        width: c.width - 6,
+        align: c.align || 'left',
+        lineBreak: false, // CRÍTICO: nunca romper línea
+        ellipsis: false,
+      });
+    x += c.width;
+  }
+  doc.y = y + ROW_HEIGHT;
+}
+
+function drawSeparatorLine(doc: PDFKit.PDFDocument, contentWidth: number): void {
   const y = doc.y;
   doc.strokeColor(COLOR_BORDER)
-    .lineWidth(0.5)
+    .lineWidth(0.8)
     .moveTo(MARGIN, y)
-    .lineTo(MARGIN + CONTENT_WIDTH, y)
+    .lineTo(MARGIN + contentWidth, y)
     .stroke();
 }
 
-function drawFooter(doc: PDFKit.PDFDocument, reporte: StpsReport): void {
-  // Pie en la última página
+function drawFooter(
+  doc: PDFKit.PDFDocument,
+  reporte: StpsReport,
+  contentWidth: number
+): void {
   doc.moveDown(1);
-  drawSeparatorLine(doc);
+  drawSeparatorLine(doc, contentWidth);
   doc.moveDown(0.3);
   doc.fillColor(COLOR_MUTED)
     .font('Helvetica-Oblique')
@@ -399,6 +424,38 @@ function drawFooter(doc: PDFKit.PDFDocument, reporte: StpsReport): void {
     .text(
       `Documento generado por Control de Asistencia v2.2 — ${new Date(reporte.generadoEn).toLocaleString('es-MX')}. ` +
         `Este reporte cumple con el Art. 804 de la Ley Federal del Trabajo y conserva valor probatorio.`,
-      { align: 'center', width: CONTENT_WIDTH }
+      { align: 'center', width: contentWidth }
     );
+}
+
+// ============================================================
+// truncateText — mide el ancho real del texto con la fuente
+// actual y lo corta con ellipsis (…) si excede maxWidth.
+//
+// Esto es CRÍTICO para que nombres/puestos largos no se envuelvan
+// a múltiples líneas y rompan la alineación de la tabla.
+// ============================================================
+function truncateText(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  maxWidth: number,
+  font: string = 'Helvetica',
+  fontSize: number = FONT_BODY
+): string {
+  if (!text) return '';
+  doc.font(font).fontSize(fontSize);
+  const ellipsis = '…';
+  const ellipsisWidth = doc.widthOfString(ellipsis);
+
+  // Si el texto cabe completo, devolverlo tal cual.
+  if (doc.widthOfString(text) <= maxWidth) {
+    return text;
+  }
+
+  // Truncar caracter por caracter hasta que quepa + elipsis.
+  let truncated = text;
+  while (truncated.length > 0 && doc.widthOfString(truncated) + ellipsisWidth > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated.length > 0 ? truncated + ellipsis : ellipsis;
 }
