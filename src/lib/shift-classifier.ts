@@ -19,10 +19,24 @@
 //
 // Prima nocturna (art. 61 + jurisprudencia): los trabajadores de
 // jornada NOCTURNA o MIXTA tienen derecho a una prima adicional del
-// 25% sobre el salario de las horas diurnas. El monto exacto lo
-// calcula nómina; aquí solo dejamos registrado `nightMinutes` para
-// que nómina pueda aplicarla después.
+// 25% sobre el salario de las horas diurnas.
+//
+// ⚠️ FIX CRÍTICO DE ZONA HORARIA (bug jornada nocturna falsa):
+// La versión anterior usaba `new Date().setHours(20, 0, 0, 0)`,
+// que interpreta la hora en la TZ DEL SERVIDOR. En Vercel/sandbox
+// el servidor corre en UTC, por lo que "20:00" se interpretaba
+// como 20:00 UTC = 14:00/15:00 hora de México. Esto hacía que
+// una jornada de 09:00-17:00 CDT se calculara con minutos
+// nocturnos falsos (las horas entre 20:00 UTC y el checkout
+// en UTC), marcándola erróneamente como NOCTURNA.
+//
+// Ahora usamos Luxon con zone='America/Mexico_City' para que
+// las ventanas nocturnas [20:00-06:00] se interpreten SIEMPRE
+// en hora local de México, sin importar la TZ del servidor.
 // ============================================================
+
+import { DateTime } from 'luxon';
+import { MEXICO_TZ } from './timezone';
 
 /** Tipos de jornada según art. 60 LFT. */
 export type ShiftType = 'DIURNA' | 'NOCTURNA' | 'MIXTA';
@@ -30,55 +44,61 @@ export type ShiftType = 'DIURNA' | 'NOCTURNA' | 'MIXTA';
 /** Umbral legal: 3.5 horas = 210 minutos. Si nightMinutes ≥ 210 → NOCTURNA. */
 export const NIGHT_SHIFT_THRESHOLD_MINUTES = 210;
 
-/** Inicio del horario nocturno (hora del día, 0-23). */
+/** Inicio del horario nocturno (hora del día, 0-23) en hora de México. */
 const NIGHT_START_HOUR = 20;
-/** Fin del horario nocturno (hora del día, 0-23). */
+/** Fin del horario nocturno (hora del día, 0-23) en hora de México. */
 const NIGHT_END_HOUR = 6;
 
 /**
  * Calcula cuántos minutos del intervalo [checkIn, checkOut] caen
- * dentro del horario nocturno (20:00-06:00 cada día).
+ * dentro del horario nocturno (20:00-06:00 cada día, HORA DE MÉXICO).
  *
- * Recorre cada día calendario que toca el intervalo y suma el
- * solapamiento con la ventana nocturna de ese día. Funciona
- * correctamente para turnos que cruzan medianoche y para
- * intervalos de varios días.
+ * Recorre cada día calendario (en hora de México) que toca el
+ * intervalo y suma el solapamiento con la ventana nocturna de ese
+ * día. Funciona correctamente para turnos que cruzan medianoche y
+ * para intervalos de varios días.
  *
- * @param checkIn  - Fecha/hora de entrada del empleado.
- * @param checkOut - Fecha/hora de salida del empleado.
+ * Es TIMEZONE-AWARE: convierte los Date (UTC internamente) a
+ * America/Mexico_City antes de calcular las ventanas nocturnas,
+ * así el resultado es correcto sin importar la TZ del servidor.
+ *
+ * @param checkIn  - Fecha/hora de entrada del empleado (Date UTC).
+ * @param checkOut - Fecha/hora de salida del empleado (Date UTC).
  * @returns Minutos totales en horario nocturno (≥ 0).
  */
 export function nightMinutesBetween(checkIn: Date, checkOut: Date): number {
   if (checkOut <= checkIn) return 0;
 
+  // Convertir los Date (UTC) a DateTime de Luxon en zona Mexico City.
+  // Esto es CRÍTICO: todas las comparaciones y cálculos de ventanas
+  // nocturnas se hacen en hora local de México.
+  const startMexico = DateTime.fromJSDate(checkIn).setZone(MEXICO_TZ);
+  const endMexico = DateTime.fromJSDate(checkOut).setZone(MEXICO_TZ);
+
+  if (!startMexico.isValid || !endMexico.isValid) return 0;
+
+  // Iterar por cada día calendario (en hora México) que toca el intervalo.
+  // Para cada día, la ventana nocturna es [20:00 de ese día, 06:00 del día siguiente]
+  // — todo en hora de México.
+  let dayCursor = startMexico.startOf('day'); // medianoche hora México
+
   let totalNightMinutes = 0;
 
-  // Iterar por cada día calendario que toca el intervalo.
-  // Para cada día, la ventana nocturna es [20:00 de ese día, 06:00 del día siguiente].
-  const dayCursor = new Date(checkIn);
-  dayCursor.setHours(0, 0, 0, 0); // inicio del día del check-in
-
   // Safety limit: máximo 7 días de iteración (turnos >7 días no son legales).
-  for (let i = 0; i < 7 && dayCursor <= checkOut; i++) {
-    const nightStart = new Date(dayCursor);
-    nightStart.setHours(NIGHT_START_HOUR, 0, 0, 0); // 20:00 hoy
+  for (let i = 0; i < 7 && dayCursor <= endMexico; i++) {
+    const nightStart = dayCursor.set({ hour: NIGHT_START_HOUR, minute: 0, second: 0, millisecond: 0 });
+    const nightEnd = dayCursor.plus({ days: 1 }).set({ hour: NIGHT_END_HOUR, minute: 0, second: 0, millisecond: 0 });
 
-    const nightEnd = new Date(dayCursor);
-    nightEnd.setDate(nightEnd.getDate() + 1);
-    nightEnd.setHours(NIGHT_END_HOUR, 0, 0, 0); // 06:00 mañana
-
-    // Solapamiento de [checkIn, checkOut] con [nightStart, nightEnd]
-    const overlapStart = checkIn > nightStart ? checkIn : nightStart;
-    const overlapEnd = checkOut < nightEnd ? checkOut : nightEnd;
+    // Solapamiento de [startMexico, endMexico] con [nightStart, nightEnd]
+    const overlapStart = startMexico > nightStart ? startMexico : nightStart;
+    const overlapEnd = endMexico < nightEnd ? endMexico : nightEnd;
 
     if (overlapEnd > overlapStart) {
-      totalNightMinutes += Math.round(
-        (overlapEnd.getTime() - overlapStart.getTime()) / 60_000
-      );
+      // Diferencia en minutos (Luxon maneja DST correctamente)
+      totalNightMinutes += Math.round(overlapEnd.diff(overlapStart, 'minutes').minutes);
     }
 
-    // Avanzar al siguiente día.
-    dayCursor.setDate(dayCursor.getDate() + 1);
+    dayCursor = dayCursor.plus({ days: 1 });
   }
 
   return totalNightMinutes;
@@ -92,9 +112,9 @@ export function nightMinutesBetween(checkIn: Date, checkOut: Date): number {
  *   - nightMinutes >= 210 (3.5h)          → NOCTURNA (aunque tenga parte diurna)
  *   - 0 < nightMinutes < 210              → MIXTA
  *
- * @param checkIn  - Fecha/hora de entrada.
- * @param checkOut - Fecha/hora de salida.
- * @returns Objeto con `shiftType` y `nightMinutes`.
+ * @param checkIn  - Fecha/hora de entrada (Date UTC).
+ * @param checkOut - Fecha/hora de salida (Date UTC).
+ * @returns Objeto con `shiftType` y `nightMinutes` (calculado en hora de México).
  */
 export function classifyShift(
   checkIn: Date,

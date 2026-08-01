@@ -6127,6 +6127,52 @@ function SettingsView() {
     }
   };
 
+  // --- Recálculo de shiftType/nightMinutes (bug TZ jornada nocturna falsa) ---
+  const [recalcShiftLoading, setRecalcShiftLoading] = useState(false);
+  const [recalcShiftDryRunLoading, setRecalcShiftDryRunLoading] = useState(false);
+  const [recalcShiftResult, setRecalcShiftResult] = useState<{
+    scanned: number;
+    changed: number;
+    dryRun: boolean;
+    details: Array<{
+      employeeName: string;
+      employeeNumber: string;
+      date: string;
+      checkIn: string;
+      checkOut: string;
+      oldShiftType: string;
+      newShiftType: string;
+      oldNightMin: number;
+      newNightMin: number;
+    }>;
+  } | null>(null);
+
+  const runRecalcShift = async (dryRun: boolean) => {
+    if (dryRun) {
+      setRecalcShiftDryRunLoading(true);
+    } else {
+      setRecalcShiftLoading(true);
+    }
+    try {
+      const data = await apiSend<{ scanned: number; changed: number; dryRun: boolean; details: any[] }>(
+        '/api/admin/recalc-shift',
+        'POST',
+        { dryRun }
+      );
+      setRecalcShiftResult(data);
+      if (dryRun) {
+        toast.info(`Simulación: ${data.scanned} registros revisados, ${data.changed} cambiarían de jornada.`);
+      } else {
+        toast.success(`Recálculo completado: ${data.changed} registros corregidos de ${data.scanned} revisados.`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al recalcular jornada');
+    } finally {
+      setRecalcShiftDryRunLoading(false);
+      setRecalcShiftLoading(false);
+    }
+  };
+
   // Cargar estado de MFA al montar
   const refreshMfaStatus = useCallback(async () => {
     setLoadingStatus(true);
@@ -6526,6 +6572,157 @@ function SettingsView() {
           </CardContent>
         </Card>
       )}
+
+      {/* ============================================================ */}
+      {/* CARD: Recálculo de jornada nocturna (bug TZ) */}
+      {/* ============================================================ */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Moon className="h-5 w-5 text-indigo-600" />
+                Corrección de jornada nocturna
+              </CardTitle>
+              <CardDescription className="max-w-2xl">
+                Corrige registros marcados erróneamente como NOCTURNA o MIXTA
+                debido al bug de zona horaria en el cálculo de minutos nocturnos.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="space-y-1.5 text-sm">
+                <p className="font-medium text-amber-900">
+                  Bug corregido: jornada nocturna falsa por zona horaria
+                </p>
+                <p className="text-amber-800">
+                  Antes de este fix, el cálculo de minutos nocturnos usaba
+                  <code className="mx-1 px-1 py-0.5 bg-amber-100 rounded text-xs">setHours(20,0,0,0)</code>
+                  que interpreta la hora en la zona del servidor (UTC en Vercel).
+                  Esto hacía que una jornada diurna de 09:00-17:00 hora México
+                  se marcara como <strong>NOCTURNA con 214 min nocturnos falsos</strong>
+                  (las horas entre 20:00 UTC y el checkout en UTC).
+                </p>
+                <p className="text-amber-800">
+                  Ahora el cálculo usa <strong>Luxon con zone=America/Mexico_City</strong>,
+                  así las ventanas nocturnas [20:00-06:00] se interpretan siempre en
+                  hora local de México, sin importar la TZ del servidor.
+                </p>
+                <p className="text-amber-800">
+                  Usa primero <strong>&laquo;Simular&raquo;</strong> para ver cuántos
+                  registros se corregirán, y luego <strong>&laquo;Recalcular&raquo;</strong>
+                  para aplicar los cambios. Solo se revisan registros con entrada y
+                  salida de los últimos 90 días.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => runRecalcShift(true)}
+              disabled={recalcShiftDryRunLoading || recalcShiftLoading}
+            >
+              {recalcShiftDryRunLoading ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Simulando...</>
+              ) : (
+                <><RefreshCw className="h-4 w-4 mr-1" /> Simular recálculo</>
+              )}
+            </Button>
+            <Button
+              onClick={() => runRecalcShift(false)}
+              disabled={recalcShiftDryRunLoading || recalcShiftLoading}
+            >
+              {recalcShiftLoading ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Recalculando...</>
+              ) : (
+                <><RefreshCw className="h-4 w-4 mr-1" /> Recalcular ahora</>
+              )}
+            </Button>
+          </div>
+
+          {recalcShiftResult && (
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm font-medium text-zinc-900">
+                  {recalcShiftResult.dryRun ? 'Resultado de la simulación' : 'Recálculo aplicado'}
+                </p>
+                <div className="flex gap-4 text-sm">
+                  <span className="text-zinc-600">
+                    Revisados: <strong className="text-zinc-900">{recalcShiftResult.scanned}</strong>
+                  </span>
+                  <span className="text-zinc-600">
+                    {recalcShiftResult.dryRun ? 'Cambiarían' : 'Corregidos'}:{" "}
+                    <strong className={recalcShiftResult.changed > 0 ? 'text-emerald-700' : 'text-zinc-900'}>
+                      {recalcShiftResult.changed}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              {recalcShiftResult.details.length > 0 && (
+                <div className="max-h-96 overflow-y-auto rounded-md border border-zinc-200 bg-white">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[90px]">N°</TableHead>
+                        <TableHead>Empleado</TableHead>
+                        <TableHead className="w-[100px]">Fecha</TableHead>
+                        <TableHead className="w-[60px]">Entrada</TableHead>
+                        <TableHead className="w-[60px]">Salida</TableHead>
+                        <TableHead className="w-[110px]">Jornada ant.</TableHead>
+                        <TableHead className="w-[110px]">Jornada nueva</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recalcShiftResult.details.slice(0, 100).map((d, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="font-mono text-xs">{d.employeeNumber}</TableCell>
+                          <TableCell className="text-xs">{d.employeeName}</TableCell>
+                          <TableCell className="font-mono text-xs">{d.date}</TableCell>
+                          <TableCell className="font-mono text-xs">{d.checkIn}</TableCell>
+                          <TableCell className="font-mono text-xs">{d.checkOut}</TableCell>
+                          <TableCell className="text-xs">
+                            <span className={d.oldShiftType === 'NOCTURNA' ? 'text-rose-600 font-medium' : ''}>
+                              {d.oldShiftType}
+                            </span>
+                            {' '}
+                            <span className="text-zinc-500">({d.oldNightMin}m)</span>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <span className={d.newShiftType === 'DIURNA' ? 'text-emerald-600 font-medium' : d.newShiftType === 'NOCTURNA' ? 'text-rose-600 font-medium' : 'text-amber-600 font-medium'}>
+                              {d.newShiftType}
+                            </span>
+                            {' '}
+                            <span className="text-zinc-500">({d.newNightMin}m)</span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {recalcShiftResult.details.length > 100 && (
+                <p className="text-xs text-zinc-500">
+                  Mostrando 100 de {recalcShiftResult.details.length} cambios. Los demás se aplicaron correctamente.
+                </p>
+              )}
+
+              {recalcShiftResult.changed === 0 && (
+                <p className="text-sm text-zinc-600">
+                  No hay registros que corregir en el período revisado. Todo está en orden.
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ============================================================ */}
       {/* DIALOG: Activación MFA (3 pasos) */}
