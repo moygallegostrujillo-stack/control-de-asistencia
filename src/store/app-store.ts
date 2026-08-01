@@ -11,6 +11,7 @@ export type AdminView =
   | 'users'
   | 'vacations'
   | 'history'
+  | 'calendar'
   | 'reports'
   | 'audit'
   | 'qr-terminal'

@@ -9,6 +9,7 @@ import { useDynamicQR } from '@/hooks/queries/use-dynamic-qr';
 import { FreshnessIndicator } from '@/components/shared/freshness-indicator';
 import { PollingToast } from '@/components/shared/polling-toast';
 import { NotificationBell } from '@/components/admin/notification-bell';
+import { SupervisorAlertsBell } from '@/components/admin/supervisor-alerts-bell';
 import { UserManual } from '@/components/manual/user-manual';
 import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
 import type { AuthUser } from '@/lib/auth';
@@ -530,6 +531,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'users', label: 'Usuarios y Roles', icon: ShieldCheck, roles: ['GENERAL_ADMIN'] },
   { id: 'vacations', label: 'Vacaciones y Permisos', icon: CalendarCheck, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'history', label: 'Historial', icon: HistoryIcon, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
+  { id: 'calendar', label: 'Calendario', icon: CalendarDays, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'reports', label: 'Reportes', icon: FileBarChart, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'nom-035', label: 'Alertas NOM-035', icon: ShieldAlert, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
@@ -550,6 +552,7 @@ const VIEW_TITLES: Record<AdminView, string> = {
   users: 'Usuarios y Roles',
   vacations: 'Vacaciones y Permisos',
   history: 'Historial de Asistencia',
+  calendar: 'Calendario de Asistencia',
   reports: 'Reportes',
   audit: 'Auditoría',
   'qr-terminal': 'Terminal QR',
@@ -722,6 +725,67 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
     const d = new Date(selectedDate + 'T06:00:00.000Z');
     return `Asistencia del ${formatDateInMexico(d)}`;
   }, [selectedDate]);
+
+  // --- Exportar día a CSV ---
+  function exportDayCSV() {
+    const rows: string[][] = [];
+    // Header
+    const headers = isGA
+      ? ['Empleado', '# Empleado', 'Sucursal', 'Departamento', 'Entrada', 'Inicio descanso', 'Fin descanso', 'Salida', 'Estado', 'Método', 'Ubicación']
+      : ['Empleado', '# Empleado', 'Departamento', 'Entrada', 'Inicio descanso', 'Fin descanso', 'Salida', 'Estado', 'Método', 'Ubicación'];
+    rows.push(headers);
+
+    // Registros filtrados
+    for (const r of filteredRecords) {
+      const name = r.employee?.user?.name || r.employeeName || '—';
+      const empNum = r.employee?.employeeNumber || r.employeeNumber || '';
+      const sucName = r.employee?.sucursal?.name || r.sucursalName || '—';
+      const sucCode = r.employee?.sucursal?.codigoLocal ?? '';
+      const sucStr = sucCode ? `Local ${sucCode} — ${sucName}` : sucName;
+      const dept = r.employee?.department || r.department || '—';
+      const restStart = r.mealStart || r.restStart || '';
+      const restEnd = r.mealEnd || r.restEnd || '';
+      const method = r.checkInMethod || r.checkOutMethod || '—';
+      const hasLocation = !!(r.checkInLat && r.checkInLong);
+      const locStr = hasLocation ? 'Validada' : 'Sin geo';
+      const row = isGA
+        ? [name, empNum, sucStr, dept, formatTimeInMexico(r.checkInTime) || '—', formatTimeInMexico(restStart) || '—', formatTimeInMexico(restEnd) || '—', formatTimeInMexico(r.checkOutTime) || '—', r.status || '—', method, locStr]
+        : [name, empNum, dept, formatTimeInMexico(r.checkInTime) || '—', formatTimeInMexico(restStart) || '—', formatTimeInMexico(restEnd) || '—', formatTimeInMexico(r.checkOutTime) || '—', r.status || '—', method, locStr];
+      rows.push(row);
+    }
+
+    // Ausentes filtrados
+    for (const a of filteredAbsents) {
+      const row = isGA
+        ? [a.name || '—', a.employeeNumber || '', a.sucursalName || '—', '—', '—', '—', '—', '—', 'ABSENT', '—', '—']
+        : [a.name || '—', a.employeeNumber || '', '—', '—', '—', '—', '—', 'ABSENT', '—', '—'];
+      rows.push(row);
+    }
+
+    // Convertir a CSV ( escapar comas y comillas )
+    const csv = rows.map((row) =>
+      row.map((cell) => {
+        const s = String(cell ?? '');
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      }).join(',')
+    ).join('\n');
+
+    // BOM para que Excel reconozca UTF-8
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStr = selectedDate || new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `asistencia_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('CSV exportado', { description: `${filteredRecords.length + filteredAbsents.length} registro(s) exportados.` });
+  }
 
   function handleOpenCorrection(record: any) {
     setCorrectionRecord(record);
@@ -978,7 +1042,7 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
         {!isLoading && !isError && (
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <div>
                   <CardTitle className="text-base">{dateLabel}</CardTitle>
                   <CardDescription>
@@ -988,6 +1052,17 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                     {selectedDate && ' · fecha histórica'}
                   </CardDescription>
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={exportDayCSV}
+                  disabled={filteredRecords.length === 0 && filteredAbsents.length === 0}
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Exportar CSV</span>
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -3360,6 +3435,436 @@ function RejectDialog({ vacation, onClose, onReject }: { vacation: VacationRow; 
   );
 }
 
+
+// ============================================================
+// CALENDAR VIEW — calendario mensual por empleado
+// ============================================================
+
+interface CalendarDay {
+  date: string;
+  day: number;
+  dayOfWeek: number;
+  isWeekend: boolean;
+  isFuture: boolean;
+  isHoliday: boolean;
+  holidayName: string | null;
+  vacationType: string | null;
+  type: 'PRESENT' | 'LATE' | 'ABSENT' | 'EARLY_LEAVE' | 'HOLIDAY' | 'VACATION' | 'WEEKEND' | 'NO_DATA';
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  status: string | null;
+  workedMinutes: number | null;
+  overtimeMinutes: number | null;
+  mealExceeded: boolean;
+  restExceeded: boolean;
+}
+
+interface CalendarResponse {
+  employee: {
+    id: string;
+    name: string;
+    email: string;
+    employeeNumber: string;
+    position: string;
+    department: string;
+    sucursal: { id: string; name: string; codigoLocal: string | null } | null;
+  };
+  month: string;
+  days: CalendarDay[];
+  stats: {
+    totalDays: number;
+    present: number;
+    late: number;
+    absent: number;
+    earlyLeave: number;
+    holidays: number;
+    vacations: number;
+    weekends: number;
+    totalWorkedMinutes: number;
+    totalOvertimeMinutes: number;
+  };
+}
+
+const DAY_TYPE_COLORS: Record<string, string> = {
+  PRESENT: 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200',
+  LATE: 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200',
+  ABSENT: 'bg-rose-100 text-rose-800 border-rose-200 hover:bg-rose-200',
+  EARLY_LEAVE: 'bg-violet-100 text-violet-800 border-violet-200 hover:bg-violet-200',
+  HOLIDAY: 'bg-sky-100 text-sky-800 border-sky-200 hover:bg-sky-200',
+  VACATION: 'bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-200',
+  WEEKEND: 'bg-zinc-50 text-zinc-400 border-zinc-100',
+  NO_DATA: 'bg-white text-zinc-300 border-zinc-100',
+};
+
+const DAY_TYPE_LABEL: Record<string, string> = {
+  PRESENT: 'Puntual',
+  LATE: 'Retardo',
+  ABSENT: 'Ausente',
+  EARLY_LEAVE: 'Salida temprano',
+  HOLIDAY: 'Feriado',
+  VACATION: 'Vacación',
+  WEEKEND: 'Fin de semana',
+  NO_DATA: 'Sin datos',
+};
+
+const WEEKDAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const MONTH_LABELS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: string | null }) {
+  const isGA = role === 'GENERAL_ADMIN';
+  const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
+  const [selectedSucursalId, setSelectedSucursalId] = useState<string>('all');
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [calendarData, setCalendarData] = useState<CalendarResponse | null>(null);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
+
+  // Cargar sucursales (GA only)
+  useEffect(() => {
+    if (!isGA) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const data = await apiGet<{ sucursales: SucursalRow[] }>('/api/sucursales');
+        if (mounted) setSucursales(data.sucursales);
+      } catch {}
+    })();
+    return () => { mounted = false; };
+  }, [isGA]);
+
+  // Cargar empleados según sucursal seleccionada
+  useEffect(() => {
+    let mounted = true;
+    setLoadingEmployees(true);
+    const effectiveSucursal = isGA
+      ? (selectedSucursalId === 'all' ? null : selectedSucursalId)
+      : userSucursalId;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (effectiveSucursal) params.set('sucursalId', effectiveSucursal);
+        const data = await apiGet<{ employees: any[] }>(`/api/employees?${params.toString()}`);
+        if (mounted) {
+          setEmployees(data.employees || []);
+          // Auto-seleccionar el primero si hay
+          if (data.employees.length > 0 && !selectedEmployeeId) {
+            setSelectedEmployeeId(data.employees[0].id);
+          }
+        }
+      } catch {
+        if (mounted) setEmployees([]);
+      } finally {
+        if (mounted) setLoadingEmployees(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [isGA, selectedSucursalId, userSucursalId]);
+
+  // Cargar calendario cuando cambia empleado o mes
+  useEffect(() => {
+    if (!selectedEmployeeId) {
+      setCalendarData(null);
+      return;
+    }
+    let mounted = true;
+    setLoadingCalendar(true);
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set('employeeId', selectedEmployeeId);
+        params.set('month', selectedMonth);
+        const res = await authFetch(`/api/attendance/monthly-calendar?${params.toString()}`);
+        if (!res.ok) throw new Error('Error al cargar calendario');
+        const data = await res.json();
+        if (mounted) setCalendarData(data);
+      } catch (e) {
+        if (mounted) {
+          setCalendarData(null);
+          toast.error('Error al cargar calendario', { description: (e as Error).message });
+        }
+      } finally {
+        if (mounted) setLoadingCalendar(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [selectedEmployeeId, selectedMonth]);
+
+  // Construir grid del calendario (semanas empezando en domingo)
+  const calendarGrid = useMemo(() => {
+    if (!calendarData) return [];
+    const days = calendarData.days;
+    // El primer día de la semana (domingo=0) del primer día del mes
+    const firstDay = days[0];
+    const leadingBlanks = firstDay ? firstDay.dayOfWeek : 0;
+    const grid: (CalendarDay | null)[] = [];
+    // Blanks iniciales
+    for (let i = 0; i < leadingBlanks; i++) grid.push(null);
+    // Días del mes
+    for (const d of days) grid.push(d);
+    // Blanks finales para completar la última semana
+    while (grid.length % 7 !== 0) grid.push(null);
+    // Dividir en semanas
+    const weeks: (CalendarDay | null)[][] = [];
+    for (let i = 0; i < grid.length; i += 7) {
+      weeks.push(grid.slice(i, i + 7));
+    }
+    return weeks;
+  }, [calendarData]);
+
+  function navigateMonth(delta: number) {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+
+  const monthLabel = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    return `${MONTH_LABELS[m - 1]} ${y}`;
+  }, [selectedMonth]);
+
+  return (
+    <div className="space-y-4">
+      {/* Controles: sucursal + empleado + mes */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-zinc-600" />
+            Calendario de Asistencia
+          </CardTitle>
+          <CardDescription>Vista mensual por empleado</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
+            {/* Sucursal (GA only) */}
+            {isGA && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Sucursal</Label>
+                <Select value={selectedSucursalId} onValueChange={(v) => { setSelectedSucursalId(v); setSelectedEmployeeId(''); }}>
+                  <SelectTrigger className="w-48"><SelectValue placeholder="Todas" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las sucursales</SelectItem>
+                    {sucursales.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{sucursalLabel(s.name, s.codigoLocal)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Empleado */}
+            <div className="space-y-1.5 flex-1 lg:max-w-xs">
+              <Label className="text-xs text-muted-foreground">Empleado</Label>
+              <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId} disabled={loadingEmployees || employees.length === 0}>
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingEmployees ? 'Cargando…' : 'Selecciona empleado'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.user?.name || '—'} #{e.employeeNumber}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Navegación de mes */}
+            <div className="flex items-center gap-1.5 lg:ml-auto">
+              <Button variant="outline" size="icon" onClick={() => navigateMonth(-1)} title="Mes anterior">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="px-3 py-1.5 text-sm font-medium min-w-[140px] text-center">{monthLabel}</div>
+              <Button variant="outline" size="icon" onClick={() => navigateMonth(1)} title="Mes siguiente">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Calendario + stats */}
+      {!selectedEmployeeId ? (
+        <EmptyState icon={CalendarDays} title="Selecciona un empleado" subtitle="Elige un empleado para ver su calendario mensual." />
+      ) : loadingCalendar ? (
+        <LoadingState rows={6} />
+      ) : calendarData ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Calendario */}
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">
+                {calendarData.employee.name} <span className="text-sm font-normal text-muted-foreground">#{calendarData.employee.employeeNumber}</span>
+              </CardTitle>
+              <CardDescription>
+                {calendarData.employee.position} · {calendarData.employee.department}
+                {calendarData.employee.sucursal && ` · ${sucursalLabel(calendarData.employee.sucursal.name, calendarData.employee.sucursal.codigoLocal)}`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Headers de días de la semana */}
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {WEEKDAY_LABELS.map((d) => (
+                  <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>
+                ))}
+              </div>
+              {/* Grid de días */}
+              <div className="space-y-1">
+                {calendarGrid.map((week, wi) => (
+                  <div key={wi} className="grid grid-cols-7 gap-1">
+                    {week.map((day, di) => {
+                      if (!day) return <div key={di} className="aspect-square" />;
+                      const colorCls = DAY_TYPE_COLORS[day.type] || DAY_TYPE_COLORS.NO_DATA;
+                      return (
+                        <button
+                          key={di}
+                          type="button"
+                          onClick={() => setSelectedDay(day)}
+                          className={cn(
+                            'aspect-square rounded-md border text-xs font-medium transition-colors flex flex-col items-center justify-center p-1',
+                            colorCls,
+                            day.isFuture && 'opacity-50'
+                          )}
+                          title={`${day.date} · ${DAY_TYPE_LABEL[day.type]}${day.holidayName ? ' · ' + day.holidayName : ''}`}
+                        >
+                          <span className="text-sm">{day.day}</span>
+                          {day.checkInTime && (
+                            <span className="text-[10px] tabular-nums opacity-75">{formatTimeInMexico(day.checkInTime)}</span>
+                          )}
+                          {day.holidayName && (
+                            <span className="text-[9px] leading-tight opacity-75 truncate w-full text-center">★</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+
+              {/* Leyenda */}
+              <div className="mt-4 flex flex-wrap gap-2 pt-3 border-t">
+                {(['PRESENT', 'LATE', 'ABSENT', 'EARLY_LEAVE', 'HOLIDAY', 'VACATION', 'WEEKEND'] as const).map((t) => (
+                  <div key={t} className="flex items-center gap-1.5">
+                    <div className={cn('h-3 w-3 rounded border', DAY_TYPE_COLORS[t])} />
+                    <span className="text-xs text-muted-foreground">{DAY_TYPE_LABEL[t]}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Stats + detalle del día */}
+          <div className="space-y-4">
+            {/* Stats del mes */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Resumen del mes</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <StatBox label="Puntual" value={calendarData.stats.present} tone="emerald" />
+                  <StatBox label="Retardos" value={calendarData.stats.late} tone="amber" />
+                  <StatBox label="Ausencias" value={calendarData.stats.absent} tone="rose" />
+                  <StatBox label="Salida temprano" value={calendarData.stats.earlyLeave} tone="violet" />
+                  <StatBox label="Feriados" value={calendarData.stats.holidays} tone="sky" />
+                  <StatBox label="Vacaciones" value={calendarData.stats.vacations} tone="indigo" />
+                </div>
+                <div className="pt-2 border-t space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Horas trabajadas</span>
+                    <span className="font-medium">{formatMinutes(calendarData.stats.totalWorkedMinutes)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Horas extra</span>
+                    <span className="font-medium">{formatMinutes(calendarData.stats.totalOvertimeMinutes)}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Detalle del día seleccionado */}
+            {selectedDay && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    {formatDateInMexico(selectedDay.date + 'T06:00:00.000Z')}
+                  </CardTitle>
+                  <CardDescription>{DAY_TYPE_LABEL[selectedDay.type]}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  {selectedDay.checkInTime && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Entrada</span>
+                      <span className="font-medium">{formatTimeInMexico(selectedDay.checkInTime)}</span>
+                    </div>
+                  )}
+                  {selectedDay.checkOutTime && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Salida</span>
+                      <span className="font-medium">{formatTimeInMexico(selectedDay.checkOutTime)}</span>
+                    </div>
+                  )}
+                  {selectedDay.workedMinutes != null && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Trabajado</span>
+                      <span className="font-medium">{formatMinutes(selectedDay.workedMinutes)}</span>
+                    </div>
+                  )}
+                  {selectedDay.overtimeMinutes != null && selectedDay.overtimeMinutes > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Horas extra</span>
+                      <span className="font-medium text-amber-600">{formatMinutes(selectedDay.overtimeMinutes)}</span>
+                    </div>
+                  )}
+                  {selectedDay.holidayName && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Feriado</span>
+                      <span className="font-medium text-sky-600">{selectedDay.holidayName}</span>
+                    </div>
+                  )}
+                  {selectedDay.vacationType && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Vacación</span>
+                      <span className="font-medium text-indigo-600">{selectedDay.vacationType}</span>
+                    </div>
+                  )}
+                  {(selectedDay.mealExceeded || selectedDay.restExceeded) && (
+                    <div className="flex items-center gap-1.5 text-rose-600 text-xs pt-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      Excedió tiempo de descanso
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StatBox({ label, value, tone }: { label: string; value: number; tone: 'emerald' | 'amber' | 'rose' | 'violet' | 'sky' | 'indigo' }) {
+  const toneCls: Record<string, string> = {
+    emerald: 'bg-emerald-50 text-emerald-700',
+    amber: 'bg-amber-50 text-amber-700',
+    rose: 'bg-rose-50 text-rose-700',
+    violet: 'bg-violet-50 text-violet-700',
+    sky: 'bg-sky-50 text-sky-700',
+    indigo: 'bg-indigo-50 text-indigo-700',
+  };
+  return (
+    <div className={cn('rounded-lg p-2.5 text-center', toneCls[tone])}>
+      <p className="text-xl font-bold leading-none">{value}</p>
+      <p className="text-[10px] font-medium mt-1 opacity-80">{label}</p>
+    </div>
+  );
+}
 
 // ============================================================
 // HISTORY VIEW
@@ -6404,6 +6909,8 @@ export function AdminLayout() {
         return <VacationsView />;
       case 'history':
         return <HistoryView role={role} />;
+      case 'calendar':
+        return <CalendarView role={role} userSucursalId={user?.sucursalId || null} />;
       case 'reports':
         return <ReportsView role={role} />;
       case 'audit':
@@ -6443,6 +6950,7 @@ export function AdminLayout() {
             </p>
           </div>
           <NotificationBell onViewAll={() => setAdminView('nom-035')} />
+          <SupervisorAlertsBell />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 px-2">
