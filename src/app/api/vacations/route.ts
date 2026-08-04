@@ -33,7 +33,7 @@ import {
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { emitVacationRequested } from '@/lib/realtime';
-import { toISODate } from '@/lib/timezone';
+import { toISODate, buildDateTimeInMexico } from '@/lib/timezone';
 
 const VALID_TYPES = new Set([
   'VACACIONES',
@@ -99,12 +99,20 @@ export async function GET(req: NextRequest) {
 
     const dateRange: Record<string, Date> = {};
     if (startDate) {
-      const d = new Date(startDate);
-      if (!isNaN(d.getTime())) dateRange.gte = d;
+      // Interpretar como medianoche en hora de México (no UTC).
+      try {
+        dateRange.gte = buildDateTimeInMexico(startDate, '00:00');
+      } catch {
+        // fecha inválida → ignorar filtro
+      }
     }
     if (endDate) {
-      const d = new Date(endDate);
-      if (!isNaN(d.getTime())) dateRange.lte = d;
+      // Para el fin de rango, usar 23:59:59 hora México para incluir todo el día.
+      try {
+        dateRange.lte = buildDateTimeInMexico(endDate, '23:59');
+      } catch {
+        // fecha inválida → ignorar filtro
+      }
     }
     if (Object.keys(dateRange).length > 0) {
       // Filtro por startDate dentro del rango solicitado.
@@ -193,9 +201,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    // -----------------------------------------------------
+    // Parseo de fechas — CRÍTICO: interpretar como hora de México.
+    // new Date("2026-08-03") se interpreta como UTC midnight, lo que
+    // en hora de México (UTC-6) es el día anterior (2026-08-02T18:00).
+    // Usamos buildDateTimeInMexico() para que "2026-08-03" se interprete
+    // como medianoche en hora de México → 2026-08-03T06:00:00Z.
+    // -----------------------------------------------------
+    let start: Date;
+    let end: Date;
+    try {
+      start = buildDateTimeInMexico(startDate, '00:00');
+      end = buildDateTimeInMexico(endDate, '00:00');
+    } catch {
       return NextResponse.json(
         { error: 'Formato de fecha inválido (usar YYYY-MM-DD)' },
         { status: 400 }
@@ -275,17 +293,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Parsear horas parciales (opcional).
+    // Parsear horas parciales (opcional) — interpretar como hora de México.
     let parsedStart: Date | null = null;
     let parsedEnd: Date | null = null;
     if (isPartialFlag && startTime) {
-      parsedStart = new Date(`${startDate}T${startTime}:00`);
-      if (isNaN(parsedStart.getTime())) {
+      try {
+        parsedStart = buildDateTimeInMexico(startDate, startTime);
+      } catch {
         return NextResponse.json({ error: 'startTime inválido (HH:mm)' }, { status: 400 });
       }
       if (endTime) {
-        parsedEnd = new Date(`${startDate}T${endTime}:00`);
-        if (isNaN(parsedEnd.getTime())) {
+        try {
+          parsedEnd = buildDateTimeInMexico(startDate, endTime);
+        } catch {
           return NextResponse.json({ error: 'endTime inválido (HH:mm)' }, { status: 400 });
         }
       }

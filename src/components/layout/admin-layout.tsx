@@ -2897,6 +2897,7 @@ function VacationsView() {
   const [filterEnd, setFilterEnd] = useState('');
   const [rejectTarget, setRejectTarget] = useState<VacationRow | null>(null);
   const [grantOpen, setGrantOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<VacationRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -3076,6 +3077,7 @@ function VacationsView() {
                         <TableHead className="w-[110px] whitespace-nowrap">Estado</TableHead>
                         <TableHead className="w-[100px] whitespace-nowrap">Origen</TableHead>
                         <TableHead className="w-[140px] whitespace-nowrap">Solicitado</TableHead>
+                        <TableHead className="w-[80px] whitespace-nowrap text-right">Acciones</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -3101,6 +3103,20 @@ function VacationsView() {
                             {v.isPartial && <Badge variant="outline" className="ml-1">Parcial</Badge>}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTimeInMexico(v.createdAt)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-right">
+                            {v.status !== 'CANCELLED' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 gap-1 text-muted-foreground hover:text-foreground"
+                                onClick={() => setEditTarget(v)}
+                                title="Editar fechas / tipo / motivo"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                                Editar
+                              </Button>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -3129,6 +3145,14 @@ function VacationsView() {
         <GrantVacationDialog
           onClose={() => setGrantOpen(false)}
           onGranted={() => { setGrantOpen(false); load(); }}
+        />
+      )}
+
+      {editTarget && (
+        <EditVacationDialog
+          vacation={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); load(); }}
         />
       )}
     </div>
@@ -3430,6 +3454,137 @@ function RejectDialog({ vacation, onClose, onReject }: { vacation: VacationRow; 
             Rechazar
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// EditVacationDialog — editar fechas / tipo / motivo de un
+// Vacation existente (registro ya creado, típico para corregir
+// errores de captura como incapacidades con fechas equivocadas).
+// Llama a PATCH /api/vacations/[id].
+// ============================================================
+function EditVacationDialog({
+  vacation,
+  onClose,
+  onSaved,
+}: {
+  vacation: VacationRow;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // Inicializar fechas desde el registro existente (formato YYYY-MM-DD).
+  // Usamos toISODate para interpretar la fecha guardada en hora de México.
+  const [type, setType] = useState(vacation.type);
+  const [startDate, setStartDate] = useState(() => {
+    // vacation.startDate es string ISO; lo parseamos a Date y sacamos YYYY-MM-DD en MX.
+    const d = new Date(vacation.startDate);
+    return formatDateInMexico(d).split('/').reverse().join('-'); // dd/MM/yyyy → yyyy-MM-dd
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date(vacation.endDate);
+    return formatDateInMexico(d).split('/').reverse().join('-');
+  });
+  const [reason, setReason] = useState(vacation.reason ?? '');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!type) { toast.error('Selecciona un tipo'); return; }
+    if (!startDate || !endDate) { toast.error('Indica fecha de inicio y fin'); return; }
+    if (new Date(startDate) > new Date(endDate)) {
+      toast.error('La fecha de inicio no puede ser posterior a la de fin');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await apiSend(`/api/vacations/${vacation.id}`, 'PATCH', {
+        startDate,
+        endDate,
+        type,
+        reason: reason.trim() || null,
+      });
+      toast.success('Registro actualizado correctamente');
+      onSaved();
+    } catch (e) {
+      toast.error('Error al actualizar', { description: (e as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Calcular días naturales para mostrar preview.
+  const previewDays = startDate && endDate
+    ? Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1
+    : 0;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar registro</DialogTitle>
+          <DialogDescription>
+            {vacation.employee.user.name} · {VACATION_TYPE_LABEL[vacation.type] || vacation.type} ·{' '}
+            <Badge variant={VACATION_STATUS_VARIANT[vacation.status] || 'outline'}>
+              {VACATION_STATUS_LABEL[vacation.status] || vacation.status}
+            </Badge>
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
+          <div className="space-y-1.5 sm:col-span-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-2.5 text-xs text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
+            Vas a modificar un registro ya existente. Si es vacaciones aprobada y los días cambian, el saldo del empleado se reajustará automáticamente.
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="e-type">Tipo *</Label>
+            <Select value={type} onValueChange={setType}>
+              <SelectTrigger id="e-type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(VACATION_TYPE_LABEL).map(([k, lbl]) => (
+                  <SelectItem key={k} value={k}>{lbl}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="e-start">Fecha de inicio *</Label>
+            <Input id="e-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="e-end">Fecha de fin *</Label>
+            <Input id="e-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+          </div>
+
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="e-reason">Motivo / notas (opcional)</Label>
+            <Textarea id="e-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Notas internas…" />
+          </div>
+
+          {previewDays > 0 && (
+            <p className="sm:col-span-2 text-xs text-muted-foreground">
+              Nuevo total: <strong>{previewDays} día(s)</strong>
+              {vacation.days !== previewDays && type === 'VACACIONES' && vacation.status === 'APPROVED' && !vacation.isPartial && (
+                <span className="ml-2 text-amber-700 dark:text-amber-400">
+                  (saldo del empleado se reajustará: {vacation.days} → {previewDays})
+                </span>
+              )}
+            </p>
+          )}
+
+          <DialogFooter className="sm:col-span-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+            <Button type="submit" disabled={saving} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <Save className="h-3.5 w-3.5" />
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -6173,6 +6328,52 @@ function SettingsView() {
     }
   };
 
+  // --- Recálculo de fechas de vacaciones/permisos (bug TZ desfase -1 día) ---
+  const [recalcVacationsLoading, setRecalcVacationsLoading] = useState(false);
+  const [recalcVacationsDryRunLoading, setRecalcVacationsDryRunLoading] = useState(false);
+  const [recalcVacationsResult, setRecalcVacationsResult] = useState<{
+    scanned: number;
+    changed: number;
+    dryRun: boolean;
+    details: Array<{
+      id: string;
+      employeeName: string;
+      employeeNumber: string;
+      type: string;
+      oldStart: string;
+      newStart: string;
+      oldEnd: string;
+      newEnd: string;
+      days: number;
+    }>;
+  } | null>(null);
+
+  const runRecalcVacations = async (dryRun: boolean) => {
+    if (dryRun) {
+      setRecalcVacationsDryRunLoading(true);
+    } else {
+      setRecalcVacationsLoading(true);
+    }
+    try {
+      const data = await apiSend<{ scanned: number; changed: number; dryRun: boolean; details: any[] }>(
+        '/api/admin/recalc-vacations',
+        'POST',
+        { dryRun }
+      );
+      setRecalcVacationsResult(data);
+      if (dryRun) {
+        toast.info(`Simulación: ${data.scanned} registros revisados, ${data.changed} cambiarían de fecha.`);
+      } else {
+        toast.success(`Recálculo completado: ${data.changed} registros corregidos de ${data.scanned} revisados.`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al recalcular fechas de vacaciones');
+    } finally {
+      setRecalcVacationsDryRunLoading(false);
+      setRecalcVacationsLoading(false);
+    }
+  };
+
   // Cargar estado de MFA al montar
   const refreshMfaStatus = useCallback(async () => {
     setLoadingStatus(true);
@@ -6717,6 +6918,152 @@ function SettingsView() {
               {recalcShiftResult.changed === 0 && (
                 <p className="text-sm text-zinc-600">
                   No hay registros que corregir en el período revisado. Todo está en orden.
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ============================================================ */}
+      {/* CARD: Corrección de fechas de vacaciones/permisos (bug TZ) */}
+      {/* ============================================================ */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarOff className="h-5 w-5 text-rose-600" />
+                Corrección de fechas de vacaciones y permisos
+              </CardTitle>
+              <CardDescription className="max-w-2xl">
+                Corrige registros de vacaciones, permisos e incapacidades cuyas
+                fechas aparecen desfasadas un día antes de lo seleccionado.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="space-y-1.5 text-sm">
+                <p className="font-medium text-amber-900">
+                  Bug corregido: fechas desfasadas -1 día por zona horaria
+                </p>
+                <p className="text-amber-800">
+                  Antes de este fix, al crear una vacación/permiso/incapacidad
+                  el backend usaba <code className="mx-1 px-1 py-0.5 bg-amber-100 rounded text-xs">new Date(&quot;2026-08-03&quot;)</code>
+                  que por especificación de JavaScript se interpreta como
+                  <strong> UTC midnight</strong>. En hora de México (UTC-6) eso
+                  corresponde al día anterior (02/08/2026 18:00), así que el
+                  sistema mostraba las fechas un día antes de lo que el admin
+                  seleccionó en el datepicker.
+                </p>
+                <p className="text-amber-800">
+                  <strong>Ejemplo real:</strong> incapacidad de maternidad de
+                  Carolina Cruz Pérez — el admin seleccionó 03/08/2026 → 25/10/2026,
+                  pero el sistema mostraba 02/08/2026 → 24/10/2026.
+                </p>
+                <p className="text-amber-800">
+                  Ahora el código usa <strong>buildDateTimeInMexico()</strong> para
+                  que las fechas se interpreten siempre como medianoche en hora de
+                  México. Esta herramienta repara los registros <strong>históricos</strong>
+                  sumando +6 horas a los que quedaron con el bug (UTC midnight).
+                </p>
+                <p className="text-amber-800">
+                  Usa primero <strong>&laquo;Simular&raquo;</strong> para ver qué
+                  registros cambiarían, y luego <strong>&laquo;Recalcular&raquo;</strong>
+                  para aplicar los cambios. Revisa TODOS los registros (sin límite de fecha).
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => runRecalcVacations(true)}
+              disabled={recalcVacationsDryRunLoading || recalcVacationsLoading}
+            >
+              {recalcVacationsDryRunLoading ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Simulando...</>
+              ) : (
+                <><RefreshCw className="h-4 w-4 mr-1" /> Simular recálculo</>
+              )}
+            </Button>
+            <Button
+              onClick={() => runRecalcVacations(false)}
+              disabled={recalcVacationsDryRunLoading || recalcVacationsLoading}
+              className="bg-rose-600 hover:bg-rose-700"
+            >
+              {recalcVacationsLoading ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Recalculando...</>
+              ) : (
+                <><RefreshCw className="h-4 w-4 mr-1" /> Recalcular ahora</>
+              )}
+            </Button>
+          </div>
+
+          {recalcVacationsResult && (
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm font-medium text-zinc-900">
+                  {recalcVacationsResult.dryRun ? 'Resultado de la simulación' : 'Recálculo aplicado'}
+                </p>
+                <div className="flex gap-4 text-sm">
+                  <span className="text-zinc-600">
+                    Revisados: <strong className="text-zinc-900">{recalcVacationsResult.scanned}</strong>
+                  </span>
+                  <span className="text-zinc-600">
+                    {recalcVacationsResult.dryRun ? 'Cambiarían' : 'Corregidos'}:{" "}
+                    <strong className={recalcVacationsResult.changed > 0 ? 'text-emerald-700' : 'text-zinc-900'}>
+                      {recalcVacationsResult.changed}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              {recalcVacationsResult.details.length > 0 && (
+                <div className="max-h-96 overflow-y-auto rounded-md border border-zinc-200 bg-white">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[90px]">N°</TableHead>
+                        <TableHead>Empleado</TableHead>
+                        <TableHead className="w-[110px]">Tipo</TableHead>
+                        <TableHead className="w-[110px]">Inicio ant.</TableHead>
+                        <TableHead className="w-[110px]">Inicio nuevo</TableHead>
+                        <TableHead className="w-[110px]">Fin ant.</TableHead>
+                        <TableHead className="w-[110px]">Fin nuevo</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recalcVacationsResult.details.slice(0, 100).map((d) => (
+                        <TableRow key={d.id}>
+                          <TableCell className="font-mono text-xs">{d.employeeNumber}</TableCell>
+                          <TableCell className="text-xs">{d.employeeName}</TableCell>
+                          <TableCell className="text-xs">{d.type}</TableCell>
+                          <TableCell className="font-mono text-xs text-rose-600">{d.oldStart}</TableCell>
+                          <TableCell className="font-mono text-xs text-emerald-600">{d.newStart}</TableCell>
+                          <TableCell className="font-mono text-xs text-rose-600">{d.oldEnd}</TableCell>
+                          <TableCell className="font-mono text-xs text-emerald-600">{d.newEnd}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {recalcVacationsResult.details.length > 100 && (
+                <p className="text-xs text-zinc-500">
+                  Mostrando 100 de {recalcVacationsResult.details.length} cambios. Los demás se aplicaron correctamente.
+                </p>
+              )}
+
+              {recalcVacationsResult.changed === 0 && (
+                <p className="text-sm text-zinc-600">
+                  No hay registros que corregir. Todo está en orden.
                 </p>
               )}
             </div>
