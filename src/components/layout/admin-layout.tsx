@@ -793,8 +793,24 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
 
   async function handleSaveCorrection(checkInTime: string, checkOutTime: string, notes: string) {
     if (!correctionRecord) return;
+    // LFT 2027 / NOM-037 — todo registro está bloqueado (inmutable) por defecto.
+    // Para corregirlo, el backend exige un motivo de corrección Y forceUnlock=true.
+    // El texto que el admin captura en "Notas" se envía también como correctionReason.
+    const reason = notes.trim();
+    if (!reason) {
+      toast.error('Motivo de corrección requerido', {
+        description: 'Debes escribir un motivo para desbloquear el registro (requisito LFT 2027 / NOM-037).',
+      });
+      return;
+    }
     try {
-      await apiSend(`/api/attendance/${correctionRecord.id}`, 'PUT', { checkInTime, checkOutTime, notes });
+      await apiSend(`/api/attendance/${correctionRecord.id}`, 'PUT', {
+        checkInTime,
+        checkOutTime,
+        notes,
+        correctionReason: reason,
+        forceUnlock: true,
+      });
       toast.success('Registro actualizado', { description: 'La corrección fue guardada y marcada como pendiente de justificación.' });
       setCorrectionRecord(null);
       refetch();
@@ -1407,8 +1423,9 @@ function CorrectionDialog({ record, onClose, onSave }: { record: any; onClose: (
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="notes">Notas</Label>
-            <Textarea id="notes" placeholder="Motivo de la corrección…" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+            <Label htmlFor="notes">Motivo de la corrección <span className="text-rose-600">*</span></Label>
+            <Textarea id="notes" placeholder="Ej. El empleado registró su entrada una hora antes, se corrige salida…" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+            <p className="text-[11px] text-muted-foreground">El motivo es obligatorio y queda registrado en la bitácora de auditoría (LFT 2027 art. 132 XXXIV).</p>
           </div>
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 flex items-start gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
