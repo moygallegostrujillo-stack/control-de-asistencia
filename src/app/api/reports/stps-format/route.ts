@@ -8,10 +8,13 @@
 //     sucursalId  (opcional) — Si se omite, incluye todas las
 //                  sucursales. SUCURSAL_ADMIN siempre fuerza su
 //                  propia sucursal.
-//     periodo     (opcional) — "semanal" | "mensual" (default "mensual")
+//     periodo     (opcional) — "semanal" | "mensual" | "libre"
+//                  (default "mensual")
 //     mes         (1-12)     — Requerido si periodo=mensual
-//     anio        (requerido) — Ej. 2026
+//     anio        (requerido para mensual/semanal) — Ej. 2026
 //     semana      (1-53)     — Requerido si periodo=semanal (semana ISO)
+//     startDate   (YYYY-MM-DD) — Requerido si periodo=libre
+//     endDate     (YYYY-MM-DD) — Requerido si periodo=libre
 //     format      (opcional) — "xlsx" (default) | "pdf" | "json"
 //
 //   Respuesta:
@@ -42,6 +45,7 @@ import {
   type FilaTrabajador,
   type FilaDetalleDiario,
 } from '@/lib/stps-report';
+import { parseDateRange } from '@/lib/reports';
 // --- Cambio 4: generador PDF (pdfkit, puro JS, compatible con Vercel) ---
 import { buildStpsPdf } from '@/lib/stps-pdf';
 
@@ -61,6 +65,8 @@ export async function GET(req: NextRequest) {
     const mesParam = searchParams.get('mes');
     const anioParam = searchParams.get('anio');
     const semanaParam = searchParams.get('semana');
+    const startDateParam = searchParams.get('startDate');
+    const endDateParam = searchParams.get('endDate');
     const format = (searchParams.get('format') || 'xlsx').toLowerCase();
 
     // SUCURSAL_ADMIN siempre ve solo su sucursal.
@@ -68,58 +74,12 @@ export async function GET(req: NextRequest) {
       user.role === 'SUCURSAL_ADMIN' ? user.sucursalId : requestedSucursalId;
 
     // --- Validación de parámetros ---
-    if (!['mensual', 'semanal'].includes(periodoParam)) {
+    if (!['mensual', 'semanal', 'libre'].includes(periodoParam)) {
       return NextResponse.json(
-        { error: 'periodo inválido (valores: mensual | semanal)' },
+        { error: 'periodo inválido (valores: mensual | semanal | libre)' },
         { status: 400 }
       );
     }
-    if (!anioParam) {
-      return NextResponse.json(
-        { error: 'anio es requerido (ej. 2026)' },
-        { status: 400 }
-      );
-    }
-    const anio = parseInt(anioParam, 10);
-    if (isNaN(anio) || anio < 2000 || anio > 2100) {
-      return NextResponse.json(
-        { error: 'anio inválido (debe ser un año entre 2000 y 2100)' },
-        { status: 400 }
-      );
-    }
-
-    let mes: number | undefined;
-    let semana: number | undefined;
-    if (periodoParam === 'mensual') {
-      if (!mesParam) {
-        return NextResponse.json(
-          { error: 'mes es requerido (1-12) cuando periodo=mensual' },
-          { status: 400 }
-        );
-      }
-      mes = parseInt(mesParam, 10);
-      if (isNaN(mes) || mes < 1 || mes > 12) {
-        return NextResponse.json(
-          { error: 'mes inválido (1-12)' },
-          { status: 400 }
-        );
-      }
-    } else {
-      if (!semanaParam) {
-        return NextResponse.json(
-          { error: 'semana es requerida (1-53) cuando periodo=semanal' },
-          { status: 400 }
-        );
-      }
-      semana = parseInt(semanaParam, 10);
-      if (isNaN(semana) || semana < 1 || semana > 53) {
-        return NextResponse.json(
-          { error: 'semana inválida (1-53 ISO)' },
-          { status: 400 }
-        );
-      }
-    }
-
     if (!['xlsx', 'pdf', 'json'].includes(format)) {
       return NextResponse.json(
         { error: 'format inválido (xlsx, pdf o json)' },
@@ -127,10 +87,71 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    let anio = 0;
+    let mes: number | undefined;
+    let semana: number | undefined;
+    let libreStartISO: string | undefined;
+    let libreEndISO: string | undefined;
+
+    if (periodoParam === 'libre') {
+      // Modo "libre" — rango arbitrario validado con parseDateRange.
+      const { range, errorResponse } = parseDateRange(startDateParam, endDateParam);
+      if (!range) return errorResponse!;
+      libreStartISO = range.startISO;
+      libreEndISO = range.endISO;
+      // anio se usa para el nombre del archivo: usar el año del startDate.
+      anio = parseInt(libreStartISO.slice(0, 4), 10) || new Date().getFullYear();
+    } else {
+      // Modos mensual/semanal requieren anio
+      if (!anioParam) {
+        return NextResponse.json(
+          { error: 'anio es requerido (ej. 2026)' },
+          { status: 400 }
+        );
+      }
+      anio = parseInt(anioParam, 10);
+      if (isNaN(anio) || anio < 2000 || anio > 2100) {
+        return NextResponse.json(
+          { error: 'anio inválido (debe ser un año entre 2000 y 2100)' },
+          { status: 400 }
+        );
+      }
+      if (periodoParam === 'mensual') {
+        if (!mesParam) {
+          return NextResponse.json(
+            { error: 'mes es requerido (1-12) cuando periodo=mensual' },
+            { status: 400 }
+          );
+        }
+        mes = parseInt(mesParam, 10);
+        if (isNaN(mes) || mes < 1 || mes > 12) {
+          return NextResponse.json(
+            { error: 'mes inválido (1-12)' },
+            { status: 400 }
+          );
+        }
+      } else {
+        // semanal
+        if (!semanaParam) {
+          return NextResponse.json(
+            { error: 'semana es requerida (1-53) cuando periodo=semanal' },
+            { status: 400 }
+          );
+        }
+        semana = parseInt(semanaParam, 10);
+        if (isNaN(semana) || semana < 1 || semana > 53) {
+          return NextResponse.json(
+            { error: 'semana inválida (1-53 ISO)' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // --- Cálculo del periodo ---
     let periodo;
     try {
-      periodo = computePeriodo(periodoParam, anio, mes, semana);
+      periodo = computePeriodo(periodoParam, anio, mes, semana, libreStartISO, libreEndISO);
     } catch (e: any) {
       return NextResponse.json(
         { error: e.message || 'Periodo inválido' },
@@ -170,7 +191,9 @@ export async function GET(req: NextRequest) {
       const pdfBuffer = await buildStpsPdf(reporte);
       const filename = `Reporte_STPS_${periodo.tipo}_${anio}${
         periodoParam === 'mensual' && mes ? `_${String(mes).padStart(2, '0')}` : ''
-      }${periodoParam === 'semanal' && semana ? `_S${String(semana).padStart(2, '0')}` : ''}.pdf`;
+      }${periodoParam === 'semanal' && semana ? `_S${String(semana).padStart(2, '0')}` : ''}${
+        periodoParam === 'libre' && libreStartISO && libreEndISO ? `_${libreStartISO}_a_${libreEndISO}` : ''
+      }.pdf`;
       return new NextResponse(pdfBuffer, {
         status: 200,
         headers: {
@@ -203,7 +226,9 @@ export async function GET(req: NextRequest) {
     const buffer = await wb.xlsx.writeBuffer();
     const filename = `Reporte_STPS_${periodo.tipo}_${anio}${
       periodoParam === 'mensual' && mes ? `_${String(mes).padStart(2, '0')}` : ''
-    }${periodoParam === 'semanal' && semana ? `_S${String(semana).padStart(2, '0')}` : ''}.xlsx`;
+    }${periodoParam === 'semanal' && semana ? `_S${String(semana).padStart(2, '0')}` : ''}${
+      periodoParam === 'libre' && libreStartISO && libreEndISO ? `_${libreStartISO}_a_${libreEndISO}` : ''
+    }.xlsx`;
 
     return new NextResponse(buffer, {
       status: 200,

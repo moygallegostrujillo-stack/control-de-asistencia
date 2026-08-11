@@ -1,6 +1,7 @@
 // ============================================================
 // GET /api/attendance/history
-// ?period=day|week|month&date=YYYY-MM-DD&sucursalId=&employeeId=&status=
+// ?period=day|week|month|custom&date=YYYY-MM-DD&sucursalId=&employeeId=&status=
+//   period=custom requiere además startDate=YYYY-MM-DD y endDate=YYYY-MM-DD.
 // ADMIN: filtra por sucursal (SUCURSAL_ADMIN forzado al propio).
 // EMPLOYEE: solo sus propios registros.
 // Orden: date desc. Include employee.user.name, employee.sucursal.
@@ -18,10 +19,32 @@ import {
   toISODate,
   buildDateTimeInMexico,
 } from '@/lib/timezone';
+import { parseDateRange } from '@/lib/reports';
 
 type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EARLY_LEAVE';
 
-function periodRange(period: string, dateISO?: string): { gte: Date; lt: Date } {
+function periodRange(
+  period: string,
+  dateISO?: string,
+  customStartISO?: string,
+  customEndISO?: string
+): { gte: Date; lt: Date } {
+  // Modo custom — rango libre validado con el helper compartido.
+  // La validación de presencia de startDate/endDate la hace el caller.
+  if (period === 'custom') {
+    const { range } = parseDateRange(customStartISO, customEndISO);
+    if (range) {
+      // parseDateRange devuelve range.end como 23:59 hora México del último
+      // día. Para mantener compatibilidad con el patrón `lt` exclusivo usado
+      // por day/week/month (00:00 del día siguiente), sumamos 1 minuto.
+      return { gte: range.start, lt: new Date(range.end.getTime() + 60000) };
+    }
+    // Fallback si el formato es inválido (el caller ya debería haber
+    // regresado 400 antes de llegar aquí).
+    const today = buildDateTimeInMexico(toISODate(getMexicoNow().toJSDate()), '00:00');
+    return { gte: today, lt: new Date(today.getTime() + 86400000) };
+  }
+
   const base = dateISO ? buildDateTimeInMexico(dateISO, '00:00') : getMexicoNow().toJSDate();
 
   const startOfDay = new Date(base);
@@ -59,11 +82,29 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const period = searchParams.get('period') || 'week';
     const dateParam = searchParams.get('date') || undefined;
+    const customStartISO = searchParams.get('startDate') || undefined;
+    const customEndISO = searchParams.get('endDate') || undefined;
     const querySucursalId = searchParams.get('sucursalId') || undefined;
     const queryEmployeeId = searchParams.get('employeeId') || undefined;
     const statusParam = searchParams.get('status') || undefined;
 
-    const { gte, lt } = periodRange(period, dateParam);
+    // Validar modo custom: requiere startDate + endDate.
+    if (period === 'custom') {
+      if (!customStartISO || !customEndISO) {
+        return NextResponse.json(
+          {
+            error:
+              'startDate y endDate son requeridos cuando period=custom (formato YYYY-MM-DD)',
+          },
+          { status: 400 }
+        );
+      }
+      // Validar formato/orden del rango con el helper compartido.
+      const { errorResponse } = parseDateRange(customStartISO, customEndISO);
+      if (errorResponse) return errorResponse;
+    }
+
+    const { gte, lt } = periodRange(period, dateParam, customStartISO, customEndISO);
 
     // Construir filtro
     const where: {

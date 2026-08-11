@@ -11,6 +11,7 @@ import { PollingToast } from '@/components/shared/polling-toast';
 import { NotificationBell } from '@/components/admin/notification-bell';
 import { SupervisorAlertsBell } from '@/components/admin/supervisor-alerts-bell';
 import { UserManual } from '@/components/manual/user-manual';
+import { DateRangePicker, type DateRangeValue } from '@/components/reports/date-range-picker';
 import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
 import type { AuthUser } from '@/lib/auth';
 import { useRealtime } from '@/hooks/use-realtime';
@@ -589,6 +590,14 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
   const [selectedDate, setSelectedDate] = useState<string>(''); // '' = hoy
   const [statusFilter, setStatusFilter] = useState<string>('all'); // all|PRESENT|LATE|ABSENT|ON_BREAK|EARLY_LEAVE
   const [searchQuery, setSearchQuery] = useState<string>('');
+  // --- Exportar rango (modal con DateRangePicker) ---
+  // Permite descargar un CSV consolidado de varios días vía /api/reports/export?type=daily
+  const [exportRangeOpen, setExportRangeOpen] = useState(false);
+  const [exportRangeValue, setExportRangeValue] = useState<DateRangeValue>(() => {
+    const today = getMexicoTodayISO();
+    return { start: today, end: today };
+  });
+  const [exportRangeLoading, setExportRangeLoading] = useState(false);
 
   // Cargar sucursales para el selector (GA only)
   useEffect(() => {
@@ -785,6 +794,39 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     toast.success('CSV exportado', { description: `${filteredRecords.length + filteredAbsents.length} registro(s) exportados.` });
+  }
+
+  // --- Exportar rango: descarga el CSV consolidado vía /api/reports/export ---
+  // El backend ya soporta ranges sin tope. El CSV se descarga con window.open
+  // (igual que en ReportsView). Si es GA y sucursalId !== 'all', se añade el filtro.
+  function exportRangeCSV() {
+    if (!exportRangeValue.start || !exportRangeValue.end) {
+      toast.error('Selecciona un rango de fechas');
+      return;
+    }
+    if (exportRangeValue.start > exportRangeValue.end) {
+      toast.error('La fecha "Desde" no puede ser mayor que "Hasta"');
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('type', 'daily');
+    params.set('startDate', exportRangeValue.start);
+    params.set('endDate', exportRangeValue.end);
+    params.set('format', 'csv');
+    if (isGA && selectedSucursalId !== 'all') {
+      params.set('sucursalId', selectedSucursalId);
+    }
+    const url = `/api/reports/export?${params.toString()}`;
+    setExportRangeLoading(true);
+    window.open(url, '_blank');
+    toast.success('Exportando CSV del rango…', {
+      description: `${exportRangeValue.start} → ${exportRangeValue.end}`,
+    });
+    // El navegador abre la descarga sincrónicamente; liberamos el spinner tras 1.5s.
+    setTimeout(() => {
+      setExportRangeLoading(false);
+      setExportRangeOpen(false);
+    }, 1500);
   }
 
   function handleOpenCorrection(record: any) {
@@ -1068,17 +1110,30 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                     {selectedDate && ' · fecha histórica'}
                   </CardDescription>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={exportDayCSV}
-                  disabled={filteredRecords.length === 0 && filteredAbsents.length === 0}
-                >
-                  <FileDown className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Exportar CSV</span>
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={exportDayCSV}
+                    disabled={filteredRecords.length === 0 && filteredAbsents.length === 0}
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Exportar día</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setExportRangeOpen(true)}
+                    title="Exportar un CSV consolidado de varios días"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Exportar rango</span>
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -1307,6 +1362,46 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
           onSave={handleSaveCorrection}
         />
       )}
+
+      {/* Export range dialog — descarga CSV consolidado de varios días */}
+      <Dialog open={exportRangeOpen} onOpenChange={setExportRangeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              Exportar rango de fechas
+            </DialogTitle>
+            <DialogDescription>
+              Descarga un CSV consolidado con la asistencia diaria del rango seleccionado.
+              {isGA && selectedSucursalId !== 'all'
+                ? ' Se aplicará el filtro de sucursal activo.'
+                : isGA
+                  ? ' Se incluirán todas las sucursales.'
+                  : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <DateRangePicker
+              value={exportRangeValue}
+              onChange={setExportRangeValue}
+              allowPresets
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setExportRangeOpen(false)} disabled={exportRangeLoading}>
+              Cancelar
+            </Button>
+            <Button onClick={exportRangeCSV} disabled={exportRangeLoading} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+              {exportRangeLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Exportar CSV
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* unused prop suppression */}
       <span className="hidden">{preselectedEmployeeId}{String(setPreselectedEmployeeId)}</span>
@@ -3641,7 +3736,8 @@ interface CalendarResponse {
     department: string;
     sucursal: { id: string; name: string; codigoLocal: string | null } | null;
   };
-  month: string;
+  month: string | null; // 'YYYY-MM' en modo mensual; null en modo rango libre
+  period?: { start: string; end: string } | null; // presente solo en modo rango libre
   days: CalendarDay[];
   stats: {
     totalDays: number;
@@ -3692,6 +3788,11 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  // --- Modo de vista del calendario: mensual (selector de mes con flechas)
+  // o por rango libre (DateRangePicker con presets). ---
+  const [viewMode, setViewMode] = useState<'month' | 'range'>('month');
+  const [rangeStart, setRangeStart] = useState<string>(getMexicoTodayISO());
+  const [rangeEnd, setRangeEnd] = useState<string>(getMexicoTodayISO());
   const [calendarData, setCalendarData] = useState<CalendarResponse | null>(null);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
@@ -3738,7 +3839,7 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
     return () => { mounted = false; };
   }, [isGA, selectedSucursalId, userSucursalId]);
 
-  // Cargar calendario cuando cambia empleado o mes
+  // Cargar calendario cuando cambia empleado, mes o rango
   useEffect(() => {
     if (!selectedEmployeeId) {
       setCalendarData(null);
@@ -3750,7 +3851,12 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
       try {
         const params = new URLSearchParams();
         params.set('employeeId', selectedEmployeeId);
-        params.set('month', selectedMonth);
+        if (viewMode === 'range') {
+          params.set('startDate', rangeStart);
+          params.set('endDate', rangeEnd);
+        } else {
+          params.set('month', selectedMonth);
+        }
         const res = await authFetch(`/api/attendance/monthly-calendar?${params.toString()}`);
         if (!res.ok) throw new Error('Error al cargar calendario');
         const data = await res.json();
@@ -3765,19 +3871,25 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
       }
     })();
     return () => { mounted = false; };
-  }, [selectedEmployeeId, selectedMonth]);
+  }, [selectedEmployeeId, selectedMonth, viewMode, rangeStart, rangeEnd]);
 
-  // Construir grid del calendario (semanas empezando en domingo)
+  // Construir grid del calendario (semanas empezando en domingo).
+  // En modo `month`: se rellenan los blanks iniciales (hasta el primer
+  // día de la semana del mes) y finales (para completar la última
+  // semana), igual que un calendario mensual tradicional.
+  // En modo `range`: los días se apilan en orden cronológico sin
+  // blanks iniciales (cada semana comienza con el primer día del rango).
   const calendarGrid = useMemo(() => {
     if (!calendarData) return [];
     const days = calendarData.days;
-    // El primer día de la semana (domingo=0) del primer día del mes
-    const firstDay = days[0];
-    const leadingBlanks = firstDay ? firstDay.dayOfWeek : 0;
     const grid: (CalendarDay | null)[] = [];
-    // Blanks iniciales
-    for (let i = 0; i < leadingBlanks; i++) grid.push(null);
-    // Días del mes
+    // Blanks iniciales: solo en modo month (para alinear con el día de la semana)
+    if (viewMode === 'month') {
+      const firstDay = days[0];
+      const leadingBlanks = firstDay ? firstDay.dayOfWeek : 0;
+      for (let i = 0; i < leadingBlanks; i++) grid.push(null);
+    }
+    // Días
     for (const d of days) grid.push(d);
     // Blanks finales para completar la última semana
     while (grid.length % 7 !== 0) grid.push(null);
@@ -3787,7 +3899,7 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
       weeks.push(grid.slice(i, i + 7));
     }
     return weeks;
-  }, [calendarData]);
+  }, [calendarData, viewMode]);
 
   function navigateMonth(delta: number) {
     const [y, m] = selectedMonth.split('-').map(Number);
@@ -3809,9 +3921,32 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
             <CalendarDays className="h-4 w-4 text-zinc-600" />
             Calendario de Asistencia
           </CardTitle>
-          <CardDescription>Vista mensual por empleado</CardDescription>
+          <CardDescription>
+            {viewMode === 'range' ? 'Vista por rango de fechas por empleado' : 'Vista mensual por empleado'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Toggle de modo de vista: Mensual | Rango */}
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { id: 'month', label: 'Vista mensual' },
+              { id: 'range', label: 'Vista por rango' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setViewMode(opt.id)}
+                className={cn(
+                  'inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                  viewMode === opt.id
+                    ? 'border-zinc-900 bg-zinc-900 text-white'
+                    : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
             {/* Sucursal (GA only) */}
             {isGA && (
@@ -3846,16 +3981,27 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
               </Select>
             </div>
 
-            {/* Navegación de mes */}
-            <div className="flex items-center gap-1.5 lg:ml-auto">
-              <Button variant="outline" size="icon" onClick={() => navigateMonth(-1)} title="Mes anterior">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="px-3 py-1.5 text-sm font-medium min-w-[140px] text-center">{monthLabel}</div>
-              <Button variant="outline" size="icon" onClick={() => navigateMonth(1)} title="Mes siguiente">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+            {/* Navegación de fecha según modo de vista */}
+            {viewMode === 'month' ? (
+              <div className="flex items-center gap-1.5 lg:ml-auto">
+                <Button variant="outline" size="icon" onClick={() => navigateMonth(-1)} title="Mes anterior">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="px-3 py-1.5 text-sm font-medium min-w-[140px] text-center">{monthLabel}</div>
+                <Button variant="outline" size="icon" onClick={() => navigateMonth(1)} title="Mes siguiente">
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex-1 lg:ml-auto min-w-[280px]">
+                <Label className="text-xs text-muted-foreground">Rango de fechas</Label>
+                <DateRangePicker
+                  value={{ start: rangeStart, end: rangeEnd }}
+                  onChange={(v) => { setRangeStart(v.start); setRangeEnd(v.end); }}
+                  allowPresets
+                />
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -3932,10 +4078,19 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
 
           {/* Stats + detalle del día */}
           <div className="space-y-4">
-            {/* Stats del mes */}
+            {/* Stats del periodo (mes o rango libre) */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Resumen del mes</CardTitle>
+                <CardTitle className="text-base">
+                  {viewMode === 'range' && calendarData?.period
+                    ? `Resumen del rango`
+                    : 'Resumen del mes'}
+                </CardTitle>
+                {viewMode === 'range' && calendarData?.period && (
+                  <CardDescription className="text-xs">
+                    {calendarData.period.start} → {calendarData.period.end}
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
@@ -4044,8 +4199,11 @@ function StatBox({ label, value, tone }: { label: string; value: number; tone: '
 
 function HistoryView({ role }: { role: Role }) {
   const isGA = role === 'GENERAL_ADMIN';
-  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('week');
+  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'custom'>('week');
   const [date, setDate] = useState(getMexicoTodayISO());
+  // Rango personalizado (solo cuando period === 'custom')
+  const [customStart, setCustomStart] = useState(getMexicoTodayISO());
+  const [customEnd, setCustomEnd] = useState(getMexicoTodayISO());
   const [sucursalId, setSucursalId] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [employeeSearch, setEmployeeSearch] = useState('');
@@ -4068,7 +4226,12 @@ function HistoryView({ role }: { role: Role }) {
     try {
       const params = new URLSearchParams();
       params.set('period', period);
-      params.set('date', date);
+      if (period === 'custom') {
+        params.set('startDate', customStart);
+        params.set('endDate', customEnd);
+      } else {
+        params.set('date', date);
+      }
       if (isGA && sucursalId !== 'all') params.set('sucursalId', sucursalId);
       if (statusFilter !== 'all') params.set('status', statusFilter);
       const d = await apiGet<{ records: any[] }>(`/api/attendance/history?${params.toString()}`);
@@ -4078,7 +4241,7 @@ function HistoryView({ role }: { role: Role }) {
     } finally {
       setLoading(false);
     }
-  }, [period, date, isGA, sucursalId, statusFilter]);
+  }, [period, date, customStart, customEnd, isGA, sucursalId, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -4100,8 +4263,14 @@ function HistoryView({ role }: { role: Role }) {
   function handleSelectEmployee(emp: EmployeeRow) {
     setEmployeeHistory({ employee: emp, records: [], loading: true });
     const params = new URLSearchParams();
-    params.set('period', 'month');
-    params.set('date', getMexicoTodayISO());
+    if (period === 'custom') {
+      params.set('period', 'custom');
+      params.set('startDate', customStart);
+      params.set('endDate', customEnd);
+    } else {
+      params.set('period', 'month');
+      params.set('date', getMexicoTodayISO());
+    }
     params.set('employeeId', emp.id);
     apiGet<{ records: any[] }>(`/api/attendance/history?${params.toString()}`)
       .then((d) => setEmployeeHistory({ employee: emp, records: d.records || [], loading: false }))
@@ -4136,7 +4305,9 @@ function HistoryView({ role }: { role: Role }) {
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `historial_${period}_${date}.csv`;
+    a.download = period === 'custom'
+      ? `historial_custom_${customStart}_${customEnd}.csv`
+      : `historial_${period}_${date}.csv`;
     a.click();
     toast.success('CSV exportado');
   }
@@ -4155,13 +4326,25 @@ function HistoryView({ role }: { role: Role }) {
                   <SelectItem value="day">Día</SelectItem>
                   <SelectItem value="week">Semana</SelectItem>
                   <SelectItem value="month">Mes</SelectItem>
+                  <SelectItem value="custom">Personalizado</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Fecha</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />
-            </div>
+            {period === 'custom' ? (
+              <div className="space-y-1.5 flex-1 min-w-[280px]">
+                <Label className="text-xs text-muted-foreground">Rango de fechas</Label>
+                <DateRangePicker
+                  value={{ start: customStart, end: customEnd }}
+                  onChange={(v) => { setCustomStart(v.start); setCustomEnd(v.end); }}
+                  allowPresets
+                />
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Fecha</Label>
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />
+              </div>
+            )}
             {isGA && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Sucursal</Label>
@@ -4448,19 +4631,49 @@ function ReportsView({ role }: { role: Role }) {
   const [company, setCompany] = useState<CompanyRow | null>(null);
   // --- Cambio 4: estado para el reporte STPS (Art. 804 LFT) ---
   // Selector de mes/año y sucursal para generar el reporte legal en Excel o PDF.
+  // Modo de periodo: 'mensual' | 'semanal' | 'libre' (libre usa DateRangePicker).
   const today = new Date();
+  const [stpsPeriodo, setStpsPeriodo] = useState<'mensual' | 'semanal' | 'libre'>('mensual');
   const [stpsMes, setStpsMes] = useState<number>(today.getMonth() + 1);
   const [stpsAnio, setStpsAnio] = useState<number>(today.getFullYear());
+  const [stpsSemana, setStpsSemana] = useState<number>(1);
+  const [stpsRange, setStpsRange] = useState<DateRangeValue>(() => {
+    // Default: este mes (zona Mexico).
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const first = new Date(y, m, 1);
+    const last = new Date(y, m + 1, 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return {
+      start: `${first.getFullYear()}-${pad(first.getMonth() + 1)}-${pad(first.getDate())}`,
+      end: `${last.getFullYear()}-${pad(last.getMonth() + 1)}-${pad(last.getDate())}`,
+    };
+  });
   const [stpsSucursalId, setStpsSucursalId] = useState<string>('all');
   const [stpsDownloading, setStpsDownloading] = useState<'xlsx' | 'pdf' | null>(null);
 
   // --- Cambio 4: descarga del reporte STPS en Excel o PDF ---
   // Abre el endpoint en una pestaña nueva para forzar la descarga.
+  // Construye los params según el modo de periodo:
+  //   mensual: ?periodo=mensual&mes=M&anio=A
+  //   semanal: ?periodo=semanal&semana=S&anio=A
+  //   libre:   ?periodo=libre&startDate=...&endDate=...
   function downloadStps(format: 'xlsx' | 'pdf') {
     const params = new URLSearchParams();
-    params.set('periodo', 'mensual');
-    params.set('mes', String(stpsMes));
-    params.set('anio', String(stpsAnio));
+    if (stpsPeriodo === 'mensual') {
+      params.set('periodo', 'mensual');
+      params.set('mes', String(stpsMes));
+      params.set('anio', String(stpsAnio));
+    } else if (stpsPeriodo === 'semanal') {
+      params.set('periodo', 'semanal');
+      params.set('semana', String(stpsSemana));
+      params.set('anio', String(stpsAnio));
+    } else {
+      params.set('periodo', 'libre');
+      params.set('startDate', stpsRange.start);
+      params.set('endDate', stpsRange.end);
+    }
     params.set('format', format);
     if (isGA && stpsSucursalId !== 'all') params.set('sucursalId', stpsSucursalId);
     const url = `/api/reports/stps-format?${params.toString()}`;
@@ -4502,13 +4715,10 @@ function ReportsView({ role }: { role: Role }) {
     setLoading(true); setError(null); setData(null);
     try {
       const params = new URLSearchParams();
-      // Daily uses ?date= ; others use ?startDate&endDate
-      if (subType === 'daily') {
-        params.set('date', startDate);
-      } else {
-        params.set('startDate', startDate);
-        params.set('endDate', endDate);
-      }
+      // Todos los subtipos ahora usan startDate+endDate (incluyendo daily,
+      // el backend ya acepta rangos para daily).
+      params.set('startDate', startDate);
+      params.set('endDate', endDate);
       if (isGA && sucursalId !== 'all') params.set('sucursalId', sucursalId);
       if (subType === 'overtime' && employeeId !== 'all') params.set('employeeId', employeeId);
       const d = await apiGet<any>(`/api/reports/${subType}?${params.toString()}`);
@@ -4557,73 +4767,138 @@ function ReportsView({ role }: { role: Role }) {
             </Badge>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col sm:flex-row sm:items-end gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Mes</Label>
-            <Select value={String(stpsMes)} onValueChange={(v) => setStpsMes(Number(v))}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => (
-                  <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <CardContent className="space-y-3">
+          {/* Selector de modo de periodo: Mensual | Semanal | Libre */}
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { id: 'mensual', label: 'Mensual' },
+              { id: 'semanal', label: 'Semanal' },
+              { id: 'libre', label: 'Libre' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setStpsPeriodo(opt.id)}
+                className={cn(
+                  'inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                  stpsPeriodo === opt.id
+                    ? 'border-emerald-700 bg-emerald-600 text-white'
+                    : 'border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50'
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Año</Label>
-            <Input
-              type="number"
-              value={stpsAnio}
-              onChange={(e) => setStpsAnio(Number(e.target.value))}
-              className="w-24"
-              min={2000}
-              max={2100}
-            />
-          </div>
-          {isGA && (
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Sucursal</Label>
-              <Select value={stpsSucursalId} onValueChange={setStpsSucursalId}>
-                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {sucursales.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{sucursalLabel(s.name, s.codigoLocal)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Campos según el modo de periodo */}
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            {stpsPeriodo === 'mensual' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Mes</Label>
+                  <Select value={String(stpsMes)} onValueChange={(v) => setStpsMes(Number(v))}>
+                    <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => (
+                        <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Año</Label>
+                  <Input
+                    type="number"
+                    value={stpsAnio}
+                    onChange={(e) => setStpsAnio(Number(e.target.value))}
+                    className="w-24"
+                    min={2000}
+                    max={2100}
+                  />
+                </div>
+              </>
+            )}
+            {stpsPeriodo === 'semanal' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Semana (1-53)</Label>
+                  <Input
+                    type="number"
+                    value={stpsSemana}
+                    onChange={(e) => setStpsSemana(Math.max(1, Math.min(53, Number(e.target.value) || 1)))}
+                    className="w-24"
+                    min={1}
+                    max={53}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Año</Label>
+                  <Input
+                    type="number"
+                    value={stpsAnio}
+                    onChange={(e) => setStpsAnio(Number(e.target.value))}
+                    className="w-24"
+                    min={2000}
+                    max={2100}
+                  />
+                </div>
+              </>
+            )}
+            {stpsPeriodo === 'libre' && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Rango de fechas</Label>
+                <DateRangePicker
+                  value={stpsRange}
+                  onChange={setStpsRange}
+                  allowPresets
+                />
+              </div>
+            )}
+            {isGA && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Sucursal</Label>
+                <Select value={stpsSucursalId} onValueChange={setStpsSucursalId}>
+                  <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    {sucursales.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{sucursalLabel(s.name, s.codigoLocal)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="flex gap-2 sm:ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => downloadStps('xlsx')}
+                disabled={stpsDownloading !== null}
+                className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+              >
+                {stpsDownloading === 'xlsx' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden sm:inline">Descargar Excel</span>
+                <span className="sm:hidden">Excel</span>
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => downloadStps('pdf')}
+                disabled={stpsDownloading !== null}
+                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+              >
+                {stpsDownloading === 'pdf' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden sm:inline">Descargar PDF</span>
+                <span className="sm:hidden">PDF</span>
+              </Button>
             </div>
-          )}
-          <div className="flex gap-2 sm:ml-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => downloadStps('xlsx')}
-              disabled={stpsDownloading !== null}
-              className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
-            >
-              {stpsDownloading === 'xlsx' ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Descargar Excel</span>
-              <span className="sm:hidden">Excel</span>
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => downloadStps('pdf')}
-              disabled={stpsDownloading !== null}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-            >
-              {stpsDownloading === 'pdf' ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FileDown className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Descargar PDF</span>
-              <span className="sm:hidden">PDF</span>
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -4645,25 +4920,16 @@ function ReportsView({ role }: { role: Role }) {
 
       {/* Filters */}
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-4 space-y-3">
+          {/* Selector de rango de fechas (presets + Desde/Hasta) —
+              aplica a todos los subtipos, incluido daily (el backend
+              ya acepta rangos para daily). */}
+          <DateRangePicker
+            value={{ start: startDate, end: endDate }}
+            onChange={(v) => { setStartDate(v.start); setEndDate(v.end); }}
+            allowPresets
+          />
           <div className="flex flex-wrap gap-3 items-end">
-            {subType === 'daily' ? (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Fecha</Label>
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
-              </div>
-            ) : (
-              <>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Desde</Label>
-                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Hasta</Label>
-                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
-                </div>
-              </>
-            )}
             {isGA && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Sucursal</Label>

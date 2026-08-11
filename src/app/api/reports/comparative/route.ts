@@ -14,7 +14,12 @@ import {
   forbiddenResponse,
   isGeneralAdmin,
 } from '@/lib/auth';
-import { toISODate, getMexicoTodayISO, minutesToHours } from '@/lib/timezone';
+import { toISODate, minutesToHours } from '@/lib/timezone';
+import {
+  parseDateRange,
+  getEffectiveEnd,
+  buildPeriodResponseEffective,
+} from '@/lib/reports';
 import {
   isAbsentOnDate,
   loadActiveEmployees,
@@ -32,33 +37,20 @@ export async function GET(req: NextRequest) {
     if (!isGeneralAdmin(user)) return forbiddenResponse();
 
     const { searchParams } = new URL(req.url);
-    const startDateStr =
-      searchParams.get('startDate') || getMexicoTodayISO();
-    const endDateStr = searchParams.get('endDate') || getMexicoTodayISO();
+    const startDateStr = searchParams.get('startDate');
+    const endDateStr = searchParams.get('endDate');
 
-    const start = new Date(`${startDateStr}T00:00:00.000Z`);
-    const end = new Date(`${endDateStr}T23:59:59.999Z`);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return NextResponse.json(
-        { error: 'Fechas inválidas (use YYYY-MM-DD)' },
-        { status: 400 }
-      );
-    }
-    if (start > end) {
-      return NextResponse.json(
-        { error: 'startDate no puede ser mayor a endDate' },
-        { status: 400 }
-      );
-    }
+    // Validar rango (sin tope máximo)
+    const { range, errorResponse } = parseDateRange(startDateStr, endDateStr);
+    if (!range) return errorResponse!;
+    const { start, end } = range;
 
     // Limit end to today
-    const todayISO = getMexicoTodayISO();
-    const effectiveEndStr = endDateStr > todayISO ? todayISO : endDateStr;
-    const effectiveEnd = new Date(`${effectiveEndStr}T23:59:59.999Z`);
+    const effectiveEnd = getEffectiveEnd(end);
 
     // Días en el rango
     const days: Date[] = [];
-    const cursor = new Date(`${startDateStr}T00:00:00.000Z`);
+    const cursor = new Date(start);
     while (cursor <= effectiveEnd) {
       days.push(new Date(cursor));
       cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -259,7 +251,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       sucursales: sucursalResults,
       summary,
-      period: { start: startDateStr, end: effectiveEndStr },
+      period: buildPeriodResponseEffective(range, effectiveEnd),
     });
   } catch (error) {
     console.error('GET /api/reports/comparative error:', error);

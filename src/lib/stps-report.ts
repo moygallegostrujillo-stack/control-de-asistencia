@@ -39,7 +39,7 @@ import { isAbsentOnDate } from './absence-calculator';
 export const NO_CAPTURADO = 'NO CAPTURADO';
 
 /** Tipo de periodo del reporte. */
-export type TipoPeriodo = 'mensual' | 'semanal';
+export type TipoPeriodo = 'mensual' | 'semanal' | 'libre';
 
 /** Resultado del cálculo del periodo. */
 export interface PeriodoReporte {
@@ -133,6 +133,8 @@ const MESES_ES = [
  * Calcula el rango de fechas del periodo.
  * - Mensual: del día 1 al último día del mes indicado.
  * - Semanal: de lunes a domingo de la semana ISO indicada.
+ * - Libre: rango arbitrario definido por `startISO` y `endISO`
+ *   (formato YYYY-MM-DD). Sin tope máximo de días.
  *
  * Los límites se construyen como instantes UTC (patrón consistente
  * con el resto del sistema: `date` se almacena como UTC de medianoche
@@ -142,7 +144,9 @@ export function computePeriodo(
   periodo: TipoPeriodo,
   anio: number,
   mes?: number,
-  semana?: number
+  semana?: number,
+  startISO?: string,
+  endISO?: string
 ): PeriodoReporte {
   if (periodo === 'mensual') {
     if (!mes || mes < 1 || mes > 12) {
@@ -158,6 +162,29 @@ export function computePeriodo(
       fechaInicio: new Date(`${startLx.toFormat('yyyy-MM-dd')}T00:00:00.000Z`),
       fechaFin: new Date(`${endLx.toFormat('yyyy-MM-dd')}T23:59:59.999Z`),
       descripcion: `Mensual: ${MESES_ES[mes - 1]} ${anio}`,
+    };
+  }
+
+  if (periodo === 'libre') {
+    if (!startISO || !endISO) {
+      throw new Error('startDate y endDate son requeridos cuando periodo=libre');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startISO) || !/^\d{4}-\d{2}-\d{2}$/.test(endISO)) {
+      throw new Error('Fechas inválidas (use formato YYYY-MM-DD)');
+    }
+    const startLx = DateTime.fromISO(startISO, { zone: MEXICO_TZ }).startOf('day');
+    const endLx = DateTime.fromISO(endISO, { zone: MEXICO_TZ }).endOf('day');
+    if (!startLx.isValid || !endLx.isValid) {
+      throw new Error('Fechas inválidas (use formato YYYY-MM-DD)');
+    }
+    if (startLx > endLx) {
+      throw new Error('La fecha de inicio no puede ser posterior a la de fin');
+    }
+    return {
+      tipo: 'libre',
+      fechaInicio: new Date(`${startLx.toFormat('yyyy-MM-dd')}T00:00:00.000Z`),
+      fechaFin: new Date(`${endLx.toFormat('yyyy-MM-dd')}T23:59:59.999Z`),
+      descripcion: `Libre: ${startLx.toFormat('dd/MM/yyyy')} → ${endLx.toFormat('dd/MM/yyyy')}`,
     };
   }
 

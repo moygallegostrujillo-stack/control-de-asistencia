@@ -5,6 +5,8 @@
 //   fix #3 — hoja "Portada" con datos de la empresa.
 //   fix #4 — XLSX real con exceljs (bordes, freeze, auto-width).
 //   fix #5/#11 — datos consolidados usando isAbsentOnDate.
+//   SIN tope máximo de días (decisión del usuario — el patrón puede
+//   exportar cualquier rango que necesite para la STPS).
 //   Query params:
 //     type=daily|overtime|absences|incidences|comparative
 //     startDate=YYYY-MM-DD  endDate=YYYY-MM-DD
@@ -37,11 +39,7 @@ import {
   computeAbsentsForDate,
 } from '@/lib/absence-calculator';
 import { auditLog, getIpAndUA } from '@/lib/audit';
-
-// Reforma LFT 2027 — art. 804 LFT: conservación mínima 12 meses.
-// Permitimos hasta 366 días (año bisiesto) por export para no obligar a
-// múltiples descargas al patrón cuando la STPS solicite el registro anual.
-const MAX_RANGE_DAYS = 366;
+import { parseDateRange } from '@/lib/reports';
 
 // Mapeo de estados a español
 const STATUS_ES: Record<string, string> = {
@@ -59,9 +57,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const reportType = (searchParams.get('type') || 'daily').toLowerCase();
-    const startDateStr =
-      searchParams.get('startDate') || getMexicoTodayISO();
-    const endDateStr = searchParams.get('endDate') || getMexicoTodayISO();
+    const startDateStr = searchParams.get('startDate');
+    const endDateStr = searchParams.get('endDate');
     const requestedSucursalId = searchParams.get('sucursalId');
     const format = (searchParams.get('format') || 'csv').toLowerCase();
 
@@ -92,28 +89,10 @@ export async function GET(req: NextRequest) {
       return forbiddenResponse();
     }
 
-    // Validar rango
-    const start = new Date(`${startDateStr}T00:00:00.000Z`);
-    const end = new Date(`${endDateStr}T23:59:59.999Z`);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return NextResponse.json(
-        { error: 'Fechas inválidas (use YYYY-MM-DD)' },
-        { status: 400 }
-      );
-    }
-    if (start > end) {
-      return NextResponse.json(
-        { error: 'startDate no puede ser mayor a endDate' },
-        { status: 400 }
-      );
-    }
-    const diffDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-    if (diffDays > MAX_RANGE_DAYS) {
-      return NextResponse.json(
-        { error: `Rango máximo permitido: ${MAX_RANGE_DAYS} días` },
-        { status: 400 }
-      );
-    }
+    // Validar rango (sin tope máximo)
+    const { range, errorResponse } = parseDateRange(startDateStr, endDateStr);
+    if (!range) return errorResponse!;
+    const { startISO, endISO } = range;
 
     // Datos de la empresa (fix #3)
     const company = await db.company.findUnique({
@@ -123,8 +102,8 @@ export async function GET(req: NextRequest) {
     // Construir el dataset según el tipo de reporte
     const { rows, summaryRows, auditRows } = await buildReportData(
       reportType,
-      startDateStr,
-      endDateStr,
+      startISO,
+      endISO,
       sucursalId
     );
 
@@ -138,10 +117,10 @@ export async function GET(req: NextRequest) {
       sucursalId: sucursalId || null,
       ipAddress: ip,
       userAgent: ua,
-      details: { reportType, format, startDate: startDateStr, endDate: endDateStr, sucursalId },
+      details: { reportType, format, startDate: startISO, endDate: endISO, sucursalId },
     });
 
-    const filename = `Reporte_${reportType}_${startDateStr}_${endDateStr}`;
+    const filename = `Reporte_${reportType}_${startISO}_${endISO}`;
 
     // ---------- CSV ----------
     if (format === 'csv') {
@@ -199,7 +178,7 @@ export async function GET(req: NextRequest) {
     };
     const portadaRows: (string | null | undefined)[][] = [
       ['Tipo de Reporte', reportLabels[reportType] || reportType],
-      ['Periodo', `${startDateStr} a ${endDateStr}`],
+      ['Periodo', `${startISO} a ${endISO}`],
       ['Generado el', new Date().toLocaleString('es-MX')],
       ['Generado por', user.name],
       [],

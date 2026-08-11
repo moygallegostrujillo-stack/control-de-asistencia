@@ -3,7 +3,7 @@
 //   Reporte de horas extra en un rango.
 //   fix #2 — calculateOvertime aplica checkoutToleranceMinutes.
 //   fix #6 — desglose por empleado (byEmployee) acumulado.
-//   Valida rango máximo de 90 días.
+//   SIN tope máximo de días (decisión del usuario).
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,9 +14,8 @@ import {
   forbiddenResponse,
   isAdmin,
 } from '@/lib/auth';
-import { toISODate, getMexicoTodayISO, minutesToHours } from '@/lib/timezone';
-
-const MAX_RANGE_DAYS = 90;
+import { toISODate, minutesToHours } from '@/lib/timezone';
+import { parseDateRange, buildPeriodResponse } from '@/lib/reports';
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,9 +24,8 @@ export async function GET(req: NextRequest) {
     if (!isAdmin(user)) return forbiddenResponse();
 
     const { searchParams } = new URL(req.url);
-    const startDateStr =
-      searchParams.get('startDate') || getMexicoTodayISO();
-    const endDateStr = searchParams.get('endDate') || getMexicoTodayISO();
+    const startDateStr = searchParams.get('startDate');
+    const endDateStr = searchParams.get('endDate');
     const requestedSucursalId = searchParams.get('sucursalId');
     const employeeIdParam = searchParams.get('employeeId');
 
@@ -37,29 +35,10 @@ export async function GET(req: NextRequest) {
         ? user.sucursalId
         : requestedSucursalId;
 
-    // Validar rango
-    const start = new Date(`${startDateStr}T00:00:00.000Z`);
-    const end = new Date(`${endDateStr}T23:59:59.999Z`);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return NextResponse.json(
-        { error: 'Fechas inválidas (use YYYY-MM-DD)' },
-        { status: 400 }
-      );
-    }
-    if (start > end) {
-      return NextResponse.json(
-        { error: 'startDate no puede ser mayor a endDate' },
-        { status: 400 }
-      );
-    }
-    const diffDays =
-      (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-    if (diffDays > MAX_RANGE_DAYS) {
-      return NextResponse.json(
-        { error: `Rango máximo permitido: ${MAX_RANGE_DAYS} días` },
-        { status: 400 }
-      );
-    }
+    // Validar rango (sin tope máximo)
+    const { range, errorResponse } = parseDateRange(startDateStr, endDateStr);
+    if (!range) return errorResponse!;
+    const { start, end } = range;
 
     // Construir filtro
     const where: any = { date: { gte: start, lte: end } };
@@ -284,7 +263,7 @@ export async function GET(req: NextRequest) {
         totalRestDayWorkedCount,
         totalRestDayPremiumHours: minutesToHours(totalRestDayPremiumMinutes),
       },
-      period: { start: startDateStr, end: endDateStr },
+      period: buildPeriodResponse(range),
     });
   } catch (error) {
     console.error('GET /api/reports/overtime error:', error);

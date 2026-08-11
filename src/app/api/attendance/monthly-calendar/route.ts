@@ -1,11 +1,14 @@
 // ============================================================
 // GET /api/attendance/monthly-calendar
-// Devuelve la asistencia de un empleado en todo un mes.
+// Devuelve la asistencia de un empleado en un mes o en un rango libre.
 //   ?employeeId=X&month=YYYY-MM  (ej: 2026-07)
+//   ?employeeId=X&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD  (rango libre)
 // ADMIN: puede consultar cualquier empleado de su sucursal
 //   (GA ve todos; SUCURSAL_ADMIN solo su sucursal).
 // EMPLOYEE: solo puede consultarse a sí mismo (usa su employeeId).
-// Respuesta: { employee, month, days: [{ date, status, checkInTime, checkOutTime, ... }] }
+// Respuesta: { employee, month, days: [...], stats, period? }
+//   - Si se usó `month`: month="YYYY-MM" y no hay `period`.
+//   - Si se usó rango libre: month=null y period={ start, end }.
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,7 +18,9 @@ import {
   unauthorizedResponse,
   isGeneralAdmin,
 } from '@/lib/auth';
-import { getMexicoTodayISO } from '@/lib/timezone';
+import { getMexicoTodayISO, MEXICO_TZ } from '@/lib/timezone';
+import { DateTime } from 'luxon';
+import { parseDateRange } from '@/lib/reports';
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,6 +30,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const queryEmployeeId = searchParams.get('employeeId');
     const queryMonth = searchParams.get('month'); // YYYY-MM
+    const queryStartDate = searchParams.get('startDate');
+    const queryEndDate = searchParams.get('endDate');
 
     // Determinar empleado a consultar
     let employeeId: string | undefined;
@@ -41,21 +48,70 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Validar mes (default: mes actual)
+    // ----- Determinar rango de fechas (modo month o modo range) -----
     const todayISO = getMexicoTodayISO();
-    const defaultMonth = todayISO.slice(0, 7); // YYYY-MM
-    const month = queryMonth && /^\d{4}-\d{2}$/.test(queryMonth) ? queryMonth : defaultMonth;
+    let isRangeMode = false;
+    let rangeStartISO = '';
+    let rangeEndISO = '';
+    let month: string | null = '';
 
-    // Validar formato
-    const [yearStr, monthStr] = month.split('-');
-    const year = parseInt(yearStr, 10);
-    const mon = parseInt(monthStr, 10);
-    if (!year || !mon || mon < 1 || mon > 12) {
-      return NextResponse.json(
-        { error: 'Mes inválido. Usa formato YYYY-MM' },
-        { status: 400 }
-      );
+    if (queryStartDate && queryEndDate) {
+      // Modo rango libre
+      isRangeMode = true;
+      const { range, errorResponse } = parseDateRange(queryStartDate, queryEndDate);
+      if (!range) return errorResponse!;
+      rangeStartISO = range.startISO;
+      rangeEndISO = range.endISO;
+      month = null;
+    } else {
+      // Modo mes (default: mes actual)
+      const defaultMonth = todayISO.slice(0, 7); // YYYY-MM
+      const parsedMonth =
+        queryMonth && /^\d{4}-\d{2}$/.test(queryMonth) ? queryMonth : defaultMonth;
+      const [yearStr, monthStr] = parsedMonth.split('-');
+      const year = parseInt(yearStr, 10);
+      const mon = parseInt(monthStr, 10);
+      if (!year || !mon || mon < 1 || mon > 12) {
+        return NextResponse.json(
+          { error: 'Mes inválido. Usa formato YYYY-MM' },
+          { status: 400 }
+        );
+      }
+      month = parsedMonth;
+      // Día 1 del mes a día último (en UTC+6 para coincidir con la convención
+      // del resto del sistema: date se almacena como UTC 06:00 = Mexico 00:00).
+      const startDate = new Date(Date.UTC(year, mon - 1, 1, 6, 0, 0));
+      const endDate = new Date(Date.UTC(year, mon, 0, 6, 0, 0)); // día 0 del mes siguiente = último día del mes actual
+      rangeStartISO = new Date(startDate.getTime() + 6 * 3600000)
+        .toISOString()
+        .slice(0, 10);
+      rangeEndISO = new Date(endDate.getTime() + 6 * 3600000)
+        .toISOString()
+        .slice(0, 10);
     }
+
+    // Construir startDate/endDate como Date UTC (06:00 = Mexico 00:00)
+    // para las queries de Prisma (consistencia con el resto del sistema).
+    const startDate = new Date(
+      Date.UTC(
+        parseInt(rangeStartISO.slice(0, 4), 10),
+        parseInt(rangeStartISO.slice(5, 7), 10) - 1,
+        parseInt(rangeStartISO.slice(8, 10), 10),
+        6,
+        0,
+        0
+      )
+    );
+    const endDate = new Date(
+      Date.UTC(
+        parseInt(rangeEndISO.slice(0, 4), 10),
+        parseInt(rangeEndISO.slice(5, 7), 10) - 1,
+        parseInt(rangeEndISO.slice(8, 10), 10),
+        6,
+        0,
+        0
+      )
+    );
 
     // Cargar empleado (con sucursal para validación de permisos)
     const employee = await db.employee.findUnique({
@@ -83,12 +139,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Rango de fechas del mes (en UTC+6 para coincidir con getMexicoTodayDate)
-    // Día 1 del mes a día último
-    const startDate = new Date(Date.UTC(year, mon - 1, 1, 6, 0, 0));
-    const endDate = new Date(Date.UTC(year, mon, 0, 6, 0, 0)); // día 0 del mes siguiente = último día del mes actual
-
-    // Cargar registros de asistencia del mes
+    // Cargar registros de asistencia del rango
     const records = await db.attendanceRecord.findMany({
       where: {
         employeeId,
@@ -97,7 +148,7 @@ export async function GET(req: NextRequest) {
       orderBy: { date: 'asc' },
     });
 
-    // Cargar vacaciones aprobadas que intersectan el mes
+    // Cargar vacaciones aprobadas que intersectan el rango
     const vacations = await db.vacation.findMany({
       where: {
         employeeId,
@@ -113,7 +164,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // Cargar feriados del mes
+    // Cargar feriados del rango
     const holidays = await db.holiday.findMany({
       where: {
         date: { gte: startDate, lte: endDate },
@@ -121,17 +172,20 @@ export async function GET(req: NextRequest) {
       select: { date: true, name: true },
     });
 
-    // Construir mapa de días
-    const daysInMonth = new Date(year, mon, 0).getDate();
+    // Construir mapa de registros y feriados por ISO
     const recordMap = new Map<string, any>();
     for (const r of records) {
-      const iso = new Date(r.date.getTime() + 6 * 3600 * 1000).toISOString().slice(0, 10);
+      const iso = new Date(r.date.getTime() + 6 * 3600000)
+        .toISOString()
+        .slice(0, 10);
       recordMap.set(iso, r);
     }
 
     const holidayMap = new Map<string, string>();
     for (const h of holidays) {
-      const iso = new Date(h.date.getTime() + 6 * 3600 * 1000).toISOString().slice(0, 10);
+      const iso = new Date(h.date.getTime() + 6 * 3600000)
+        .toISOString()
+        .slice(0, 10);
       holidayMap.set(iso, h.name);
     }
 
@@ -144,19 +198,31 @@ export async function GET(req: NextRequest) {
       return null;
     };
 
-    // Construir array de días
+    // Enumerar días del rango (en Mexico TZ para respetar DST).
+    const startLx = DateTime.fromISO(rangeStartISO, { zone: MEXICO_TZ }).startOf('day');
+    const endLx = DateTime.fromISO(rangeEndISO, { zone: MEXICO_TZ }).startOf('day');
     const days: any[] = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      const iso = `${month}-${String(day).padStart(2, '0')}`;
+    let cursor = startLx;
+    while (cursor <= endLx) {
+      const iso = cursor.toFormat('yyyy-MM-dd');
       const record = recordMap.get(iso);
       const holidayName = holidayMap.get(iso);
       const vacationType = isInVacation(iso);
-      const dow = new Date(iso + 'T06:00:00.000Z').getUTCDay(); // 0=domingo
+      // luxon weekday: 1=lunes..7=domingo. Convertimos a 0=domingo..6=sábado.
+      const dow = cursor.weekday % 7;
       const isWeekend = dow === 0 || dow === 6;
       const isFuture = iso > todayISO;
 
       // Determinar el tipo de día para el calendario
-      let dayType: 'PRESENT' | 'LATE' | 'ABSENT' | 'EARLY_LEAVE' | 'HOLIDAY' | 'VACATION' | 'WEEKEND' | 'NO_DATA' = 'NO_DATA';
+      let dayType:
+        | 'PRESENT'
+        | 'LATE'
+        | 'ABSENT'
+        | 'EARLY_LEAVE'
+        | 'HOLIDAY'
+        | 'VACATION'
+        | 'WEEKEND'
+        | 'NO_DATA' = 'NO_DATA';
       if (holidayName) {
         dayType = 'HOLIDAY';
       } else if (vacationType) {
@@ -171,7 +237,7 @@ export async function GET(req: NextRequest) {
 
       days.push({
         date: iso,
-        day,
+        day: cursor.day,
         dayOfWeek: dow,
         isWeekend,
         isFuture,
@@ -187,11 +253,13 @@ export async function GET(req: NextRequest) {
         mealExceeded: record?.mealExceeded || false,
         restExceeded: record?.restExceeded || false,
       });
+
+      cursor = cursor.plus({ days: 1 });
     }
 
-    // Stats del mes
+    // Stats del rango
     const stats = {
-      totalDays: daysInMonth,
+      totalDays: days.length,
       present: days.filter((d) => d.type === 'PRESENT').length,
       late: days.filter((d) => d.type === 'LATE').length,
       absent: days.filter((d) => d.type === 'ABSENT').length,
@@ -199,11 +267,17 @@ export async function GET(req: NextRequest) {
       holidays: days.filter((d) => d.type === 'HOLIDAY').length,
       vacations: days.filter((d) => d.type === 'VACATION').length,
       weekends: days.filter((d) => d.type === 'WEEKEND').length,
-      totalWorkedMinutes: records.reduce((sum, r) => sum + (r.workedMinutes || 0), 0),
-      totalOvertimeMinutes: records.reduce((sum, r) => sum + (r.overtimeMinutes || 0), 0),
+      totalWorkedMinutes: records.reduce(
+        (sum, r) => sum + (r.workedMinutes || 0),
+        0
+      ),
+      totalOvertimeMinutes: records.reduce(
+        (sum, r) => sum + (r.overtimeMinutes || 0),
+        0
+      ),
     };
 
-    return NextResponse.json({
+    const response: any = {
       employee: {
         id: employee.id,
         name: employee.user.name,
@@ -216,7 +290,15 @@ export async function GET(req: NextRequest) {
       month,
       days,
       stats,
-    });
+    };
+
+    // Si se usó rango libre, agregamos `period` para que la UI sepa
+    // qué rango real se evaluó. En modo month, `month` ya basta.
+    if (isRangeMode) {
+      response.period = { start: rangeStartISO, end: rangeEndISO };
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error('[monthly-calendar] error:', error);
     return NextResponse.json(

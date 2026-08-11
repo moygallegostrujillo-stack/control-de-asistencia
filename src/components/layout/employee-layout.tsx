@@ -65,6 +65,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { QrScanner } from '@/components/qr/qr-scanner';
+import { DateRangePicker } from '@/components/reports/date-range-picker';
 import {
   Clock,
   History as HistoryIcon,
@@ -82,6 +83,7 @@ import {
   RefreshCw,
   Navigation,
   Download,
+  FileSpreadsheet,
   Plus,
   X,
   ChevronDown,
@@ -1207,17 +1209,24 @@ function SummaryCell({
 // ============================================================
 
 function HistoryView() {
-  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('week');
+  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'custom'>('week');
   const [date, setDate] = useState<string>(getMexicoTodayISO());
+  const [customStart, setCustomStart] = useState<string>(getMexicoTodayISO());
+  const [customEnd, setCustomEnd] = useState<string>(getMexicoTodayISO());
   const [downloading, setDownloading] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['attendance', 'history', period, date],
+    queryKey: ['attendance', 'history', period, date, customStart, customEnd],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        period,
-        date,
-      });
+      const params = new URLSearchParams();
+      params.set('period', period);
+      if (period === 'custom') {
+        params.set('startDate', customStart);
+        params.set('endDate', customEnd);
+      } else {
+        params.set('date', date);
+      }
       return apiGet<{ records: HistoryRecord[]; from: string; to: string }>(
         `/api/attendance/history?${params.toString()}`,
       );
@@ -1227,16 +1236,26 @@ function HistoryView() {
 
   const records = data?.records ?? [];
 
+  // Resuelve el rango ISO a exportar según el modo seleccionado.
+  // Para day/week/month usamos el `from`/`to` que ya calculó la API;
+  // para custom usamos el rango libre del DateRangePicker.
+  const resolveExportRange = (): { startDate: string; endDate: string } => {
+    if (period === 'custom') {
+      return { startDate: customStart, endDate: customEnd };
+    }
+    return { startDate: data?.from || date, endDate: data?.to || date };
+  };
+
   const handleDownload = async () => {
     setDownloading(true);
     try {
+      const { startDate, endDate } = resolveExportRange();
       const params = new URLSearchParams({
-        type: 'daily',
         format: 'csv',
-        startDate: date,
-        endDate: date,
+        startDate,
+        endDate,
       });
-      const res = await authFetch(`/api/reports/export?${params.toString()}`);
+      const res = await authFetch(`/api/reports/my-export?${params.toString()}`);
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error((d as { error?: string }).error || 'No hay datos para exportar');
@@ -1245,7 +1264,7 @@ function HistoryView() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `historial_asistencia_${period}_${date}.csv`;
+      a.download = `mi_historial_${startDate}_${endDate}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1258,6 +1277,37 @@ function HistoryView() {
     }
   };
 
+  const handleDownloadXlsx = async () => {
+    setDownloadingXlsx(true);
+    try {
+      const { startDate, endDate } = resolveExportRange();
+      const params = new URLSearchParams({
+        format: 'xlsx',
+        startDate,
+        endDate,
+      });
+      const res = await authFetch(`/api/reports/my-export?${params.toString()}`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || 'No hay datos para exportar');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mi_historial_${startDate}_${endDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Reporte XLSX descargado');
+    } catch (e) {
+      toast.error('Error al descargar el reporte', { description: (e as Error).message });
+    } finally {
+      setDownloadingXlsx(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -1267,20 +1317,38 @@ function HistoryView() {
     >
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-xl font-bold">Mi Historial</h2>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownload}
-          disabled={downloading || records.length === 0}
-          className="gap-1.5"
-        >
-          {downloading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Download className="w-4 h-4" />
-          )}
-          CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+            disabled={downloading || records.length === 0}
+            className="gap-1.5"
+            title="Descargar CSV del rango visible"
+          >
+            {downloading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadXlsx}
+            disabled={downloadingXlsx || records.length === 0}
+            className="gap-1.5"
+            title="Descargar Excel del rango visible"
+          >
+            {downloadingXlsx ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4" />
+            )}
+            XLSX
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -1289,7 +1357,7 @@ function HistoryView() {
           <div className="flex flex-wrap gap-3 items-end">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Periodo</Label>
-              <Select value={period} onValueChange={(v) => setPeriod(v as 'day' | 'week' | 'month')}>
+              <Select value={period} onValueChange={(v) => setPeriod(v as 'day' | 'week' | 'month' | 'custom')}>
                 <SelectTrigger className="w-36">
                   <SelectValue />
                 </SelectTrigger>
@@ -1297,18 +1365,33 @@ function HistoryView() {
                   <SelectItem value="day">Día</SelectItem>
                   <SelectItem value="week">Semana</SelectItem>
                   <SelectItem value="month">Mes</SelectItem>
+                  <SelectItem value="custom">Personalizado</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Fecha</Label>
-              <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value || getMexicoTodayISO())}
-                className="w-44"
-              />
-            </div>
+            {period === 'custom' ? (
+              <div className="space-y-1.5 flex-1 min-w-[280px]">
+                <Label className="text-xs text-muted-foreground">Rango de fechas</Label>
+                <DateRangePicker
+                  value={{ start: customStart, end: customEnd }}
+                  onChange={(v) => {
+                    setCustomStart(v.start);
+                    setCustomEnd(v.end);
+                  }}
+                  className="w-full"
+                />
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Fecha</Label>
+                <Input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value || getMexicoTodayISO())}
+                  className="w-44"
+                />
+              </div>
+            )}
             <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1.5">
               <RefreshCw className="w-3.5 h-3.5" /> Refrescar
             </Button>

@@ -812,6 +812,27 @@ export function UserManual() {
                 titulo="¿Para qué te sirve?"
                 descripcion="Para comprobar que tus horas estén correctas antes del pago de nómina, y para llevar un control de tus días trabajados."
               />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TarjetaAccion
+                  icon={Clock}
+                  titulo="Selector de periodo"
+                  descripcion="Puedes ver el historial de un Día, una Semana o un Mes. Ahora también existe la opción Personalizado, que te deja elegir cualquier rango de fechas libre."
+                />
+                <TarjetaAccion
+                  icon={Download}
+                  titulo="Descargar CSV / XLSX"
+                  descripcion="Exporta tu historial del rango visible en CSV o Excel. El archivo usa un endpoint específico para empleados, con metadatos extendidos para prueba plena según el art. 132 XXXIV LFT."
+                />
+              </div>
+              <Nota tipo="tip" titulo="Presets rápidos">
+                <p>
+                  En modo Personalizado aparecen botones de un clic para
+                  rangos comunes: Hoy, Ayer, Esta semana, Este mes, Mes pasado
+                  y Este año. Al tocar uno, los campos Desde y Hasta se
+                  rellenan solos. No hay tope máximo de días: puedes generar
+                  el reporte para un día, un trimestre o un año entero.
+                </p>
+              </Nota>
             </div>
 
             <Separator />
@@ -947,6 +968,18 @@ export function UserManual() {
                 alertas que requieren tu atención. El administrador general ve
                 todas las sucursales; el de sucursal, solo la suya.
               </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <TarjetaAccion
+                  icon={Download}
+                  titulo="Exportar día"
+                  descripcion="Botón rápido que descarga un CSV con los datos visibles en el dashboard del día actual. Respeta el filtro de sucursal activo si eres administrador general."
+                />
+                <TarjetaAccion
+                  icon={FileBarChart}
+                  titulo="Exportar rango"
+                  descripcion="Abre un diálogo con selector Desde/Hasta (con presets) y descarga un CSV consolidado por el backend para cualquier rango de fechas. Útil para revisiones de fin de semana o de todo un mes."
+                />
+              </div>
             </div>
 
             <Separator />
@@ -1047,6 +1080,26 @@ export function UserManual() {
                 <strong>justificar</strong> una falta (enfermedad, permiso
                 especial). Toda corrección queda registrada en la auditoría.
               </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <TarjetaAccion
+                  icon={Clock}
+                  titulo="Periodo Personalizado"
+                  descripcion="Además de Día/Semana/Mes, existe Personalizado: elige cualquier rango de fechas con presets rápidos (Hoy, Ayer, Esta semana, Este mes, Mes pasado, Este año)."
+                />
+                <TarjetaAccion
+                  icon={CalendarCheck}
+                  titulo="Calendario: Vista mensual / Vista por rango"
+                  descripcion="El calendario ahora alterna entre ver un mes completo (con flechas ◀ ▶) o cualquier rango libre. En modo rango, los días se apilan en orden cronológico sin huecos."
+                />
+              </div>
+              <Nota tipo="info" titulo="Sin tope máximo de días">
+                <p>
+                  Tanto el historial como el calendario permiten rangos de
+                  cualquier duración (un día, una quincena, un trimestre, un
+                  año…). El backend valida el orden de las fechas pero no
+                  impone un máximo.
+                </p>
+              </Nota>
             </div>
 
             <Separator />
@@ -1060,37 +1113,51 @@ export function UserManual() {
               <p className="text-sm text-zinc-600 leading-relaxed">
                 El sistema genera reportes listos para usar en el pago de
                 nómina y para auditorías. Los puedes exportar en Excel o PDF.
+                Todos los reportes ahora aceptan un <strong>rango de fechas</strong>{' '}
+                (Desde/Hasta) con <strong>presets rápidos</strong> de un clic y
+                <strong> sin tope máximo de días</strong>.
               </p>
+              <Nota tipo="tip" titulo="Presets rápidos">
+                <p>
+                  En cualquier selector de rango verás estos chips:{' '}
+                  <strong>Hoy</strong>, <strong>Ayer</strong>,{' '}
+                  <strong>Esta semana</strong>, <strong>Este mes</strong>,{' '}
+                  <strong>Mes pasado</strong> y <strong>Este año</strong>. Al
+                  tocar uno, los campos Desde y Hasta se rellenan
+                  automáticamente (en zona horaria de México para evitar
+                  desfases). También puedes escribir las fechas a mano.
+                </p>
+              </Nota>
               <div className="grid gap-2 sm:grid-cols-2">
                 <TarjetaAccion
                   icon={FileText}
-                  titulo="Reporte diario"
-                  descripcion="Quién entró, quién faltó y quién llegó tarde en un día específico."
+                  titulo="Reporte diario (con rango)"
+                  descripcion="Quién entró, quién faltó y quién llegó tarde. Ahora acepta rangos multi-día: consolida los resultados de todos los días en el rango en una sola tabla. Antes solo permitía un día."
                 />
                 <TarjetaAccion
                   icon={Ban}
                   titulo="Ausencias"
-                  descripcion="Lista de faltas injustificadas en un periodo."
+                  descripcion="Lista de faltas injustificadas en el periodo. Acepta cualquier rango de fechas."
                 />
                 <TarjetaAccion
                   icon={AlertTriangle}
                   titulo="Incidencias"
-                  descripcion="Llegadas tarde, salidas anticipadas, omisiones."
+                  descripcion="Llegadas tarde, salidas anticipadas, omisiones. Acepta cualquier rango de fechas."
                 />
                 <TarjetaAccion
                   icon={Timer}
                   titulo="Horas extra"
-                  descripcion="Horas trabajadas después de la jornada, con cálculo de pago doble y triple."
+                  descripcion="Horas trabajadas después de la jornada, con cálculo de pago doble y triple. Acepta cualquier rango de fechas."
                 />
                 <TarjetaAccion
                   icon={FileCheck2}
-                  titulo="Formato STPS"
-                  descripcion="Reporte listo para una visita de inspección de la Secretaría del Trabajo."
+                  titulo="Formato STPS (Art. 804 LFT)"
+                  descripcion="Reporte listo para una visita de inspección. Tres modos: Mensual (Mes+Año), Semanal (Semana+Año) o Libre (cualquier rango personalizado — útil cuando la inspección pide periodos no calendarios)."
                 />
                 <TarjetaAccion
                   icon={BarChart3}
                   titulo="Comparativo"
-                  descripcion="Compara asistencia entre sucursales (solo administrador general)."
+                  descripcion="Compara asistencia entre sucursales (solo administrador general). Acepta cualquier rango de fechas."
                 />
               </div>
               <Nota tipo="ok" titulo="Cumplimiento garantizado">
@@ -1100,6 +1167,14 @@ export function UserManual() {
                   2027</strong> y la <strong>NOM-037-STPS-2023</strong>. Si
                   una autoridad laboral te los pide, ya están en el formato
                   correcto.
+                </p>
+              </Nota>
+              <Nota tipo="info" titulo="Sin tope máximo de días">
+                <p>
+                  Puedes generar reportes para cualquier duración (un día,
+                  una semana, un mes, un trimestre, un año…). El backend ya no
+                  impone límites artificiales; solo valida que la fecha
+                  inicial sea anterior o igual a la final.
                 </p>
               </Nota>
             </div>

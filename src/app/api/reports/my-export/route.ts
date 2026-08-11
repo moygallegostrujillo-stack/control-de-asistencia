@@ -5,6 +5,8 @@
 //   empleadora"). El empleado puede descargar sus registros para revisarlos
 //   y conservarlos. Solo accede a SUS registros.
 //
+//   SIN tope máximo de días (decisión del usuario).
+//
 //   Query params:
 //     startDate=YYYY-MM-DD  (default: hace 30 días)
 //     endDate=YYYY-MM-DD    (default: hoy)
@@ -22,11 +24,9 @@ import {
   toISODate,
   getMexicoTodayISO,
   formatTimeInMexico,
-  minutesToHours,
 } from '@/lib/timezone';
 import { auditLog, getIpAndUA } from '@/lib/audit';
-
-const MAX_RANGE_DAYS = 365; // el empleado puede exportar hasta 1 año
+import { parseDateRange } from '@/lib/reports';
 
 const STATUS_ES: Record<string, string> = {
   PRESENT: 'Presente',
@@ -56,13 +56,12 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const today = getMexicoTodayISO();
     const thirtyAgo = new Date();
     thirtyAgo.setDate(thirtyAgo.getDate() - 30);
     const thirtyAgoISO = thirtyAgo.toISOString().slice(0, 10);
 
     const startDateStr = searchParams.get('startDate') || thirtyAgoISO;
-    const endDateStr = searchParams.get('endDate') || today;
+    const endDateStr = searchParams.get('endDate') || getMexicoTodayISO();
     const format = (searchParams.get('format') || 'csv').toLowerCase();
 
     if (!['csv', 'xlsx'].includes(format)) {
@@ -72,27 +71,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const start = new Date(`${startDateStr}T00:00:00.000Z`);
-    const end = new Date(`${endDateStr}T23:59:59.999Z`);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return NextResponse.json(
-        { error: 'Fechas inválidas (use YYYY-MM-DD)' },
-        { status: 400 }
-      );
-    }
-    const diffDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-    if (diffDays < 0) {
-      return NextResponse.json(
-        { error: 'La fecha de inicio no puede ser posterior a la de fin' },
-        { status: 400 }
-      );
-    }
-    if (diffDays > MAX_RANGE_DAYS) {
-      return NextResponse.json(
-        { error: `El rango máximo es de ${MAX_RANGE_DAYS} días` },
-        { status: 400 }
-      );
-    }
+    // Validar rango (sin tope máximo)
+    const { range, errorResponse } = parseDateRange(startDateStr, endDateStr);
+    if (!range) return errorResponse!;
+    const { start, end } = range;
 
     // Cargar registros del empleado + info de sucursal y empresa
     const [records, employee, company] = await Promise.all([

@@ -1,6 +1,19 @@
 // ============================================================
 // /api/reports/daily — GET
-//   Reporte diario de asistencia.
+//   Reporte diario de asistencia. Acepta:
+//     ?date=YYYY-MM-DD                  — un solo día (retrocompat)
+//     ?startDate=&endDate=YYYY-MM-DD    — rango libre (sin tope máximo)
+//     ?sucursalId=...                   — filtra por sucursal
+//
+//   Para rangos multi-día:
+//     - records: unión de todos los días (orden: fecha asc, luego
+//       sucursalId, luego employeeNumber).
+//     - bySucursal: totales consolidados sumando cada día.
+//       Ausentes se calculan llamando a computeAbsentsForDate por
+//       cada día del rango (acumula).
+//     - summary: suma de los totales de bySucursal.
+//     - Respuesta: `period: { start, end }` en lugar de `date`.
+//
 //   fix #2 — horas extra con tolerancia (calculateOvertime).
 //   fix #3 — incluye datos de la empresa (Company) para headers.
 //   fix #12 — desglose por sucursal usando computeAbsentsForDate
@@ -18,12 +31,12 @@ import {
 } from '@/lib/auth';
 import {
   toISODate,
-  getMexicoTodayISO,
   minutesToHours,
 } from '@/lib/timezone';
 import { computeAbsentsForDate } from '@/lib/absence-calculator';
 import { calculateOvertime, findScheduleForDate } from '@/lib/overtime-calculator';
 import type { WorkSchedule } from '@prisma/client';
+import { parseDateRange, buildPeriodResponse } from '@/lib/reports';
 
 export async function GET(req: NextRequest) {
   try {
@@ -32,8 +45,18 @@ export async function GET(req: NextRequest) {
     if (!isAdmin(user)) return forbiddenResponse();
 
     const { searchParams } = new URL(req.url);
-    const dateStr = searchParams.get('date') || getMexicoTodayISO();
+    const dateParam = searchParams.get('date');
+    const startDateParam = searchParams.get('startDate');
+    const endDateParam = searchParams.get('endDate');
     const requestedSucursalId = searchParams.get('sucursalId');
+
+    // Retrocompat: si llega `date`, úsalo como start=end=date.
+    let effectiveStart = startDateParam;
+    let effectiveEnd = endDateParam;
+    if (dateParam) {
+      effectiveStart = dateParam;
+      effectiveEnd = dateParam;
+    }
 
     // SUCURSAL_ADMIN / SUPERVISOR: sólo puede ver su propia sucursal.
     const sucursalId =
@@ -41,9 +64,10 @@ export async function GET(req: NextRequest) {
         ? user.sucursalId
         : requestedSucursalId;
 
-    // Rango del día (UTC midnight a UTC 23:59:59) para el @db.Date
-    const dateStart = new Date(`${dateStr}T00:00:00.000Z`);
-    const dateEnd = new Date(`${dateStr}T23:59:59.999Z`);
+    // Validar rango (sin tope máximo).
+    const { range, errorResponse } = parseDateRange(effectiveStart, effectiveEnd);
+    if (!range) return errorResponse!;
+    const { start, end } = range;
 
     // Sucursales visibles al usuario
     const sucursalWhere = isGeneralAdmin(user)
@@ -54,8 +78,8 @@ export async function GET(req: NextRequest) {
       orderBy: { name: 'asc' },
     });
 
-    // Registros del día, filtrados por sucursal si aplica
-    const recordWhere: any = { date: { gte: dateStart, lte: dateEnd } };
+    // Registros de TODO el rango, filtrados por sucursal si aplica.
+    const recordWhere: any = { date: { gte: start, lte: end } };
     if (sucursalId) recordWhere.sucursalId = sucursalId;
 
     const records = await db.attendanceRecord.findMany({
@@ -77,6 +101,7 @@ export async function GET(req: NextRequest) {
         },
       },
       orderBy: [
+        { date: 'asc' },
         { sucursalId: 'asc' },
         { employee: { employeeNumber: 'asc' } },
       ],
@@ -152,7 +177,17 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // Desglose por sucursal — fix #12: usar computeAbsentsForDate
+    // Enumerar días del rango (UTC 00:00 de cada día — mismo patrón
+    // que usa computeAbsentsForDate internamente para el filtrado).
+    const days: Date[] = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      days.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    // Desglose por sucursal — fix #12: usar computeAbsentsForDate.
+    // Para rangos multi-día, acumulamos ausentes día por día.
     const bySucursal: {
       sucursalId: string;
       name: string;
@@ -178,7 +213,12 @@ export async function GET(req: NextRequest) {
     }[] = [];
     for (const suc of sucursales) {
       const sucRecords = enrichedRecords.filter((r) => r.sucursalId === suc.id);
-      const absents = await computeAbsentsForDate(dateStart, suc.id);
+      // Acumular ausentes en todos los días del rango.
+      let totalAbsents = 0;
+      for (const day of days) {
+        const absents = await computeAbsentsForDate(day, suc.id);
+        totalAbsents += absents.length;
+      }
       const sucDoubleMin = sucRecords.reduce((s, r) => s + (r.overtimeDoubleMinutes || 0), 0);
       const sucTripleMin = sucRecords.reduce((s, r) => s + (r.overtimeTripleMinutes || 0), 0);
       const sucRestWorkedMin = sucRecords.reduce((s, r) => s + (r.restDayWorkedMinutes || 0), 0);
@@ -187,10 +227,10 @@ export async function GET(req: NextRequest) {
         sucursalId: suc.id,
         name: suc.name,
         codigoLocal: suc.codigoLocal,
-        total: sucRecords.length + absents.length,
+        total: sucRecords.length + totalAbsents,
         present: sucRecords.filter((r) => r.status === 'PRESENT').length,
         late: sucRecords.filter((r) => r.status === 'LATE').length,
-        absent: absents.length, // fix #12 — coincidente con dashboard
+        absent: totalAbsents, // fix #12 — coincidente con dashboard
         earlyLeave: sucRecords.filter((r) => r.status === 'EARLY_LEAVE').length,
         onBreak: sucRecords.filter(
           (r) => (r.mealStart && !r.mealEnd) || (r.restStart && !r.restEnd)
@@ -252,7 +292,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      date: dateStr,
+      period: buildPeriodResponse(range),
       records: enrichedRecords,
       bySucursal,
       summary,
