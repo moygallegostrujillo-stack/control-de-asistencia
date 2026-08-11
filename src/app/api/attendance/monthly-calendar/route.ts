@@ -252,6 +252,9 @@ export async function GET(req: NextRequest) {
         overtimeMinutes: record?.overtimeMinutes || null,
         mealExceeded: record?.mealExceeded || false,
         restExceeded: record?.restExceeded || false,
+        // Trazabilidad de correcciones (LFT 2027 / NOM-037)
+        correctedAt: record?.correctedAt || null,
+        correctionReason: record?.correctionReason || null,
       });
 
       cursor = cursor.plus({ days: 1 });

@@ -53,6 +53,7 @@ import {
   FileDown, FileText, ExternalLink, BookOpen, FileType, Scale, Sparkles,
   Server, Database, Rocket,
   CalendarOff, Sun, Moon,
+  ClipboardPen, PencilLine, ArrowRight,
 } from 'lucide-react';
 
 // ============================================================
@@ -534,6 +535,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'history', label: 'Historial', icon: HistoryIcon, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'calendar', label: 'Calendario', icon: CalendarDays, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'reports', label: 'Reportes', icon: FileBarChart, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
+  { id: 'corrections', label: 'Correcciones', icon: ClipboardPen, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'nom-035', label: 'Alertas NOM-035', icon: ShieldAlert, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'qr-terminal', label: 'Terminal QR', icon: QrCode, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
@@ -555,6 +557,7 @@ const VIEW_TITLES: Record<AdminView, string> = {
   history: 'Historial de Asistencia',
   calendar: 'Calendario de Asistencia',
   reports: 'Reportes',
+  corrections: 'Correcciones de Asistencia',
   audit: 'Auditoría',
   'qr-terminal': 'Terminal QR',
   company: 'Empresa y Feriados',
@@ -1240,7 +1243,20 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                               </div>
                             </TableCell>
                             <TableCell className="whitespace-nowrap">{formatTimeInMexico(r.checkOutTime)}</TableCell>
-                            <TableCell className="whitespace-nowrap"><StatusBadge status={r.status} /></TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <StatusBadge status={r.status} />
+                                {r.correctedAt && (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-medium dark:bg-amber-900/40 dark:text-amber-300"
+                                    title={`Corregido el ${formatDateTimeInMexico(r.correctedAt)}${r.correctionReason ? ': ' + r.correctionReason : ''}`}
+                                  >
+                                    <PencilLine className="h-3 w-3" />
+                                    Corregido
+                                  </span>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell className="whitespace-nowrap">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -3724,6 +3740,9 @@ interface CalendarDay {
   overtimeMinutes: number | null;
   mealExceeded: boolean;
   restExceeded: boolean;
+  // Campos de corrección (Prisma los devuelve por defecto en findMany).
+  correctedAt?: string | null;
+  correctionReason?: string | null;
 }
 
 interface CalendarResponse {
@@ -4044,12 +4063,20 @@ function CalendarView({ role, userSucursalId }: { role: Role; userSucursalId: st
                           type="button"
                           onClick={() => setSelectedDay(day)}
                           className={cn(
-                            'aspect-square rounded-md border text-xs font-medium transition-colors flex flex-col items-center justify-center p-1',
+                            'relative aspect-square rounded-md border text-xs font-medium transition-colors flex flex-col items-center justify-center p-1',
                             colorCls,
                             day.isFuture && 'opacity-50'
                           )}
                           title={`${day.date} · ${DAY_TYPE_LABEL[day.type]}${day.holidayName ? ' · ' + day.holidayName : ''}`}
                         >
+                          {day.correctedAt && (
+                            <span
+                              title={`Corregido: ${day.correctionReason || 'Sin motivo'}`}
+                              className="absolute top-1 right-1"
+                            >
+                              <PencilLine className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                            </span>
+                          )}
                           <span className="text-sm">{day.day}</span>
                           {day.checkInTime && (
                             <span className="text-[10px] tabular-nums opacity-75">{formatTimeInMexico(day.checkInTime)}</span>
@@ -4551,7 +4578,20 @@ function HistoryView({ role }: { role: Role }) {
                       {isGA && <TableCell className="whitespace-nowrap text-muted-foreground">{r.employee?.sucursal ? sucursalLabel(r.employee.sucursal.name, r.employee.sucursal.codigoLocal) : '—'}</TableCell>}
                       <TableCell className="whitespace-nowrap">{formatTimeInMexico(r.checkInTime)}</TableCell>
                       <TableCell className="whitespace-nowrap">{formatTimeInMexico(r.checkOutTime)}</TableCell>
-                      <TableCell className="whitespace-nowrap"><StatusBadge status={r.status} /></TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={r.status} />
+                          {r.correctedAt && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-medium dark:bg-amber-900/40 dark:text-amber-300"
+                              title={`Corregido el ${formatDateTimeInMexico(r.correctedAt)}${r.correctionReason ? ': ' + r.correctionReason : ''}`}
+                            >
+                              <PencilLine className="h-3 w-3" />
+                              Corregido
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">{formatMinutes(r.workedMinutes)}</TableCell>
                       <TableCell className="whitespace-nowrap">{r.overtimeMinutes ? formatMinutes(r.overtimeMinutes) : '—'}</TableCell>
                       <TableCell className="whitespace-nowrap text-amber-700">{doubleMin > 0 ? formatMinutes(doubleMin) : '—'}</TableCell>
@@ -7692,6 +7732,357 @@ function SettingsView() {
 }
 
 // ============================================================
+// CORRECTIONS VIEW — reporte de registros corregidos (auditoría)
+// ============================================================
+// Consume GET /api/reports/corrections que devuelve:
+//   { corrections: [...], summary: { total, bySucursal, byCorrector, affectedEmployees }, period: { start, end } }
+// También soporta &format=csv|xlsx para descarga directa vía window.open().
+
+interface CorrectionRecord {
+  id: string;
+  recordDate: string;
+  employee: {
+    id: string;
+    employeeNumber: string;
+    name: string;
+    department: string | null;
+    position: string | null;
+    sucursal: { id: string; name: string; codigoLocal: string | null } | null;
+  };
+  originalCheckIn: string | null;
+  originalCheckOut: string | null;
+  currentCheckIn: string | null;
+  currentCheckOut: string | null;
+  workedMinutes: number | null;
+  overtimeMinutes: number | null;
+  status: string;
+  correctionReason: string | null;
+  correctedAt: string | null;
+  correctedBy: { id: string; name: string; email: string; role: string } | null;
+  notes: string | null;
+  justificationStatus: string | null;
+}
+
+interface CorrectionsSummary {
+  total: number;
+  bySucursal: Array<{ sucursalId: string; sucursalName: string; count: number }>;
+  byCorrector: Array<{ correctedById: string; correctedByName: string; count: number }>;
+  affectedEmployees: number;
+}
+
+interface CorrectionsResponse {
+  corrections: CorrectionRecord[];
+  summary: CorrectionsSummary;
+  period: { start: string; end: string };
+}
+
+const JUSTIFICATION_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pendiente',
+  APPROVED: 'Aprobada',
+  REJECTED: 'Rechazada',
+};
+
+function JustificationStatusBadge({ status }: { status: string | null }) {
+  if (!status) return <span className="text-xs text-muted-foreground">—</span>;
+  const label = JUSTIFICATION_STATUS_LABEL[status] ?? status;
+  const cls =
+    status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+    : status === 'REJECTED' ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300'
+    : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+  return (
+    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', cls)}>
+      {label}
+    </span>
+  );
+}
+
+function CorrectionsView({ role }: { role: Role }) {
+  const isGA = role === 'GENERAL_ADMIN';
+  const [range, setRange] = useState<DateRangeValue>(() => {
+    // Default: primer día del mes actual → hoy (zona Mexico).
+    const today = getMexicoTodayISO();
+    const y = Number(today.slice(0, 4));
+    const m = Number(today.slice(5, 7));
+    const first = `${y}-${String(m).padStart(2, '0')}-01`;
+    return { start: first, end: today };
+  });
+  const [sucursalId, setSucursalId] = useState<string>('all');
+  const [correctedByIdFilter, setCorrectedByIdFilter] = useState<string>('');
+  const [employeeIdFilter, setEmployeeIdFilter] = useState<string>('');
+  const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
+  const [data, setData] = useState<CorrectionsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  // Cargar sucursales para el selector (GA only).
+  useEffect(() => {
+    if (!isGA) return;
+    apiGet<{ sucursales: SucursalRow[] }>('/api/sucursales')
+      .then((d) => setSucursales(d.sucursales))
+      .catch(() => {});
+  }, [isGA]);
+
+  const buildParams = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set('startDate', range.start);
+    params.set('endDate', range.end);
+    if (isGA && sucursalId !== 'all') params.set('sucursalId', sucursalId);
+    if (correctedByIdFilter.trim()) params.set('correctedById', correctedByIdFilter.trim());
+    if (employeeIdFilter.trim()) params.set('employeeId', employeeIdFilter.trim());
+    return params;
+  }, [range, isGA, sucursalId, correctedByIdFilter, employeeIdFilter]);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const params = buildParams();
+      const d = await apiGet<CorrectionsResponse>(`/api/reports/corrections?${params.toString()}`);
+      setData(d);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [buildParams]);
+
+  // Carga automática al montar y cuando cambian los filtros.
+  useEffect(() => { load(); }, [load]);
+
+  function exportFormat(format: 'csv' | 'xlsx') {
+    const params = buildParams();
+    params.set('format', format);
+    setDownloading(true);
+    window.open(`/api/reports/corrections?${params.toString()}`, '_blank');
+    toast.success(`Generando ${format.toUpperCase()}…`, {
+      description: `${range.start} → ${range.end}`,
+    });
+    // El navegador dispara la descarga sincrónicamente; liberamos el spinner tras 1.5s.
+    setTimeout(() => setDownloading(false), 1500);
+  }
+
+  const corrections = data?.corrections || [];
+  const summary = data?.summary;
+
+  // Render compacto de Entrada/Salida: muestra original → actual (con flecha)
+  // o sólo el valor si no hubo cambio.
+  function renderTimePair(original: string | null, current: string | null) {
+    if (!current) return <span className="text-muted-foreground">—</span>;
+    const currentStr = formatTimeInMexico(current);
+    if (!original || original === current) {
+      return <span className="tabular-nums">{currentStr}</span>;
+    }
+    const origStr = formatTimeInMexico(original);
+    return (
+      <span className="inline-flex items-center gap-1 tabular-nums">
+        <span className="text-muted-foreground line-through decoration-muted-foreground/50">{origStr}</span>
+        <ArrowRight className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+        <span className="font-medium text-amber-700 dark:text-amber-300">{currentStr}</span>
+      </span>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Filters Card */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="space-y-1.5 flex-1 min-w-[280px]">
+              <Label className="text-xs text-muted-foreground">Rango de fechas</Label>
+              <DateRangePicker
+                value={range}
+                onChange={(v) => setRange(v)}
+                allowPresets
+              />
+            </div>
+            {isGA && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Sucursal</Label>
+                <Select value={sucursalId} onValueChange={setSucursalId}>
+                  <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    {sucursales.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{sucursalLabel(s.name, s.codigoLocal)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Filtrar por corrector (ID)</Label>
+              <Input
+                placeholder="UUID del corrector…"
+                value={correctedByIdFilter}
+                onChange={(e) => setCorrectedByIdFilter(e.target.value)}
+                className="w-56"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Filtrar por empleado (ID)</Label>
+              <Input
+                placeholder="UUID del empleado…"
+                value={employeeIdFilter}
+                onChange={(e) => setEmployeeIdFilter(e.target.value)}
+                className="w-56"
+              />
+            </div>
+            <Button onClick={load} disabled={loading} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Generar
+            </Button>
+            <Button variant="outline" onClick={() => exportFormat('csv')} disabled={downloading || loading} className="gap-1.5">
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              CSV
+            </Button>
+            <Button variant="outline" onClick={() => exportFormat('xlsx')} disabled={downloading || loading} className="gap-1.5">
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+              XLSX
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Card — 4 stat boxes */}
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatBox label="Total correcciones" value={summary.total} tone="amber" />
+          <StatBox label="Empleados afectados" value={summary.affectedEmployees} tone="emerald" />
+          <StatBox label="Sucursales con correcciones" value={summary.bySucursal.length} tone="sky" />
+          <StatBox label="Correctores" value={summary.byCorrector.length} tone="violet" />
+        </div>
+      )}
+
+      {/* Table Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ClipboardPen className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            {corrections.length} corrección(es) en el periodo
+          </CardTitle>
+          {data?.period && (
+            <CardDescription className="text-xs">
+              {data.period.start} → {data.period.end}
+            </CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? <div className="p-4"><LoadingState rows={5} /></div>
+          : error ? <ErrorState message={error} />
+          : corrections.length === 0 ? <EmptyState icon={ClipboardPen} title="Sin correcciones" subtitle="No hay correcciones en el periodo seleccionado." />
+          : (
+            <div className={`max-h-[60vh] overflow-y-auto overflow-x-auto ${SCROLLBAR_CLASS}`}>
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="w-[110px] whitespace-nowrap">Fecha Registro</TableHead>
+                    <TableHead className="w-[140px] whitespace-nowrap">Fecha Corrección</TableHead>
+                    <TableHead className="w-[200px] whitespace-nowrap">Empleado</TableHead>
+                    {isGA && <TableHead className="w-[150px] whitespace-nowrap">Sucursal</TableHead>}
+                    <TableHead className="w-[170px] whitespace-nowrap">Entrada</TableHead>
+                    <TableHead className="w-[170px] whitespace-nowrap">Salida</TableHead>
+                    <TableHead className="w-[90px] whitespace-nowrap">Min. Trab.</TableHead>
+                    <TableHead className="w-[110px] whitespace-nowrap">Estado</TableHead>
+                    <TableHead className="w-[180px] whitespace-nowrap">Corregido por</TableHead>
+                    <TableHead className="w-[40px] whitespace-nowrap"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {corrections.map((c) => {
+                    const isExpanded = expandedId === c.id;
+                    const sucLabel = c.employee.sucursal
+                      ? sucursalLabel(c.employee.sucursal.name, c.employee.sucursal.codigoLocal)
+                      : '—';
+                    return (
+                      <>
+                        <TableRow
+                          key={c.id}
+                          className="hover:bg-amber-50/40 dark:hover:bg-amber-950/10 cursor-pointer"
+                          onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                        >
+                          <TableCell className="whitespace-nowrap text-xs">{toISODate(new Date(c.recordDate + 'T06:00:00.000Z'))}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                            {c.correctedAt ? formatDateTimeInMexico(c.correctedAt) : '—'}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-medium">{c.employee.name}</span>
+                              <span className="text-xs text-muted-foreground">#{c.employee.employeeNumber}</span>
+                            </div>
+                          </TableCell>
+                          {isGA && <TableCell className="whitespace-nowrap text-muted-foreground text-xs">{sucLabel}</TableCell>}
+                          <TableCell className="whitespace-nowrap text-xs">{renderTimePair(c.originalCheckIn, c.currentCheckIn)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs">{renderTimePair(c.originalCheckOut, c.currentCheckOut)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs">
+                            {c.workedMinutes != null ? formatMinutes(c.workedMinutes) : '—'}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap"><StatusBadge status={c.status} /></TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {c.correctedBy ? (
+                              <div className="flex flex-col">
+                                <span className="text-xs font-medium">{c.correctedBy.name}</span>
+                                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">{c.correctedBy.role}</span>
+                              </div>
+                            ) : <span className="text-xs text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right">
+                            {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow key={`${c.id}-detail`} className="bg-amber-50/50 dark:bg-amber-950/10">
+                            <TableCell colSpan={isGA ? 10 : 9} className="p-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                <div className="space-y-2">
+                                  <div>
+                                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide mb-1">Motivo de la corrección</p>
+                                    <p className="text-sm">{c.correctionReason || '—'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide mb-1">Notas</p>
+                                    <p className="text-sm text-muted-foreground">{c.notes || '—'}</p>
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">Estado de justificación</span>
+                                    <JustificationStatusBadge status={c.justificationStatus} />
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted-foreground">Minutos extra</span>
+                                    <span className="text-sm font-medium">{c.overtimeMinutes != null ? formatMinutes(c.overtimeMinutes) : '—'}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted-foreground">Departamento / Puesto</span>
+                                    <span className="text-sm font-medium">{[c.employee.department, c.employee.position].filter(Boolean).join(' · ') || '—'}</span>
+                                  </div>
+                                  {c.correctedBy?.email && (
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs text-muted-foreground">Correo del corrector</span>
+                                      <span className="text-xs font-medium">{c.correctedBy.email}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
 // ADMIN LAYOUT — Main wrapper exported
 // ============================================================
 
@@ -7719,7 +8110,7 @@ export function AdminLayout() {
     // view (e.g. via devtools), restrict them to the read-only subset
     // (dashboard, history, reports, audit). Everything else renders a
     // ForbiddenView so no mutation UI is exposed.
-    const supervisorAllowedViews: AdminView[] = ['dashboard', 'history', 'reports', 'audit', 'documentation', 'nom-035'];
+    const supervisorAllowedViews: AdminView[] = ['dashboard', 'history', 'reports', 'corrections', 'audit', 'documentation', 'nom-035'];
     if (role === 'SUPERVISOR' && !supervisorAllowedViews.includes(adminView)) {
       return <ForbiddenView />;
     }
@@ -7740,6 +8131,8 @@ export function AdminLayout() {
         return <CalendarView role={role} userSucursalId={user?.sucursalId || null} />;
       case 'reports':
         return <ReportsView role={role} />;
+      case 'corrections':
+        return <CorrectionsView role={role} />;
       case 'audit':
         return <AuditView role={role} />;
       case 'nom-035':

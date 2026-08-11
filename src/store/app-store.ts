@@ -13,6 +13,7 @@ export type AdminView =
   | 'history'
   | 'calendar'
   | 'reports'
+  | 'corrections'
   | 'audit'
   | 'qr-terminal'
   | 'company'

@@ -28,6 +28,7 @@ import {
   getMexicoTodayISO,
   minutesToHours,
   formatTimeInMexico,
+  formatDateTimeInMexico,
 } from '@/lib/timezone';
 import {
   isAbsentOnDate,
@@ -379,6 +380,7 @@ async function buildDailyRows(
           checkoutToleranceMinutes: true,
         },
       },
+      correctedBy: { select: { id: true, name: true, email: true, role: true } },
     },
     orderBy: [{ sucursalId: 'asc' }, { employee: { employeeNumber: 'asc' } }],
   });
@@ -428,6 +430,19 @@ async function buildDailyRows(
       'Min. nocturnos': r.nightMinutes ?? 0,
       Estado: STATUS_ES[r.status] || r.status,
       'Justificación': r.justificationStatus || '—',
+      // Reforma LFT 2027 — art. 132 XXXIV: trazabilidad de correcciones manuales
+      '¿Corregido?': r.correctedAt ? 'Sí' : 'No',
+      'Motivo de Corrección': r.correctionReason || '—',
+      'Entrada Original': r.originalCheckInTime
+        ? formatTimeInMexico(r.originalCheckInTime)
+        : '—',
+      'Salida Original': r.originalCheckOutTime
+        ? formatTimeInMexico(r.originalCheckOutTime)
+        : '—',
+      'Corregido por': r.correctedBy?.name || '—',
+      'Corregido el': r.correctedAt
+        ? formatDateTimeInMexico(r.correctedAt)
+        : '—',
     });
 
     auditRows.push({
