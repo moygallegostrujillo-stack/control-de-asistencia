@@ -54,6 +54,7 @@ import {
   Server, Database, Rocket,
   CalendarOff, Sun, Moon,
   ClipboardPen, PencilLine, ArrowRight,
+  HeartPulse, Star,
 } from 'lucide-react';
 
 // ============================================================
@@ -1426,12 +1427,14 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
   );
 }
 
-function KpiCard({ icon: Icon, label, value, sub, tone }: { icon: React.ElementType; label: string; value: string; sub?: string; tone: 'zinc' | 'emerald' | 'amber' | 'rose' }) {
+function KpiCard({ icon: Icon, label, value, sub, tone }: { icon: React.ElementType; label: string; value: string; sub?: string; tone: 'zinc' | 'emerald' | 'amber' | 'rose' | 'violet' | 'orange' }) {
   const toneCls = {
     zinc: 'bg-zinc-50 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300',
     emerald: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
     amber: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
     rose: 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+    violet: 'bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
+    orange: 'bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
   }[tone];
   return (
     <Card className="overflow-hidden">
@@ -4693,6 +4696,26 @@ function ReportsView({ role }: { role: Role }) {
   const [stpsSucursalId, setStpsSucursalId] = useState<string>('all');
   const [stpsDownloading, setStpsDownloading] = useState<'xlsx' | 'pdf' | null>(null);
 
+  // --- CRIT-5: estado para el reporte IMSS (Ley del Seguro Social art. 15) ---
+  // Reutiliza el rango de fechas + sucursal principal de ReportsView (startDate/endDate/sucursalId).
+  // El endpoint /api/reports/imss-format recibe startDate, endDate, sucursalId (opt) y format=csv|json.
+  const [imssDownloading, setImssDownloading] = useState<boolean>(false);
+
+  function downloadImss() {
+    const params = new URLSearchParams();
+    params.set('format', 'csv');
+    params.set('startDate', startDate);
+    params.set('endDate', endDate);
+    if (isGA && sucursalId !== 'all') params.set('sucursalId', sucursalId);
+    const url = `/api/reports/imss-format?${params.toString()}`;
+    setImssDownloading(true);
+    // window.open dispara la descarga en el navegador (Content-Disposition: attachment)
+    window.open(url, '_blank');
+    toast.success('Generando reporte IMSS (CSV)…');
+    // Liberar el spinner tras 3 s (la descarga es síncrona en el navegador)
+    setTimeout(() => setImssDownloading(false), 3000);
+  }
+
   // --- Cambio 4: descarga del reporte STPS en Excel o PDF ---
   // Abre el endpoint en una pestaña nueva para forzar la descarga.
   // Construye los params según el modo de periodo:
@@ -4937,6 +4960,68 @@ function ReportsView({ role }: { role: Role }) {
                 )}
                 <span className="hidden sm:inline">Descargar PDF</span>
                 <span className="sm:hidden">PDF</span>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* --- CRIT-5: Reporte IMSS — Incapacidades (Ley del Seguro Social art. 15) --- */}
+      {/* Reutiliza el rango de fechas + sucursal principal de ReportsView (filtros compartidos
+          que aparecen más abajo). Descarga CSV para reconciliación con SUA/IDSE. */}
+      <Card className="border-emerald-200 bg-emerald-50/40">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                <HeartPulse className="h-4 w-4" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Reporte IMSS — Incapacidades</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Reporte de incapacidades (enfermedad general, maternidad, riesgo de trabajo) para
+                  reconciliación con SUA/IDSE. Ley del Seguro Social art. 15.
+                </p>
+              </div>
+            </div>
+            <Badge variant="outline" className="shrink-0 border-emerald-300 text-emerald-700 bg-white">
+              Legal
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            {/* Indicador del rango de fechas + sucursal que se usarán (filtros compartidos de ReportsView) */}
+            <div className="space-y-1.5 grow">
+              <Label className="text-xs text-muted-foreground">Rango de fechas</Label>
+              <div className="text-sm text-foreground">
+                {startDate} → {endDate}
+                <span className="text-xs text-muted-foreground ml-2">(usa los filtros compartidos de abajo)</span>
+              </div>
+            </div>
+            {isGA && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Sucursal</Label>
+                <div className="text-sm text-foreground">
+                  {sucursalId === 'all' ? 'Todas' : (sucursales.find((s) => s.id === sucursalId)?.name ?? '—')}
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 sm:ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={downloadImss}
+                disabled={imssDownloading}
+                className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+              >
+                {imssDownloading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden sm:inline">Descargar CSV</span>
+                <span className="sm:hidden">CSV</span>
               </Button>
             </div>
           </div>
@@ -5289,6 +5374,15 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
         <KpiCard icon={CalendarOff} label="Descansos trab." value={(totals.diasDescansoTrabajado ?? 0).toString()} tone="amber" />
         <KpiCard icon={Sun} label="Prima 100% (h)" value={`${totals.primaDescansoHoras ?? 0} h`} tone="amber" />
       </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={HeartPulse} label="Días incapacidad" value={(totals.diasIncapacidad ?? 0).toString()} tone="rose" />
+        <KpiCard icon={CalendarOff} label="Días vacaciones" value={(totals.diasVacaciones ?? 0).toString()} tone="emerald" />
+        <KpiCard icon={Sun} label="Domingos trab." value={(totals.domingosTrabajados ?? 0).toString()} sub="Prima dominical (art. 71 LFT)" tone="amber" />
+        <KpiCard icon={CalendarDays} label="Séptimo día trab." value={(totals.diasSeptimo ?? 0).toString()} sub="Pago doble (art. 72 LFT)" tone="violet" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={Star} label="Festivos trab." value={(totals.diasFestivosTrabajados ?? 0).toString()} sub="Pago doble (art. 75 LFT)" tone="orange" />
+      </div>
       <Card>
         <CardHeader><CardTitle className="text-base">Incidencias por empleado</CardTitle></CardHeader>
         <CardContent className="p-0">
@@ -5300,6 +5394,7 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                     <TableHead className="whitespace-nowrap">Empleado</TableHead>
                     {isGA && <TableHead className="whitespace-nowrap">Sucursal</TableHead>}
                     <TableHead className="whitespace-nowrap">Lab.</TableHead>
+                    <TableHead className="whitespace-nowrap" title="Horas trabajadas (decimal)">Hrs. Trab.</TableHead>
                     <TableHead className="whitespace-nowrap">Faltas</TableHead>
                     <TableHead className="whitespace-nowrap">Ret.</TableHead>
                     <TableHead className="whitespace-nowrap">S.A.</TableHead>
@@ -5309,6 +5404,10 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                     <TableHead className="whitespace-nowrap">Desc.</TableHead>
                     <TableHead className="whitespace-nowrap">Prima h</TableHead>
                     <TableHead className="whitespace-nowrap">Vac.</TableHead>
+                    <TableHead className="whitespace-nowrap">Inc.</TableHead>
+                    <TableHead className="whitespace-nowrap" title="Domingos trabajados — prima dominical 25% (art. 71 LFT)">Dom.</TableHead>
+                    <TableHead className="whitespace-nowrap" title="Séptimo día trabajado — pago doble (art. 72 LFT)">Sépt.</TableHead>
+                    <TableHead className="whitespace-nowrap" title="Días festivos trabajados — pago doble (art. 75 LFT)">Fest.</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -5317,6 +5416,11 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                       <TableCell className="whitespace-nowrap font-medium">{e.name}</TableCell>
                       {isGA && <TableCell className="whitespace-nowrap text-muted-foreground">{e.sucursalName}</TableCell>}
                       <TableCell className="whitespace-nowrap">{e.diasLaborados}</TableCell>
+                      <TableCell className="whitespace-nowrap" title="Horas trabajadas (decimal)">
+                        {(e.horasTrabajadasHoras ?? 0) > 0
+                          ? `${Number(e.horasTrabajadasHoras).toFixed(1)}h`
+                          : '—'}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">{e.faltas}</TableCell>
                       <TableCell className="whitespace-nowrap">{e.retardos}</TableCell>
                       <TableCell className="whitespace-nowrap">{e.salidasAnticipadas}</TableCell>
@@ -5333,6 +5437,38 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-amber-700">{(e.primaDescansoHoras ?? 0)}</TableCell>
                       <TableCell className="whitespace-nowrap">{e.diasVacaciones}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {(e.diasIncapacidad ?? 0) > 0 ? (
+                          <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100 border-rose-200 gap-1">
+                            <HeartPulse className="h-3 w-3" />
+                            {e.diasIncapacidad}
+                          </Badge>
+                        ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap" title="Domingos trabajados — prima dominical 25% (art. 71 LFT)">
+                        {(e.domingosTrabajados ?? 0) > 0 ? (
+                          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1">
+                            <Sun className="h-3 w-3" />
+                            {e.domingosTrabajados}
+                          </Badge>
+                        ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap" title="Séptimo día trabajado — pago doble (art. 72 LFT)">
+                        {(e.diasSeptimo ?? 0) > 0 ? (
+                          <Badge className="bg-violet-100 text-violet-800 hover:bg-violet-100 border-violet-200 gap-1">
+                            <CalendarDays className="h-3 w-3" />
+                            {e.diasSeptimo}
+                          </Badge>
+                        ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap" title="Días festivos trabajados — pago doble (art. 75 LFT)">
+                        {(e.diasFestivosTrabajados ?? 0) > 0 ? (
+                          <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100 border-orange-200 gap-1">
+                            <Star className="h-3 w-3" />
+                            {e.diasFestivosTrabajados}
+                          </Badge>
+                        ) : '—'}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -5388,6 +5524,8 @@ function ComparativeReportBody({ data }: { data: any }) {
                       <TableHead className="whitespace-nowrap">Empleados</TableHead>
                       <TableHead className="whitespace-nowrap">Presentes</TableHead>
                       <TableHead className="whitespace-nowrap">Ausentes</TableHead>
+                      <TableHead className="whitespace-nowrap" title="Retardos">Retardos</TableHead>
+                      <TableHead className="whitespace-nowrap" title="Salidas anticipadas">S.A.</TableHead>
                       <TableHead className="whitespace-nowrap">% Asist.</TableHead>
                       <TableHead className="whitespace-nowrap">HE h</TableHead>
                       <TableHead className="whitespace-nowrap">Dobles</TableHead>
@@ -5403,6 +5541,20 @@ function ComparativeReportBody({ data }: { data: any }) {
                         <TableCell className="whitespace-nowrap">{s.totalEmployees}</TableCell>
                         <TableCell className="whitespace-nowrap">{s.presentDays}</TableCell>
                         <TableCell className="whitespace-nowrap">{s.absentDays}</TableCell>
+                        <TableCell className="whitespace-nowrap" title="Retardos">
+                          {(s.lateDays ?? 0) > 0 ? (
+                            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-amber-200 gap-1">
+                              {s.lateDays}
+                            </Badge>
+                          ) : '—'}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap" title="Salidas anticipadas">
+                          {(s.earlyLeaveDays ?? 0) > 0 ? (
+                            <Badge className="bg-rose-100 text-rose-700 hover:bg-rose-100 border-rose-200 gap-1">
+                              {s.earlyLeaveDays}
+                            </Badge>
+                          ) : '—'}
+                        </TableCell>
                         <TableCell className="whitespace-nowrap font-medium text-emerald-700">{s.attendanceRate}%</TableCell>
                         <TableCell className="whitespace-nowrap">{s.overtimeHours}</TableCell>
                         <TableCell className="whitespace-nowrap text-amber-700">{(s.overtimeDoubleHours ?? 0)} h</TableCell>
@@ -5480,6 +5632,7 @@ function NOM035View({ role }: { role: Role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [week, setWeek] = useState<'current' | 'last'>('current');
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -5497,6 +5650,69 @@ function NOM035View({ role }: { role: Role }) {
   }, [week]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Export CSV de evidencia NOM-035 para inspección STPS (formato CSV con BOM UTF-8).
+  const exportCsv = useCallback(() => {
+    setExporting(true);
+    try {
+      const headers = [
+        'Tipo',
+        'Severidad',
+        'Titulo',
+        'Descripcion',
+        'Empleado',
+        'Fecha',
+        'Horas extras semanales',
+        'Tope semanal',
+        'Recomendacion',
+        'Referencia legal',
+      ];
+      // Las alertas no tienen fecha por-registro; usamos el rango de semana del summary.
+      const fecha = summary?.weekStart && summary?.weekEnd
+        ? `${summary.weekStart} → ${summary.weekEnd}`
+        : (week === 'current' ? 'Semana actual' : 'Semana anterior');
+      const esc = (v: unknown) => {
+        const s = String(v ?? '');
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"`
+          : s;
+      };
+      const rows = alerts.map((a) => [
+        NOM035_TYPE_LABELS[a.type] ?? a.type,
+        a.level,
+        a.title,
+        a.description,
+        a.employeeName,
+        fecha,
+        a.metric?.weeklyOvertimeMinutes
+          ? (a.metric.weeklyOvertimeMinutes / 60).toFixed(1)
+          : '',
+        a.metric?.weeklyOvertimeCapMinutes
+          ? (a.metric.weeklyOvertimeCapMinutes / 60).toFixed(1)
+          : '',
+        a.recommendation,
+        a.legalReference,
+      ]);
+      const csv = [headers, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const weekLabel = summary?.weekStart || week;
+      link.href = url;
+      link.download = `alertas_nom035_${weekLabel}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('CSV NOM-035 exportado', {
+        description: `${alerts.length} alerta(s) · evidencia para inspección STPS.`,
+      });
+    } catch (e) {
+      toast.error('Error al exportar CSV', { description: (e as Error).message });
+    } finally {
+      setExporting(false);
+    }
+  }, [alerts, summary, week]);
 
   const total = summary?.total || 0;
   const high = summary?.high || 0;
@@ -5557,6 +5773,20 @@ function NOM035View({ role }: { role: Role }) {
                   <SelectItem value="last">Semana anterior</SelectItem>
                 </SelectContent>
               </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={exportCsv}
+                disabled={exporting || loading}
+                title="Exportar evidencia NOM-035 para inspección STPS"
+                aria-label="Exportar evidencia NOM-035 para inspección STPS"
+              >
+                {exporting
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <FileDown className="h-4 w-4" />}
+                <span className="hidden sm:inline">Descargar CSV</span>
+              </Button>
               <Button variant="outline" size="icon" onClick={load} disabled={loading} aria-label="Actualizar">
                 <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
               </Button>

@@ -209,21 +209,24 @@ function drawSectionTrabajadores(doc: PDFKit.PDFDocument, reporte: StpsReport): 
 
   // Columnas optimizadas para landscape (680pt disponibles).
   // RFC/CURP con ancho suficiente para "NO CAPTURADO" completo (sin truncar).
+  // Se incluyó la columna 'Incap.' (Días de Incapacidad — art. 804 fr. IV LFT)
+  // reduciendo levemente Nombre/Puesto/Sucursal para preservar el total 680pt.
   const cols = [
     { header: 'N°', key: 'numeroEmpleado', width: 38, align: 'left' as const },
-    { header: 'Nombre', key: 'nombreCompleto', width: 120, align: 'left' as const },
+    { header: 'Nombre', key: 'nombreCompleto', width: 105, align: 'left' as const },
     { header: 'RFC', key: 'rfc', width: 76, align: 'left' as const },
     { header: 'CURP', key: 'curp', width: 78, align: 'left' as const },
-    { header: 'Puesto', key: 'puesto', width: 82, align: 'left' as const },
-    { header: 'Sucursal', key: 'sucursal', width: 78, align: 'left' as const },
+    { header: 'Puesto', key: 'puesto', width: 72, align: 'left' as const },
+    { header: 'Sucursal', key: 'sucursal', width: 70, align: 'left' as const },
     { header: 'Días', key: 'diasTrabajados', width: 30, align: 'right' as const },
     { header: 'Hrs.', key: 'totalHorasTrabajadas', width: 34, align: 'right' as const },
     { header: 'HE Dob', key: 'totalHorasExtraDobles', width: 38, align: 'right' as const },
     { header: 'HE Trip', key: 'totalHorasExtraTriples', width: 38, align: 'right' as const },
     { header: 'Faltas', key: 'diasFaltaSinJustificar', width: 33, align: 'right' as const },
     { header: 'Vacac.', key: 'diasVacacionesDisfrutados', width: 35, align: 'right' as const },
+    { header: 'Incap.', key: 'diasIncapacidad', width: 33, align: 'right' as const },
   ];
-  // Total: 38+120+76+78+82+78+30+34+38+38+33+35 = 680 ✅
+  // Total: 38+105+76+78+72+70+30+34+38+38+33+35+33 = 680 ✅
 
   drawTableHeader(doc, cols);
 

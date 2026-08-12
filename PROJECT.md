@@ -1,0 +1,520 @@
+# Documento del Proyecto — Control de Asistencia NOM-037
+
+> **Versión del documento**: 1.0 (12 de agosto 2026)
+> **Versión del producto**: 2.2.1
+> **Propósito**: Brindar contexto completo al iniciar futuras sesiones de desarrollo. Al leer este documento, un agente nuevo entiende el dominio, la arquitectura, las reglas de negocio críticas y los convenios del proyecto sin tener que re-descubrirlos.
+
+---
+
+## 1. Qué es este proyecto
+
+Sistema de control de asistencia para cumplimiento de la **NOM-037-STPS-2023** (Teletrabajo) y la **reforma LFT 2027** (arts. 66, 68, 73 — horas extra dobles/triples y prima por descanso trabajado), desplegado en producción en **Vercel** con base de datos en **Supabase (PostgreSQL)**.
+
+**URL producción**: https://control-asistencia-v22.vercel.app/
+**Repo GitHub**: https://github.com/moygallegostrujillo-stack/control-de-asistencia
+
+El sistema gestiona check-in/check-out geolocalizado, clasificación automática de jornada (diurna/nocturna/mixta), cálculo de horas extra con distinción dobles/triples según la reforma LFT 2027, vacaciones/permisos, generación de reportes oficiales (incluyendo formato STPS art. 804 LFT), auditoría completa y derechos ARCO (LFPDPPP).
+
+---
+
+## 2. Stack tecnológico
+
+| Capa | Tecnología |
+|------|-----------|
+| Framework | **Next.js 16** con App Router + Turbopack |
+| Lenguaje | **TypeScript 5** strict |
+| Estilo | Tailwind CSS 4 + **shadcn/ui** (New York style) + Lucide icons |
+| ORM | **Prisma 6** (SQLite en dev, PostgreSQL en prod vía `switch-schema.sh`) |
+| Auth | **NextAuth.js v4** con JWT + MFA TOTP (otplib) |
+| Estado cliente | **Zustand** (vista activa) + **TanStack Query** (server state) |
+| Real-time | **Socket.io** en mini-service separado (puerto 3003) |
+| Rate limiting | Upstash Redis + @upstash/ratelimit |
+| PDF/Excel | pdfkit + ExcelJS |
+| QR | html5-qrcode + DynamicQR rotativo |
+| Zona horaria | **Luxon** con `America/Mexico_City` (CRÍTICO — ver sección 7) |
+| Runtime | Bun 1.3.14 |
+
+### Scripts disponibles
+```bash
+bun run dev          # dev server en puerto 3000 (tee a dev.log)
+bun run lint         # ESLint
+bun run db:push      # push schema a BD
+bun run db:seed      # seed inicial
+bun run deploy       # deploy a Vercel (scripts/deploy-vercel.sh)
+bun run realtime:dev # mini-service socket.io (puerto 3003)
+./scripts/switch-schema.sh sqlite|postgres|status  # cambiar provider Prisma
+```
+
+---
+
+## 3. Estructura del proyecto
+
+```
+src/
+├── app/
+│   ├── api/                    # 71 API routes (App Router)
+│   │   ├── admin/              # recalc-overtime, recalc-shift, recalc-status,
+│   │   │                       # recalc-vacations, arco/*
+│   │   ├── attendance/         # check-in, check-out, [id], history,
+│   │   │                       # monthly-calendar, meal-*, rest-*, justify, sign, today
+│   │   ├── reports/            # daily, overtime, employee-overtime, absences,
+│   │   │                       # incidences, comparative, corrections, export,
+│   │   │                       # my-export, stps-format
+│   │   ├── auth/               # [...nextauth], login, logout, me, mfa/*, qr-login,
+│   │   │                       # quick-login, refresh, users-list
+│   │   ├── employees/          # CRUD + [id]/qr + [id]/transfer
+│   │   ├── sucursales/         # CRUD
+│   │   ├── users/              # CRUD + [id]/reset-password + [id]/unlock
+│   │   ├── vacations/          # CRUD + balance/[employeeId]
+│   │   ├── work-schedules/     # horarios laborales
+│   │   ├── holidays/, company/, audit/, alerts/, qr/, manual/
+│   │   └── health/, seed/, diagrama/, download/
+│   ├── layout.tsx              # root layout
+│   ├── page.tsx                # ÚNICA ruta visible (/ — redirige según sesión)
+│   ├── legal/                  # avisos legales (privacidad)
+│   └── globals.css
+├── components/
+│   ├── layout/
+│   │   ├── admin-layout.tsx    # ~8858 líneas — TODO el admin en un archivo
+│   │   └── employee-layout.tsx # ~2263 líneas — TODO el empleado
+│   ├── ui/                     # ~45 componentes shadcn/ui
+│   ├── reports/                # DateRangePicker y similares
+│   ├── admin/, auth/, legal/, manual/, qr/, shared/
+│   └── providers.tsx
+├── lib/                        # Lógica de negocio (ver sección 7)
+├── store/
+│   └── app-store.ts            # Zustand — AdminView | EmployeeView
+├── hooks/
+├── middleware.ts               # Auth + CSP + rate limit
+mini-services/
+└── realtime-service/           # Socket.io (puerto 3003,独立的 bun project)
+prisma/
+├── schema.prisma               # SQLite (dev)
+├── schema.postgres.prisma      # PostgreSQL (prod)
+└── seed.ts
+```
+
+### Regla de oro de rutas
+**Solo `/` es visible para el usuario.** Todo lo demás son API routes o componentes dentro de `page.tsx`. `admin-layout.tsx` y `employee-layout.tsx` son **un solo componente gigante** que renderiza vistas internas según el estado de Zustand (`useAppStore`). No usar router de Next.js para navegación interna.
+
+---
+
+## 4. Modelos de datos (Prisma)
+
+11 modelos definidos en `prisma/schema.prisma`:
+
+| Modelo | Propósito | Notas |
+|--------|-----------|-------|
+| **Company** | Singleton con datos de la empresa | id fijo `"singleton"`, RFC, registro patronal, etc. |
+| **User** | Usuario del sistema | role: `GENERAL_ADMIN \| SUCURSAL_ADMIN \| SUPERVISOR \| EMPLOYEE`. MFA TOTP. Aviso privacidad. |
+| **PrivacyRequest** | Derechos ARCO (LFPDPPP art. 29-32) | ACCESS, RECTIFICATION, CANCELLATION (anonimiza, NO borra — conflicto LFT art. 804), OPPOSITION |
+| **Sucursal** | Centro de trabajo | Geofence, **tolerancias configurables** (meal, rest, checkout), mealDurationMinutes |
+| **Employee** | Empleado | employeeNumber único, RFC, CURP, vacationBalanceDays, relación 1:1 con User |
+| **WorkSchedule** | Horario por día de la semana | dayOfWeek 0-6, startTime/endTime "HH:mm", toleranceMinutes, isWeeklyRest |
+| **AttendanceRecord** | Registro de asistencia **INMUTABLE** (NOM-037) | El modelo central. Ver sección 7 para campos calculados. |
+| **Vacation** | Vacaciones/permisos/incapacidades | type, grantMode (EMPLOYEE_REQUEST vs ADMIN_GRANTED), isPartial |
+| **Holiday** | Días feriados | isOfficial |
+| **AuditLog** | Bitácora de acciones | action, entityType, entityId, details (JSON), IP, UA |
+| **DynamicQR** | QR rotativo de un solo uso | expiresAt, used |
+
+### Campos clave de `AttendanceRecord`
+- **Identidad**: id, employeeId, sucursalId, date (Date @db.Date)
+- **Check-in/out**: checkInTime, checkOutTime, + lat/long/method/ip/UA para cada uno
+- **Comida/descanso**: mealStart/End, mealDurationMinutes, mealExceeded; restStart/End, restDurationMinutes, restExceeded
+- **Estado**: status `PRESENT|ABSENT|LATE|EARLY_LEAVE`
+- **Trabajado**: workedMinutes (neto de comida/descanso)
+- **Overtime**: overtimeMinutes (total), **overtimeDoubleMinutes** (art. 66), **overtimeTripleMinutes** (art. 68), **overtimeWeeklyAccumulated**
+- **Prima descanso**: isRestDayWorked, restDayWorkedMinutes, restDayPremiumMinutes (art. 73)
+- **Domingo**: isSunday (para prima dominical art. 71)
+- **Jornada**: shiftType `DIURNA|NOCTURNA|MIXTA`, nightMinutes, legalMaxMinutes, legalOvertimeMinutes
+- **Inmutabilidad**: isLocked, originalCheckInTime, originalCheckOutTime, correctionReason, correctedById, correctedAt
+- **Prueba plena**: employeeSignedAt, employeeSignatureHash, employeeSignedIp (art. 132 XXXIV LFT)
+- **Justificación**: justification, justificationStatus `PENDING|APPROVED|REJECTED`, justificationResolvedById
+
+**Unique constraint**: `@@unique([employeeId, date])` — un registro por empleado por día.
+
+---
+
+## 5. Roles y permisos (RBAC)
+
+Definido en `src/lib/rbac.ts`. 4 roles con permisos granulares:
+
+| Rol | Scope | Capacidades clave |
+|-----|-------|-------------------|
+| **GENERAL_ADMIN** | Global | Todo. Dashboard global, CRUD empleados/sucursales/users, company, holidays, reports comparativos, audit global, corregir asistencia, QR. |
+| **SUCURSAL_ADMIN** | Su sucursal | Dashboard sucursal, CRUD empleados (su sucursal), editar su sucursal, aprobar vacaciones, audit sucursal, reports sucursal, corregir asistencia, QR. |
+| **SUPERVISOR** | Su sucursal (read-only) | Dashboard, lista empleados, historial, reportes, audit, kiosko quick-login. **Sin mutaciones**. |
+| **EMPLOYEE** | Su propio registro | Check-in/out, ver su historial, solicitar vacaciones, descargas propias. |
+
+El scoping por sucursal se valida **en cada API route** (no solo en middleware). SUCURSAL_ADMIN siempre forzado a su `sucursalId`. EMPLOYEE siempre forzado a su `employeeId`.
+
+---
+
+## 6. Auth y seguridad
+
+- **JWT firmado** con `NEXTAUTH_SECRET` (HMAC-SHA512 via jose). Cookie: `next-auth.session-token`.
+- **MFA TOTP opcional** para admins (RFC 6238, otplib). Backup codes (bcrypt hash, one-time use).
+- **Sesión**: 8h max age, rotación JWT cada 30 min (`REFRESH_INTERVAL`).
+- **Lockout**: 5 intentos fallidos → `lockedUntil` 15 min.
+- **Aviso de privacidad LFPDPPP**: si `privacyAcceptedAt` es null o la versión no coincide, middleware redirige a `/legal/aviso-de-privacidad`.
+- **CSP + HSTS** en middleware (Tarea 5 audit seguridad).
+- **Rate limiting** con Upstash Redis en login y endpoints sensibles (Tarea 6).
+- **Eliminado**: fallback a cookie legacy `session_user` (base64 sin firma) — era vulnerable (Tarea 3 audit).
+- **Eliminado**: endpoint `/api/seed` público, exposición de `.env` vía `/api/download` (Tarea 3 audit).
+
+### Auth flow (resumen)
+1. POST `/api/auth/login` → `validateCredentials()` → si MFA activo, retorna `{ needsMfa: true }`
+2. Frontend pide token TOTP → POST `/api/auth/login` con `mfaToken` o `backupCode`
+3. NextAuth genera JWT → cookie `next-auth.session-token`
+4. Cada request: middleware valida JWT + check `privacyAcceptedAt` + CSP + rate limit
+5. API routes: `getSession()` → `AuthUser` payload (id, email, role, sucursalId, employeeId)
+
+---
+
+## 7. Lógica de negocio crítica ⚠️
+
+### 7.1 Zona horaria — **CRÍTICO**
+
+Toda la lógica de negocio opera en **America/Mexico_City** (UTC-6, sin DST desde 2022). El servidor corre en UTC (Vercel) pero **jamás** usar `new Date().setHours()` o `getHours()` — siempre Luxon con `setZone(MEXICO_TZ)`.
+
+Helpers en `src/lib/timezone.ts`:
+- `getMexicoNow()`, `getMexicoTodayISO()`, `getMexicoTodayDate()`
+- `buildDateTimeInMexico(dateISO, timeHHmm)` → Date UTC
+- `formatTimeInMexico(date)`, `formatDateInMexico(date)`, `formatDateTimeInMexico(date)`
+- `getDayOfWeek(date)` → 0=domingo..6=sábado
+- `toISODate(date)`, `minutesBetween(a, b)`, `minutesToHours(m)`, `formatMinutes(m)`
+
+**Bug histórico resuelto**: antes se usaba `new Date().setHours(sh, sm)` que interpreta la hora en la TZ del servidor (UTC en Vercel). Esto causaba:
+- Retardos falsos (09:00 UTC = 03:00 Mexico, siempre > checkIn real)
+- Jornadas nocturnas falsas (20:00 UTC = 14:00 Mexico, marcaba como nocturna jornadas diurnas)
+- Fechas desfasadas -1 día en vacaciones
+
+**Fix**: usar `buildDateTimeInMexico()` para construir fechas y `DateTime.fromJSDate(d).setZone(MEXICO_TZ)` para leerlas.
+
+### 7.2 Cálculo de horas extra — `src/lib/overtime-calculator.ts`
+
+**Función central**: `calculateOvertime(input: OvertimeInput): OvertimeResult`
+
+#### Input
+```typescript
+{
+  record: AttendanceRecord;
+  schedule: WorkSchedule | null;  // null si es día de descanso
+  sucursal: Pick<Sucursal, 'checkoutToleranceMinutes' | 'mealDurationMinutes'>;
+  weeklyAccumulatedMinutes?: number;  // overtime ya acumulado en la semana (excl. día actual)
+}
+```
+
+#### Output (campos principales)
+- `workedMinutes`: neto (bruto - comida - descanso)
+- `overtimeMinutes`: total extra
+- `overtimeDoubleMinutes`: art. 66 (primeras 9h/semana en 2027)
+- `overtimeTripleMinutes`: art. 68 (excedente semanal)
+- `overtimeWeeklyAccumulated`: acumulado previo
+- `overtimeWeeklyTotal`: acumulado + este registro
+- `isLate`, `isEarlyLeave`, `status`
+- `isRestDayWorked`, `restDayWorkedMinutes`, `restDayPremiumMinutes` (art. 73)
+- `isSunday` (art. 71)
+- `shiftType`, `nightMinutes`, `legalMaxMinutes`, `legalOvertimeMinutes` (art. 60/61)
+
+#### Algoritmo (estado actual — fix #3)
+
+```
+1. Si no hay check-in O check-out → retorna con overtime=0, status actual
+
+2. workedMinutes = minutesBetween(checkIn, checkOut)
+   netWorkedMinutes = workedMinutes - mealDuration - restDuration (si registrados)
+
+3. Detectar día de descanso:
+   - Si schedule === null OR schedule.isWeeklyRest === true → isRestDayWorked = true
+   - Si isRestDayWorked → NO calcula overtime. Toda la jornada se paga con prima 100% (art. 73).
+     Retorna: overtimeMinutes=0, restDayWorkedMinutes=netWorkedMinutes, restDayPremiumMinutes=netWorkedMinutes
+
+4. Calcular scheduledMinutes:
+   rawScheduledMinutes = endTime - startTime (en min, con ajuste nocturno +24h si endTime <= startTime)
+   
+   ⭐ fix #3 (bug comida):
+   if (rawScheduledMinutes > 480) {  // > 8h = jornada máxima legal diurna (art. 61)
+     scheduledMinutes = raw - sucursal.mealDurationMinutes  // schedule incluye comida
+   } else {
+     scheduledMinutes = raw  // schedule es jornada pura (ej. 9-17 = 480min)
+   }
+
+5. Late / Early Leave:
+   expectedCheckIn = buildDateTimeInMexico(dateISO, schedule.startTime)
+   isLate = checkInTime > expectedCheckIn + toleranceMinutes
+   
+   expectedCheckOut = buildDateTimeInMexico(checkoutISO, schedule.endTime)  // +1 día si nocturno
+   isEarlyLeave = checkOutTime < expectedCheckOut - toleranceMinutes
+
+6. ⭐ fix #3 (bug tolerancia):
+   overtimeMinutes = max(0, netWorkedMinutes - scheduledMinutes)
+   // checkoutToleranceMinutes NO se resta del overtime. Solo determina isEarlyLeave.
+
+7. Distribución dobles/triples (reforma LFT 2027):
+   overtimeDaily = min(overtimeMinutes, 240)  // tope diario 4h (art. 66)
+   weeklyCap = getWeeklyOvertimeCapMinutes(year)  // 9h (2026-27) → 10h (2028) → 11h (2029) → 12h (2030+)
+   cabeEnDoble = max(0, weeklyCap - weeklyAccumulatedMinutes)
+   overtimeDoubleMinutes = min(overtimeDaily, cabeEnDoble)
+   overtimeTripleMinutes = max(0, overtimeDaily - overtimeDoubleMinutes)
+   overtimeWeeklyTotal = weeklyAccumulatedMinutes + overtimeDaily
+
+8. Clasificar jornada (classifyShift):
+   nightMinutes = nightMinutesBetween(checkIn, checkOut)  // 20:00-06:00 hora Mexico
+   shiftType = nightMinutes===0 ? 'DIURNA' : nightMinutes>=210 ? 'NOCTURNA' : 'MIXTA'
+   legalMaxMinutes = DIURNA:480 | NOCTURNA:420 | MIXTA:450 (art. 61)
+   legalOvertimeMinutes = max(0, netWorkedMinutes - legalMaxMinutes)
+
+9. status:
+   LATE si isLate, EARLY_LEAVE si isEarlyLeave, PRESENT si ninguno, prioridad a LATE.
+```
+
+#### Caso Alicia (verificado, fix #3)
+- Ana López, 2026-08-12, checkIn 08:58 / checkOut 19:03 Mexico, schedule 9-18, sin comida registrada, mealDuration=30
+- workedMinutes = 605 min
+- scheduledMinutes = 540 - 30 = 510 (raw > 480, descuenta mealDuration)
+- **overtimeMinutes = 605 - 510 = 95 min** ✅ (antes: 55 min — subreporte de 40 min: +10 bug tolerancia, +30 bug comida)
+
+#### Helper `computeWeeklyAccumulatedOvertime()`
+Calcula el acumulado semanal (lunes-domingo ISO) previo al día del registro. Suma `overtimeDoubleMinutes + overtimeTripleMinutes` de registros anteriores en la misma semana. **Los descansos trabajados NO suman** (art. 73 es prima independiente del art. 66/68).
+
+### 7.3 Clasificación de jornada — `src/lib/shift-classifier.ts`
+
+- `nightMinutesBetween(checkIn, checkOut)`: itera días calendario en hora Mexico, calcula solapamiento con ventana [20:00-06:00]. Timezone-aware.
+- `classifyShift()`: 0 min → DIURNA; ≥210 min (3.5h) → NOCTURNA; entre medio → MIXTA.
+- `getLegalMaxMinutes()`: DIURNA=480, NOCTURNA=420, MIXTA=450 (art. 61).
+
+### 7.4 Estado de los fixes de cálculo
+
+| Fix | Fecha | Commit | Qué corrigió |
+|-----|-------|--------|--------------|
+| fix #10 (TZ) | previo | — | `buildDateTimeInMexico` para evitar retardos/nocturnidad falsa |
+| fix #2 (TZ) | previo | — | `classifyShift` con Luxon (jornada nocturna falsa) |
+| **fix #3 (tolerancia)** | ago 2026 | `28e5345` | `checkoutToleranceMinutes` ya no se resta del overtime |
+| **fix #3 (comida)** | ago 2026 | `28e5345` | `scheduledMinutes` descuenta `mealDurationMinutes` si raw > 480 |
+
+El header de `overtime-calculator.ts` documenta fix #3. **No reintroducir** `- checkoutTol` ni omitir el guard `raw > 480`.
+
+---
+
+## 8. API endpoints — referencia rápida
+
+### Attendance
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/api/attendance/check-in` | Check-in geolocalizado + QR dinámico |
+| POST | `/api/attendance/check-out` | Check-out + **calcula overtime** con `calculateOvertime` |
+| POST | `/api/attendance/meal-start` | Inicia comida |
+| POST | `/api/attendance/meal-end` | Termina comida, valida tolerance |
+| POST | `/api/attendance/meal-cancel` | Cancela comida en curso |
+| POST | `/api/attendance/rest-start` | Inicia descanso |
+| POST | `/api/attendance/rest-end` | Termina descanso |
+| POST | `/api/attendance/rest-cancel` | Cancela descanso en curso |
+| POST | `/api/attendance/justify` | Sube justificación (retardo/falta) |
+| POST | `/api/attendance/sign` | Firma del empleado (art. 132 XXXIV) |
+| GET | `/api/attendance/today` | Registro de hoy (empleado) |
+| GET | `/api/attendance/history` | Historial con `period=day\|week\|month\|custom` |
+| GET | `/api/attendance/monthly-calendar` | Calendario mensual o por rango |
+| GET/PUT | `/api/attendance/[id]` | Detalle / **corrección manual** (actualiza overtime) |
+
+### Reports (todos soportan rangos libres sin tope)
+| Ruta | Descripción |
+|------|-------------|
+| `/api/reports/daily` | Reporte diario o multi-día (consolida) |
+| `/api/reports/overtime` | Reporte de horas extra |
+| `/api/reports/employee-overtime` | Overtime por empleado |
+| `/api/reports/absences` | Ausencias (recorta endDate a "hoy" si es futuro) |
+| `/api/reports/incidences` | Incidencias (retardos, salidas anticipadas) |
+| `/api/reports/comparative` | Comparativo entre sucursales |
+| `/api/reports/corrections` | Correcciones de asistencia (JSON/CSV/XLSX) |
+| `/api/reports/export` | Export multi-formato (daily/overtime/absences/incidences/comparative) con 6 columnas de corrección |
+| `/api/reports/my-export` | Export para empleados (metadatos extendidos art. 132 XXXIV) |
+| `/api/reports/stps-format` | Formato STPS art. 804 LFT (mensual/semanal/libre) |
+
+### Admin (recálculos)
+| Ruta | Descripción |
+|------|-------------|
+| `/api/admin/recalc-overtime` | **Recálculo histórico de overtime** (fix #3). dryRun support. |
+| `/api/admin/recalc-shift` | Recálculo de shiftType (DIURNA/NOCTURNA/MIXTA) |
+| `/api/admin/recalc-status` | Recálculo de status (PRESENT/LATE/etc) |
+| `/api/admin/recalc-vacations` | Recálculo de saldos de vacaciones |
+| `/api/admin/arco/requests` | Lista solicitudes ARCO |
+| `/api/admin/arco/[id]/resolve` | Resuelve solicitud ARCO |
+
+### Otros
+- `/api/auth/*` — login, logout, me, mfa/setup, mfa/verify, mfa/disable, qr-login, quick-login, refresh, users-list
+- `/api/employees/*` — CRUD + QR + transfer
+- `/api/sucursales/*` — CRUD
+- `/api/users/*` — CRUD + reset-password + unlock
+- `/api/vacations/*` — CRUD + balance
+- `/api/work-schedules/` — horarios
+- `/api/holidays/*` — CRUD
+- `/api/company/` — datos empresa + logo
+- `/api/audit/` — bitácora
+- `/api/alerts/*` — nom-035, notifications, supervisor-alerts
+- `/api/qr/dynamic` — QR rotativo
+- `/api/manual/pdf` — manual de usuario en PDF
+- `/api/diagrama/download` — diagrama de arquitectura
+- `/api/health/` — healthcheck
+
+---
+
+## 9. Frontend — `admin-layout.tsx` (~8858 líneas)
+
+**Un solo archivo** contiene TODO el panel admin. Vistas controladas por Zustand (`AdminView`):
+
+| Vista | Componente | Descripción |
+|-------|------------|-------------|
+| dashboard | DashboardView | Panel del día con stats, tabla de asistencia, exportar día/rango |
+| employees | EmployeesView | CRUD empleados con transfer |
+| sucursales | SucursalesView | CRUD sucursales con geofence |
+| users | UsersView | CRUD usuarios con MFA |
+| vacations | VacationsView | Aprobar/rechazar vacaciones, saldos |
+| history | HistoryView | Historial con period=day/week/month/custom + DateRangePicker |
+| calendar | CalendarView | Calendario mensual o por rango, marca correcciones |
+| reports | ReportsView | Todos los reportes con DateRangePicker unificado + STPS (mensual/semanal/libre) |
+| corrections | CorrectionsView | Reporte de correcciones con tabla expandible |
+| audit | AuditView | Bitácora filtrable |
+| nom-035 | Nom035View | Alertas NOM-035 |
+| qr-terminal | QrTerminalView | Kiosko con QR rotativo + quick-login |
+| company | CompanyView | Datos empresa + logo |
+| documentation | DocumentationView | Manual de usuario embebido |
+| settings | SettingsView | MFA, **botones de recálculo** (overtime, shift, status, vacations), configuración |
+
+### Employee-layout.tsx (~2263 líneas)
+Vistas: `attendance` (check-in/out con QR), `history`, `vacations`, `qr`.
+
+### Componente clave: `DateRangePicker`
+`src/components/reports/date-range-picker.tsx` — selector de rango con presets (Hoy, Ayer, Esta semana, Este mes, Mes pasado, Este año). Usado en History, Calendar, Reports, Corrections, Dashboard export. **No hay tope máximo de días** en ningún endpoint.
+
+---
+
+## 10. Mini-services
+
+### `mini-services/realtime-service/` (Socket.io, puerto 3003)
+Servicio independiente (bun project propio) para notificaciones real-time:
+- Check-in/out de empleados → actualiza dashboard admin en vivo
+- Alertas NOM-035 push
+- Despliegue: Railway/Render/ Fly.io (ver railway.toml, render.yaml)
+
+**Frontend siempre conecta vía** `io("/?XTransformPort=3003")` — nunca directo a `localhost:3003` (Caddy gateway lo enruta). WebSocket errors del tipo `wss://...vercel.app/socket.io/...` son **ruido** del servicio real-time y no afectan funcionalidad core.
+
+---
+
+## 11. Deploy y CI/CD
+
+- **Vercel** auto-deploya desde `main` de GitHub al recibir push.
+- `vercel.json` copia `schema.postgres.prisma` a `schema.prisma` antes de build (prod usa PostgreSQL).
+- Variables de entorno en Vercel: `DATABASE_URL` (Supabase), `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_VERSION=2.2.0`, `UPSTASH_REDIS_REST_URL/TOKEN`.
+- **No usar** `bun run build` localmente (OOM en sandbox de 4GB). Build solo en Vercel.
+- Scripts: `./scripts/deploy-vercel.sh` para deploy manual.
+
+---
+
+## 12. Convenios y reglas del proyecto
+
+### Código
+- **TypeScript strict** en todo. `'use client'` y `'use server'` explícitos.
+- **shadcn/ui** preferido sobre componentes custom. Todo en `src/components/ui/` ya existe.
+- **No usar colores indigo/azul** salvo los pre-existentes (StatBox violet/sky).
+- **Footer sticky**: `min-h-screen flex flex-col` + `mt-auto` en footer.
+- **Responsive mobile-first** con Tailwind prefixes.
+- **z-ai-web-dev-sdk SOLO en backend** — nunca en client side.
+
+### Prisma
+- Schema en `prisma/schema.prisma` (SQLite dev) o `prisma/schema.postgres.prisma` (PostgreSQL prod).
+- Cambiar con `./scripts/switch-schema.sh sqlite|postgres`.
+- `import { db } from '@/lib/db'` para obtener el cliente.
+- Los tipos primitivos no pueden ser listas — usar JSON string o tabla relacionada.
+- Después de editar schema: `bun run db:push`.
+
+### API
+- **Usar API routes, no server actions.**
+- Todas las rutas usan `getSession()` de NextAuth para auth.
+- Scoping por sucursal validado en cada ruta.
+- Audit log obligatorio en mutaciones (`auditLog()` de `src/lib/audit.ts`).
+- Errores con JSON `{ error: string }` y código HTTP apropiado.
+
+### Worklog
+- **Obligatorio**: leer `/home/z/my-project/worklog.md` antes de empezar trabajo.
+- **Obligatorio**: appendear nueva sección al worklog al terminar (con `---` separador).
+- Formato: `Task ID`, `Agent`, `Task`, `Work Log`, `Stage Summary`.
+
+### Git
+- Commits en español, formato: `tipo(scope): descripción` (ej. `fix(overtime): ...`, `feat(admin): ...`).
+- Commits con UUID (ej. `da30c70 62bb1647-...`) son auto-generados por el sistema, no editar.
+- **No commitear** `.env`, `.env.local`, `dev.log`, `server.log`, `node_modules/`.
+
+---
+
+## 13. Estado actual (agosto 2026)
+
+### Fixes recientes aplicados (todos en producción)
+1. **fix #3 (overtime)** — commit `28e5345`. Caso Alicia resuelto: 55→95 min de overtime.
+2. **Endpoint `/api/admin/recalc-overtime`** — commit `28e5345`. Recálculo histórico con acumulador semanal in-memory.
+3. **Botón "Recálculo de horas extra" en Configuración** — commit `7088e38`. UI para invocar el endpoint con dryRun/real.
+4. **Recálculo ejecutado por el usuario** — registros históricos corregidos.
+
+### Features principales ya en producción
+- Check-in/out geolocalizado con QR dinámico rotativo
+- Cálculo de overtime con reforma LFT 2027 (dobles/triples, tope semanal gradual)
+- Prima por descanso trabajado (art. 73) y prima dominical (art. 71)
+- Clasificación automática de jornada (diurna/nocturna/mixta, art. 60/61)
+- Comida y descanso registrados con tolerancia
+- Corrección manual de registros con trazabilidad (originalCheckIn/Out, correctionReason, correctedBy)
+- Firma del empleado (art. 132 XXXIV LFT — prueba plena)
+- Justificaciones con flujo PENDING/APPROVED/REJECTED
+- Vacaciones/permisos/incapacidades con saldos y modo parcial
+- Reportes: daily, overtime, employee-overtime, absences, incidences, comparative, corrections, export, my-export, STPS (art. 804)
+- Todos los reportes soportan rangos libres sin tope (DateRangePicker unificado)
+- Vista de Correcciones dedicada + badges "Corregido" en Dashboard/Historial/Calendario
+- Calendario mensual o por rango con marca de correcciones
+- Panel NOM-035 (alertas teletrabajo)
+- Auditoría completa con IP/UA/timestamps
+- Derechos ARCO (LFPDPPP) con anonimización para CANCELLATION
+- MFA TOTP para admins
+- Rate limiting con Upstash Redis
+- Real-time con Socket.io (dashboard en vivo)
+- Kiosko quick-login para terminales
+
+### Issues conocidos / no-bugs
+- **OOM en sandbox local**: Next.js 16 + Turbopack consume ~2.3GB compilando `/`. El sandbox tiene 4GB. Build local falla pero Vercel build funciona. Verificación visual con Agent Browser a veces no posible por esto — usar scripts directos como alternativa.
+- **WebSocket errors en consola**: `wss://...vercel.app/socket.io/...` son ruido del servicio real-time. No afectan funcionalidad core.
+- **34 errores TypeScript pre-existentes**: en `stps-format`, `stps-pdf`, `stps-report`, `arco`, `auth.config`, `rate-limit`, `scripts/`. No bloquean build (Vercel usa `next build` que tolera). No introducir errores nuevos.
+- **Chrome "Don't paste code"**: la consola del navegador bloquea pegar código por seguridad. Escribir `allow pasting` primero, o usar botones en la UI.
+
+---
+
+## 14. Cómo arrancar en una nueva sesión
+
+Si eres un agente nuevo, sigue estos pasos:
+
+1. **Lee este documento** completo.
+2. **Lee `/home/z/my-project/worklog.md`** (tail -200 al menos) para ver el trabajo reciente.
+3. **Revisa `git log --oneline -10`** para commits recientes.
+4. **Revisa `tail -30 dev.log`** si el dev server está corriendo.
+5. **Identifica el dominio** que vas a tocar:
+   - Overtime/cálculo → `src/lib/overtime-calculator.ts` + `shift-classifier.ts` + `timezone.ts`
+   - Attendance → `src/app/api/attendance/*`
+   - Reports → `src/app/api/reports/*`
+   - Frontend admin → `src/components/layout/admin-layout.tsx` (busca por nombre de vista)
+   - Frontend empleado → `src/components/layout/employee-layout.tsx`
+   - Auth → `src/lib/auth.ts` + `auth.config.ts` + `rbac.ts`
+   - Schema → `prisma/schema.prisma` (recuerda `switch-schema.sh` para prod)
+6. **Antes de cambiar cálculos de overtime**: lee el header de `overtime-calculator.ts` que documenta fix #3. No reintroducir bugs.
+7. **Antes de cambiar fechas/horas**: usa SIEMPRE Luxon con `MEXICO_TZ`. Nunca `new Date().setHours()`.
+8. **Después de cambios**: `bun run lint`, revisa dev.log, y si es mutación de datos considera si necesita un endpoint de recálculo.
+9. **Al terminar**: appendea tu sección al worklog con el formato establecido.
+
+---
+
+## 15. Contacto /决策 points
+
+- **Producto owner**: usuario (moygallegostrujillo-stack en GitHub)
+- **Repo único**: https://github.com/moygallegostrujillo-stack/control-de-asistencia — **no trabajar sobre forks u otros repos**.
+- **URL única**: https://control-asistencia-v22.vercel.app/ — **no deployar en otros dominios**.
+- **Tokens**: el usuario crea PATs fine-grained de un solo uso (1h, Contents:Write) cuando se necesita push. **Siempre revocar después**. No almacenar tokens.
+
+---
+
+*Documento generado el 12 de agosto 2026. Mantener actualizado al finalizar cada sesión de cambios significativos.*

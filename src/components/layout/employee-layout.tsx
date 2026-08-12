@@ -20,6 +20,7 @@ import {
   formatMinutes,
   getMexicoTodayISO,
   minutesToHours,
+  toISODate,
 } from '@/lib/timezone';
 
 import { Button } from '@/components/ui/button';
@@ -91,12 +92,14 @@ import {
   Loader2,
   ExternalLink,
   Ban,
+  BadgeCheck,
   CalendarDays,
   Hourglass,
   FileText,
   Camera,
   Keyboard,
   CalendarOff,
+  XCircle,
 } from 'lucide-react';
 
 // ============================================================
@@ -176,6 +179,8 @@ interface HistoryRecord {
   checkInMethod: string | null;
   checkInLat: number | null;
   checkInLong: number | null;
+  // NOM-037-STPS-2023 art. 27 — firma del trabajador (prueba plena)
+  employeeSignedAt?: string | null;
 }
 
 interface VacationRow {
@@ -1434,6 +1439,7 @@ function HistoryView() {
                     <TableHead className="whitespace-nowrap">Hrs. Extra</TableHead>
                     <TableHead className="whitespace-nowrap">Descanso</TableHead>
                     <TableHead className="whitespace-nowrap">Notas</TableHead>
+                    <TableHead className="whitespace-nowrap">Firmado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1490,6 +1496,26 @@ function HistoryView() {
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs text-muted-foreground max-w-[160px] truncate">
                         {r.notes || '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {r.employeeSignedAt ? (
+                          <Badge
+                            className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-emerald-200 gap-1"
+                            title="Firma del trabajador — NOM-037-STPS-2023 art. 27 (prueba plena)"
+                          >
+                            <BadgeCheck className="h-3 w-3" />
+                            {toISODate(new Date(r.employeeSignedAt))}
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-rose-700 border-rose-200 bg-rose-50 hover:bg-rose-50 gap-1"
+                            title="Firma del trabajador — NOM-037-STPS-2023 art. 27 (prueba plena)"
+                          >
+                            <XCircle className="h-3 w-3" />
+                            No firmado
+                          </Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

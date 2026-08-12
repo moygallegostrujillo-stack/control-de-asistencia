@@ -79,6 +79,11 @@ export interface FilaTrabajador {
   totalMinutosNocturnos: number; // para prima nocturna (art. 61 LFT)
   diasDescansoTrabajados: number;
   diasVacacionesDisfrutados: number;
+  // --- Incapacidades IMSS (art. 804 LFT fr. IV — comprobantes de seguridad social) ---
+  // Incluye Vacation records de tipo INCAPACIDAD (enfermedad general/riesgo de trabajo)
+  // y MATERNIDAD (12 semanas, art. 170 LFT). Ambas son incapacidades para efectos
+  // laborales e IMSS; se exhiben aparte de vacaciones/permisos en el reporte STPS.
+  diasIncapacidad: number;
   // --- Cambio C: catálogo de inasistencias y retardos ---
   diasFaltaSinJustificar: number;
   diasLlegoTarde: number;
@@ -483,13 +488,18 @@ export async function buildStpsReport(
       if (r.status === 'EARLY_LEAVE') diasSalioTemprano += 1;
     }
 
-    // --- Días de vacaciones y permisos en el periodo ---
+    // --- Días de vacaciones, permisos e incapacidades en el periodo ---
+    // La function diasVacacionEnPeriodo devuelve el overlap [startDate, endDate]
+    // con el periodo del reporte (clamped), excluyendo permisos parciales.
     let diasVacaciones = 0;
     let diasPermiso = 0;
+    let diasIncapacidad = 0; // INCAPACIDAD + MATERNIDAD (art. 804 fr. IV LFT)
     for (const v of empVacations) {
       const d = diasVacacionEnPeriodo(v, fechaInicio, fechaFin);
       if (v.type === 'VACACIONES') diasVacaciones += d;
       else if (v.type === 'PERMISO') diasPermiso += d;
+      else if (v.type === 'INCAPACIDAD' || v.type === 'MATERNIDAD')
+        diasIncapacidad += d;
     }
 
     // --- Días que faltó sin justificar (cómputo dinámico) ---
@@ -537,6 +547,7 @@ export async function buildStpsReport(
       totalMinutosNocturnos: totalNightMin,
       diasDescansoTrabajados,
       diasVacacionesDisfrutados: diasVacaciones,
+      diasIncapacidad,
       diasFaltaSinJustificar,
       diasLlegoTarde,
       diasSalioTemprano,

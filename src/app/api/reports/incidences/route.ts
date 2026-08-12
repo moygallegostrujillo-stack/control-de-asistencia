@@ -16,6 +16,7 @@ import {
   forbiddenResponse,
   isAdmin,
 } from '@/lib/auth';
+import { auditLog, getIpAndUA } from '@/lib/audit';
 import { toISODate } from '@/lib/timezone';
 import {
   parseDateRange,
@@ -96,6 +97,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // --- LFT art. 71, 72, 75 — Set de fechas feriadas para lookup O(1) ---
+    // Los feriados son globales (modelo Holiday no tiene sucursalId), así que
+    // un único Set aplica a todos los empleados. Se consulta dentro del loop
+    // per-empleado para distinguir "séptimo día trabajado" (descanso semanal)
+    // de "día festivo trabajado" (art. 75 LFT).
+    const holidayDateSet = new Set(holidays.map((h) => toISODate(h.date)));
+
     // Iterar empleado por empleado, día por día
     const byEmployee: any[] = [];
     for (const emp of employees) {
@@ -119,6 +127,13 @@ export async function GET(req: NextRequest) {
       let diasIncapacidad = 0;
       let diasDescansoTrabajado = 0;
       let primaDescansoMinutos = 0;
+      // --- LFT art. 71 (prima dominical), 72 (séptimo día), 75 (festivos) ---
+      let domingosTrabajados = 0;
+      let diasSeptimo = 0;
+      let diasFestivosTrabajados = 0;
+      // --- LFT art. 60/61 (jornada nocturna/mixta — prima nocturna 25%) ---
+      let minutosNocturnos = 0;
+      let jornadaNocturna = false;
 
       for (const day of days) {
         const dayISO = toISODate(day);
@@ -186,6 +201,41 @@ export async function GET(req: NextRequest) {
           diasDescansoTrabajado += 1;
           primaDescansoMinutos += record.restDayPremiumMinutes ?? 0;
         }
+
+        // --- LFT art. 71, 72, 75 — nuevos campos legales ---
+        // Prima dominical (art. 71 LFT): domingos efectivamente trabajados
+        // (status PRESENT o LATE). El flag isSunday ya está persistido por
+        // check-in; se usa directamente en lugar de recalcular con getDayOfWeek.
+        if (
+          (record.status === 'PRESENT' || record.status === 'LATE') &&
+          record.isSunday
+        ) {
+          domingosTrabajados += 1;
+        }
+        // Séptimo día (art. 72 LFT): día de descanso semanal trabajado,
+        // excluyendo festivos (esos se contabilizan en diasFestivosTrabajados).
+        if (record.isRestDayWorked && !holidayDateSet.has(dayISO)) {
+          diasSeptimo += 1;
+        }
+        // Días festivos trabajados (art. 75 LFT): doble pago por laborar
+        // en día de descanso obligatorio. Solo si asistió (PRESENT o LATE).
+        if (
+          (record.status === 'PRESENT' || record.status === 'LATE') &&
+          holidayDateSet.has(dayISO)
+        ) {
+          diasFestivosTrabajados += 1;
+        }
+
+        // --- LFT art. 60/61 — jornada nocturna/mixta (prima nocturna 25%) ---
+        // Minutos trabajados en ventana 20:00-06:00 (persistido por check-out).
+        // jornadaNocturna = true si ANY registro es NOCTURNA o MIXTA (art. 60 LFT).
+        minutosNocturnos += record.nightMinutes || 0;
+        if (
+          record.shiftType === 'NOCTURNA' ||
+          record.shiftType === 'MIXTA'
+        ) {
+          jornadaNocturna = true;
+        }
       }
 
       byEmployee.push({
@@ -216,6 +266,18 @@ export async function GET(req: NextRequest) {
         diasDescansoTrabajado,
         primaDescansoMinutos,
         primaDescansoHoras: +(primaDescansoMinutos / 60).toFixed(2),
+        // --- LFT art. 71, 72, 75 — nuevos campos legales ---
+        // Prima dominical (art. 71) — domingos trabajados (prima ≥25%)
+        domingosTrabajados,
+        // Séptimo día (art. 72) — descanso semanal trabajado (excluye festivos)
+        diasSeptimo,
+        // Días festivos trabajados (art. 75) — doble pago por festivo laborado
+        diasFestivosTrabajados,
+        // --- LFT art. 60/61 — jornada nocturna/mixta (prima nocturna 25%) ---
+        // Minutos totales en ventana nocturna (20:00-06:00) del periodo.
+        minutosNocturnos,
+        // true si ANY registro del empleado fue NOCTURNA o MIXTA (art. 60 LFT).
+        jornadaNocturna,
       });
     }
 
@@ -247,6 +309,14 @@ export async function GET(req: NextRequest) {
           acc.diasDescansoTrabajado + e.diasDescansoTrabajado,
         primaDescansoMinutos:
           acc.primaDescansoMinutos + e.primaDescansoMinutos,
+        // LFT art. 71, 72, 75
+        domingosTrabajados: acc.domingosTrabajados + e.domingosTrabajados,
+        diasSeptimo: acc.diasSeptimo + e.diasSeptimo,
+        diasFestivosTrabajados:
+          acc.diasFestivosTrabajados + e.diasFestivosTrabajados,
+        // LFT art. 60/61 — jornada nocturna/mixta (prima nocturna 25%)
+        minutosNocturnos: acc.minutosNocturnos + e.minutosNocturnos,
+        jornadaNocturna: acc.jornadaNocturna || e.jornadaNocturna,
       }),
       {
         diasLaborados: 0,
@@ -261,8 +331,35 @@ export async function GET(req: NextRequest) {
         diasIncapacidad: 0,
         diasDescansoTrabajado: 0,
         primaDescansoMinutos: 0,
+        domingosTrabajados: 0,
+        diasSeptimo: 0,
+        diasFestivosTrabajados: 0,
+        minutosNocturnos: 0,
+        jornadaNocturna: false,
       }
     );
+
+    // --- Auditoría (art. 132 fr. VII LFT — trazabilidad de reportes) ---
+    try {
+      const { ip, ua } = getIpAndUA(req);
+      await auditLog({
+        userId: user.id,
+        action: 'GENERATE_INCIDENCES_REPORT',
+        entityType: 'REPORT',
+        entityId: null,
+        sucursalId: sucursalId || null,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          tipo: 'INCIDENCES',
+          periodo: { start: range.startISO, end: range.endISO },
+          sucursalId,
+          registros: byEmployee.length,
+        },
+      });
+    } catch (auditErr) {
+      console.error('auditLog (incidences) error:', auditErr);
+    }
 
     return NextResponse.json({
       byEmployee,
@@ -274,6 +371,10 @@ export async function GET(req: NextRequest) {
         horasTrabajadasHoras: +(totals.horasTrabajadasMinutos / 60).toFixed(2),
         primaDescansoHoras: +(totals.primaDescansoMinutos / 60).toFixed(2),
         totalEmployees: byEmployee.length,
+        // LFT art. 60/61 — prima nocturna 25% (jornada nocturna/mixta)
+        minutosNocturnos: totals.minutosNocturnos,
+        minutosNocturnosHoras: +(totals.minutosNocturnos / 60).toFixed(2),
+        jornadaNocturna: totals.jornadaNocturna,
       },
       period: buildPeriodResponseEffective(range, effectiveEnd),
     });

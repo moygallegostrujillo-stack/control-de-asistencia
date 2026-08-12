@@ -14,6 +14,7 @@ import {
   forbiddenResponse,
   isAdmin,
 } from '@/lib/auth';
+import { auditLog, getIpAndUA } from '@/lib/audit';
 import { toISODate, minutesToHours } from '@/lib/timezone';
 import { parseDateRange, buildPeriodResponse } from '@/lib/reports';
 
@@ -248,6 +249,28 @@ export async function GET(req: NextRequest) {
       totalEmployees > 0
         ? minutesToHours(Math.round(totalOvertimeMinutes / totalEmployees))
         : 0;
+
+    // --- Auditoría (art. 132 fr. VII LFT — trazabilidad de reportes) ---
+    try {
+      const { ip, ua } = getIpAndUA(req);
+      await auditLog({
+        userId: user.id,
+        action: 'GENERATE_OVERTIME_REPORT',
+        entityType: 'REPORT',
+        entityId: null,
+        sucursalId: sucursalId || null,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          tipo: 'OVERTIME',
+          periodo: { start: range.startISO, end: range.endISO },
+          sucursalId,
+          registros: enrichedRecords.length,
+        },
+      });
+    } catch (auditErr) {
+      console.error('auditLog (overtime) error:', auditErr);
+    }
 
     return NextResponse.json({
       records: enrichedRecords,

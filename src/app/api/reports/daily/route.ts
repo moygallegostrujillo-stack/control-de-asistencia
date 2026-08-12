@@ -29,6 +29,7 @@ import {
   isAdmin,
   isGeneralAdmin,
 } from '@/lib/auth';
+import { auditLog, getIpAndUA } from '@/lib/audit';
 import {
   toISODate,
   minutesToHours,
@@ -291,6 +292,28 @@ export async function GET(req: NextRequest) {
     const company = await db.company.findUnique({
       where: { id: 'singleton' },
     });
+
+    // --- Auditoría (art. 132 fr. VII LFT — trazabilidad de reportes) ---
+    try {
+      const { ip, ua } = getIpAndUA(req);
+      await auditLog({
+        userId: user.id,
+        action: 'GENERATE_DAILY_REPORT',
+        entityType: 'REPORT',
+        entityId: null,
+        sucursalId: sucursalId || null,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          tipo: 'DAILY',
+          periodo: { start: range.startISO, end: range.endISO },
+          sucursalId,
+          registros: enrichedRecords.length,
+        },
+      });
+    } catch (auditErr) {
+      console.error('auditLog (daily) error:', auditErr);
+    }
 
     return NextResponse.json({
       period: buildPeriodResponse(range),

@@ -14,6 +14,7 @@ import {
   forbiddenResponse,
   isGeneralAdmin,
 } from '@/lib/auth';
+import { auditLog, getIpAndUA } from '@/lib/audit';
 import { toISODate, minutesToHours } from '@/lib/timezone';
 import {
   parseDateRange,
@@ -97,6 +98,9 @@ export async function GET(req: NextRequest) {
       let overtimeTripleMinutes = 0;
       let restDayWorkedCount = 0;
       let restDayPremiumMinutes = 0;
+      // --- LFT art. 60/61 (jornada nocturna/mixta — prima nocturna 25%) ---
+      let minutosNocturnos = 0;
+      let diasJornadaNocturna = 0;
 
       for (const emp of employees) {
         const empSchedules = schedulesByEmp[emp.id] || [];
@@ -147,6 +151,15 @@ export async function GET(req: NextRequest) {
               restDayWorkedCount += 1;
               restDayPremiumMinutes += record.restDayPremiumMinutes ?? 0;
             }
+            // --- LFT art. 60/61 — jornada nocturna/mixta (prima nocturna 25%) ---
+            // Minutos en ventana 20:00-06:00 y conteo de jornadas NOCTURNA/MIXTA.
+            minutosNocturnos += record.nightMinutes || 0;
+            if (
+              record.shiftType === 'NOCTURNA' ||
+              record.shiftType === 'MIXTA'
+            ) {
+              diasJornadaNocturna += 1;
+            }
           }
         }
       }
@@ -177,6 +190,12 @@ export async function GET(req: NextRequest) {
         restDayWorkedCount,
         restDayPremiumMinutes,
         restDayPremiumHours: minutesToHours(restDayPremiumMinutes),
+        // --- LFT art. 60/61 — jornada nocturna/mixta (prima nocturna 25%) ---
+        // Minutos totales en ventana nocturna (20:00-06:00) del periodo.
+        minutosNocturnos,
+        minutosNocturnosHoras: minutesToHours(minutosNocturnos),
+        // Conteo de registros NOCTURNA o MIXTA en la sucursal (art. 60 LFT).
+        diasJornadaNocturna,
         attendanceRate,
       });
     }
@@ -200,6 +219,14 @@ export async function GET(req: NextRequest) {
     );
     const totalRestDayPremiumMinutes = sucursalResults.reduce(
       (s, x) => s + x.restDayPremiumMinutes,
+      0
+    );
+    const totalMinutosNocturnos = sucursalResults.reduce(
+      (s, x) => s + x.minutosNocturnos,
+      0
+    );
+    const totalDiasJornadaNocturna = sucursalResults.reduce(
+      (s, x) => s + x.diasJornadaNocturna,
       0
     );
 
@@ -229,6 +256,10 @@ export async function GET(req: NextRequest) {
       // Prima por descanso trabajado (art. 73 LFT)
       totalRestDayWorkedCount,
       totalRestDayPremiumHours: minutesToHours(totalRestDayPremiumMinutes),
+      // --- LFT art. 60/61 — jornada nocturna/mixta (prima nocturna 25%) ---
+      totalMinutosNocturnos,
+      totalMinutosNocturnosHoras: minutesToHours(totalMinutosNocturnos),
+      totalDiasJornadaNocturna,
       avgAttendanceRate:
         sucursalResults.length > 0
           ? +(
@@ -247,6 +278,29 @@ export async function GET(req: NextRequest) {
           )
         : null,
     };
+
+    // --- Auditoría (art. 132 fr. VII LFT — trazabilidad de reportes) ---
+    // comparative es GA-only: agrega todas las sucursales (sucursalId = null)
+    try {
+      const { ip, ua } = getIpAndUA(req);
+      await auditLog({
+        userId: user.id,
+        action: 'GENERATE_COMPARATIVE_REPORT',
+        entityType: 'REPORT',
+        entityId: null,
+        sucursalId: null,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          tipo: 'COMPARATIVE',
+          periodo: { start: range.startISO, end: range.endISO },
+          sucursalId: null,
+          registros: sucursalResults.length,
+        },
+      });
+    } catch (auditErr) {
+      console.error('auditLog (comparative) error:', auditErr);
+    }
 
     return NextResponse.json({
       sucursales: sucursalResults,

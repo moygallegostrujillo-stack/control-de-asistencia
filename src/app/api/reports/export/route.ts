@@ -746,6 +746,10 @@ async function buildIncidencesRows(
     vacationsByEmp[v.employeeId].push(v);
   }
 
+  // --- LFT art. 71, 72, 75 — Set de fechas feriadas para lookup O(1) ---
+  // Los feriados son globales (modelo Holiday no tiene sucursalId).
+  const holidayDateSet = new Set(holidays.map((h) => toISODate(h.date)));
+
   const rows: Record<string, any>[] = [];
   const totals = {
     diasLaborados: 0,
@@ -760,6 +764,10 @@ async function buildIncidencesRows(
     diasIncapacidad: 0,
     diasDescansoTrabajado: 0,
     primaDescansoMin: 0,
+    // LFT art. 71, 72, 75
+    domingosTrabajados: 0,
+    diasSeptimo: 0,
+    diasFestivosTrabajados: 0,
   };
 
   for (const emp of employees) {
@@ -784,7 +792,11 @@ async function buildIncidencesRows(
       diasVacaciones = 0,
       diasIncapacidad = 0,
       diasDescansoTrabajado = 0,
-      primaDescansoMin = 0;
+      primaDescansoMin = 0,
+      // LFT art. 71, 72, 75
+      domingosTrabajados = 0,
+      diasSeptimo = 0,
+      diasFestivosTrabajados = 0;
 
     for (const day of days) {
       const dayISO = toISODate(day);
@@ -830,6 +842,26 @@ async function buildIncidencesRows(
         diasDescansoTrabajado += 1;
         primaDescansoMin += record.restDayPremiumMinutes ?? 0;
       }
+
+      // --- LFT art. 71, 72, 75 — nuevos campos legales ---
+      // Prima dominical (art. 71 LFT)
+      if (
+        (record.status === 'PRESENT' || record.status === 'LATE') &&
+        record.isSunday
+      ) {
+        domingosTrabajados += 1;
+      }
+      // Séptimo día (art. 72 LFT) — descanso semanal trabajado, excluye festivos
+      if (record.isRestDayWorked && !holidayDateSet.has(dayISO)) {
+        diasSeptimo += 1;
+      }
+      // Días festivos trabajados (art. 75 LFT) — doble pago
+      if (
+        (record.status === 'PRESENT' || record.status === 'LATE') &&
+        holidayDateSet.has(dayISO)
+      ) {
+        diasFestivosTrabajados += 1;
+      }
     }
 
     totals.diasLaborados += diasLaborados;
@@ -844,6 +876,9 @@ async function buildIncidencesRows(
     totals.diasIncapacidad += diasIncapacidad;
     totals.diasDescansoTrabajado += diasDescansoTrabajado;
     totals.primaDescansoMin += primaDescansoMin;
+    totals.domingosTrabajados += domingosTrabajados;
+    totals.diasSeptimo += diasSeptimo;
+    totals.diasFestivosTrabajados += diasFestivosTrabajados;
 
     rows.push({
       'Número de Empleado': emp.employeeNumber,
@@ -866,6 +901,10 @@ async function buildIncidencesRows(
       'Horas Trabajadas (h)': minutesToHours(horasTrabajadasMin),
       'Días de Vacaciones': diasVacaciones,
       'Días de Incapacidad': diasIncapacidad,
+      // --- LFT art. 71, 72, 75 — nuevos campos legales ---
+      'Domingos trabajados': domingosTrabajados,
+      'Séptimo día trabajado': diasSeptimo,
+      'Días festivos trabajados': diasFestivosTrabajados,
       // Prima por descanso trabajado (art. 73 LFT)
       'Días de Descanso Trabajados': diasDescansoTrabajado,
       'Prima 100% (min)': primaDescansoMin,
@@ -886,6 +925,10 @@ async function buildIncidencesRows(
     ['Horas Trabajadas (total, h)', minutesToHours(totals.horasTrabajadasMin)],
     ['Días de Vacaciones (total)', totals.diasVacaciones],
     ['Días de Incapacidad (total)', totals.diasIncapacidad],
+    // --- LFT art. 71, 72, 75 — nuevos campos legales ---
+    ['Domingos trabajados (total)', totals.domingosTrabajados],
+    ['Séptimo día trabajado (total)', totals.diasSeptimo],
+    ['Días festivos trabajados (total)', totals.diasFestivosTrabajados],
     // Prima por descanso trabajado (art. 73 LFT)
     ['Días de Descanso Trabajados (total)', totals.diasDescansoTrabajado],
     ['Prima 100% (total, h)', minutesToHours(totals.primaDescansoMin)],

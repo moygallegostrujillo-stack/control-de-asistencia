@@ -13,6 +13,7 @@ import {
   forbiddenResponse,
   isAdmin,
 } from '@/lib/auth';
+import { auditLog, getIpAndUA } from '@/lib/audit';
 import { toISODate } from '@/lib/timezone';
 import {
   parseDateRange,
@@ -160,6 +161,28 @@ export async function GET(req: NextRequest) {
     }
 
     const totalAbsents = byEmployee.reduce((s, e) => s + e.absentDays, 0);
+
+    // --- Auditoría (art. 132 fr. VII LFT — trazabilidad de reportes) ---
+    try {
+      const { ip, ua } = getIpAndUA(req);
+      await auditLog({
+        userId: user.id,
+        action: 'GENERATE_ABSENCES_REPORT',
+        entityType: 'REPORT',
+        entityId: null,
+        sucursalId: sucursalId || null,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          tipo: 'ABSENCES',
+          periodo: { start: range.startISO, end: range.endISO },
+          sucursalId,
+          registros: byEmployee.length,
+        },
+      });
+    } catch (auditErr) {
+      console.error('auditLog (absences) error:', auditErr);
+    }
 
     return NextResponse.json({
       byEmployee,

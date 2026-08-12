@@ -138,6 +138,11 @@ export async function GET(req: NextRequest) {
       'Día de Descanso Trabajado': r.isRestDayWorked ? 'Sí' : 'No',
       'Prima 100% (min)': r.restDayPremiumMinutes ?? 0,
       'Domingo': r.isSunday ? 'Sí' : 'No',
+      // --- LFT art. 60/61 — jornada nocturna/mixta (prima nocturna 25%) ---
+      // Minutos en ventana 20:00-06:00 (persistido por check-out).
+      'Min. nocturnos': r.nightMinutes || 0,
+      // Clasificación de jornada (DIURNA por defecto si no se calculó).
+      'Jornada': r.shiftType || 'DIURNA',
       'Estado': STATUS_ES[r.status] || r.status,
       'Firmado': r.employeeSignedAt ? toISODate(r.employeeSignedAt) : 'No firmado',
       '¿Corregido?': r.correctedAt ? 'Sí' : 'No',
