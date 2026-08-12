@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Lock, QrCode, LogIn, Users, ChevronRight, Eye, EyeOff, Shield, ArrowLeft, KeyRound } from 'lucide-react';
+import { Mail, Lock, QrCode, LogIn, Users, ChevronRight, Eye, EyeOff, Shield, ArrowLeft, KeyRound, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -406,6 +406,17 @@ export function LoginForm() {
         <p className="mt-4 text-center text-xs text-zinc-400">
           v2.2 · {new Date().getFullYear()} · Control de Asistencia
         </p>
+        {/* Botón de descarga del PDF de cumplimiento legal — accesible sin login */}
+        <div className="mt-3 flex justify-center">
+          <a
+            href="/api/download/tabla-cumplimiento-legal"
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50 hover:text-zinc-900"
+            title="Descargar PDF con la matriz de cobertura LFT/NOM-035/NOM-037/LSS por reporte"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            Descargar tabla de cumplimiento legal (PDF)
+          </a>
+        </div>
       </motion.div>
     </div>
   );

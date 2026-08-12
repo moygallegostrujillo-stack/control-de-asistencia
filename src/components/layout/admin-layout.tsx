@@ -9109,6 +9109,50 @@ function DocumentationView() {
         </CardContent>
       </Card>
 
+      {/* Tabla comparativa de cumplimiento legal por reporte — descargable */}
+      <Card className="border-amber-300 bg-amber-50/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-700 text-white">
+                <Scale className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Tabla Comparativa de Cumplimiento Legal por Reporte</CardTitle>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Matriz de cobertura: 25 conceptos legales × 10 endpoints de /api/reports/ (LFT · NOM-035 · NOM-037 · LSS).
+                </p>
+              </div>
+            </div>
+            <Badge variant="outline" className="shrink-0 border-amber-400 text-amber-800 bg-white">
+              Auditoría
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-sm text-zinc-600 leading-relaxed">
+            Documento técnico de <strong>7 páginas</strong> que cruza cada reporte del sistema con el
+            articulado mexicano que cumple (LFT arts. 60-80, 132, 784; NOM-035-STPS-2018; NOM-037-STPS-2023 art. 27;
+            LSS arts. 15, 41, 51, 96, 170). Incluye la matriz de cobertura ✓/⚠/✗, los campos que cada endpoint
+            expone y el estado de corrección de las 16 brechas legales detectadas (B1-B11, S1-S3, P1-P2).
+            <strong> Evidencia para inspección STPS / IMSS.</strong>
+          </p>
+          <Button
+            asChild
+            size="sm"
+            className="gap-1.5 bg-amber-700 hover:bg-amber-800 shrink-0"
+          >
+            <a
+              href="/api/download/tabla-cumplimiento-legal"
+              download="tabla-comparativa-cumplimiento-legal.pdf"
+            >
+              <FileDown className="h-4 w-4" />
+              <span>Descargar PDF</span>
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Documento de recomendación de infraestructura — descargable */}
       <Card className="border-slate-300 bg-slate-50/50">
         <CardHeader className="pb-3">
