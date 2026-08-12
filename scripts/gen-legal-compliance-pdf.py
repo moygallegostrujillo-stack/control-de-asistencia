@@ -195,13 +195,12 @@ story.append(P(
 
 intro_text = (
     'Este documento cruza los <b>10 endpoints</b> del módulo <font face="Helvetica-Oblique">/api/reports/</font> '
-    'con los <b>conceptos legales</b> que cada uno debe computar para cumplir la legislación mexicana aplicable '
-    'al control de asistencia: Ley Federal del Trabajo (LFT) reformada 2027, NOM-035-STPS-2018 (riesgo psicosocial), '
+    'con los <b>conceptos legales</b> que cada uno computa para cumplir la legislación mexicana aplicable '
+    'al control de asistencia: Ley Federal del Trabajo (LFT), NOM-035-STPS-2018 (riesgo psicosocial), '
     'NOM-037-STPS-2023 (teletrabajo) y Ley del Seguro Social (LSS). '
     'Para cada concepto se marca si el reporte lo computa (<font color="#44905d"><b>✓</b></font>), '
     'lo hace parcialmente (<font color="#96783c"><b>⚠</b></font>) o no lo cubre (<font color="#9b4740"><b>✗</b></font>). '
-    'Las celdas con ✓ muestran el nombre del campo devuelto por el endpoint. '
-    'La matriz refleja el estado actual del sistema tras los commits 775d2df, 5472e2a y 71273ac.'
+    'Las celdas con ✓ muestran el nombre del campo devuelto por el endpoint.'
 )
 story.append(P(intro_text, st_body))
 story.append(Spacer(1, 6))
@@ -603,134 +602,14 @@ story.append(campos_tbl)
 story.append(PageBreak())
 
 # ─────────────────────────────────────────────────────────────────
-# TABLA 3 — Gaps detectados y estado de corrección
+# TABLA 3 — Referencia legal rápida
 # ─────────────────────────────────────────────────────────────────
-story.append(P('3. Brechas legales detectadas y estado de corrección', st_h2))
+story.append(P('3. Referencia legal rápida — lo que dice la ley', st_h2))
 story.append(P(
-    'Inventario de los 11 gaps legales identificados en la auditoría inicial (commit 775d2df) '
-    'y los 3 gaps de schema cerrados en el commit 71273ac. Cada fila muestra el problema, '
-    'la ley vulnerada y el commit que lo corrige.',
+    'Articulado mexicano aplicable al control de asistencia y la obligación patronal que cada disposición impone.',
     st_body_small
 ))
 story.append(Spacer(1, 4))
-
-COL_W3 = [40, 200, 230, 180, 164]  # ≈ 814
-scale3 = CONTENT_W / sum(COL_W3)
-COL_W3 = [w * scale3 for w in COL_W3]
-
-gaps_header = [
-    P('ID', st_cell_header),
-    P('Brecha legal', st_cell_header),
-    P('Fundamento legal', st_cell_header),
-    P('Corrección aplicada', st_cell_header),
-    P('Estado', st_cell_header),
-]
-
-gaps_rows = [
-    gaps_header,
-    # B1-B11 (auditoría inicial)
-    [P('<b>B1</b>', st_cell_center), P('Prima dominical no computada en ningún reporte', st_cell),
-     P('LFT art. 71 (≥25% sobre salario por domingo trabajado)', st_cell),
-     P('Nuevo campo <font face="Helvetica-Oblique">domingosTrabajados</font> en incidences + columna "Dom." en UI', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B2</b>', st_cell_center), P('Séptimo día no computado', st_cell),
-     P('LFT art. 72 (descanso semanal con goce de sueldo)', st_cell),
-     P('Nuevo campo <font face="Helvetica-Oblique">diasSeptimo</font> en incidences + columna "Sépt." en UI', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B3</b>', st_cell_center), P('Días festivos trabajados no computados', st_cell),
-     P('LFT art. 75 (doble salario por festivo laborado)', st_cell),
-     P('Nuevo campo <font face="Helvetica-Oblique">diasFestivosTrabajados</font> en incidences + columna "Fest." en UI', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B4</b>', st_cell_center), P('Incapacidades no incluidas en reporte STPS', st_cell),
-     P('LSS art. 96, 170; LFT art. 804 fr. IV', st_cell),
-     P('Nueva columna "Incap." en stps-format (Excel + PDF) con <font face="Helvetica-Oblique">diasIncapacidad</font>', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B5</b>', st_cell_center), P('Minutos nocturnos ausentes en reportes principales', st_cell),
-     P('LFT art. 60–61 (prima nocturna 25%)', st_cell),
-     P('<font face="Helvetica-Oblique">minutosNocturnos</font> y <font face="Helvetica-Oblique">jornadaNocturna</font> en incidences; KPIs nocturnos + columnas en UI', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B6</b>', st_cell_center), P('Horas trabajadas ausentes en tabla Incidencias', st_cell),
-     P('LFT art. 132 XXXIV; art. 804 fr. III', st_cell),
-     P('Nueva columna "Hrs. Trab." en tabla Incidencias (formato 48.0h)', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B7</b>', st_cell_center), P('Reporte IMSS inexistente', st_cell),
-     P('LSS art. 15 (registro de incapacidades, SUA/IDSE)', st_cell),
-     P('Nuevo endpoint <font face="Helvetica-Oblique">/api/reports/imss-format</font> (CSV/JSON) con NSS, RFC, CURP, folioIMSS, tipoIncapacidad', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B8</b>', st_cell_center), P('Reporte Comparativo sin retardos ni salidas anticipadas', st_cell),
-     P('LFT art. 132 XXXIV; art. 784 (carga de la prueba)', st_cell),
-     P('Columnas "Retardos" (amber) y "S.A." (rose) en tabla Comparativo', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B9</b>', st_cell_center), P('Firma del empleado ausente en UI de Mi Historial', st_cell),
-     P('NOM-037-STPS-2023 art. 27 (prueba plena)', st_cell),
-     P('Columna "Firmado" con Badge verde/rojo en Mi Historial del empleado', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">775d2df</font>', st_cell_center)],
-    [P('<b>B10</b>', st_cell_center), P('Inconsistencia % asistencia entre JSON y XLSX', st_cell),
-     P('LFT art. 804 fr. III (consistencia documental)', st_cell),
-     P('Fórmula unificada <font face="Helvetica-Oblique">present/(present+absent+earlyLeave)</font> en export/route.ts', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">5472e2a</font>', st_cell_center)],
-    [P('<b>B11</b>', st_cell_center), P('Días de Incapacidad ausentes en tabla UI Incidencias', st_cell),
-     P('LSS art. 96; LFT art. 804 fr. IV', st_cell),
-     P('Columna "Inc." en tabla Incidencias (consume <font face="Helvetica-Oblique">diasIncapacidad</font> ya existente en JSON)', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">5472e2a</font>', st_cell_center)],
-    # Gaps de schema (71273ac)
-    [P('<b>S1</b>', st_cell_center), P('NSS no existía en modelo Employee', st_cell),
-     P('LSS art. 15; LFT art. 804 fr. II', st_cell),
-     P('Campo <font face="Helvetica-Oblique">nss String? @unique</font> en Employee + captura en formulario de empleado (validación 11 dígitos)', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">71273ac</font>', st_cell_center)],
-    [P('<b>S2</b>', st_cell_center), P('Folio IMSS no existía en modelo Vacation', st_cell),
-     P('LSS art. 15 (comprobante de incapacidad)', st_cell),
-     P('Campo <font face="Helvetica-Oblique">folioIMSS String?</font> en Vacation + captura al aprobar incapacidad/maternidad/riesgo. <b>Bug corregido:</b> Prisma Client desactualizado — se regeneró con <font face="Helvetica-Oblique">prisma generate</font>.', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">71273ac + generate</font>', st_cell_center)],
-    [P('<b>S3</b>', st_cell_center), P('Tipo RIESGO_TRABAJO no existía en Vacation.type', st_cell),
-     P('LSS art. 41, 51 (accidente/enfermedad de trabajo)', st_cell),
-     P('Valor <font face="Helvetica-Oblique">RIESGO_TRABAJO</font> en enum + captura al registrar accidente laboral + filtro en IMSS report', st_cell),
-     P('<font color="#44905d"><b>✓ Corregido</b></font><br/><font size="6.5" color="#77756e">71273ac</font>', st_cell_center)],
-    # Pendientes
-    [P('<b>P1</b>', st_cell_center), P('Sueldo y cálculo de nómina no implementados', st_cell),
-     P('LFT art. 804 fr. II (listas de raya/nómina)', st_cell),
-     P('No implementado — el sistema es de asistencia, no de nómina. Cruce manual con sistema externo.', st_cell),
-     P('<font color="#9b4740"><b>✗ Pendiente</b></font><br/><font size="6.5" color="#77756e">Por diseño</font>', st_cell_center)],
-    [P('<b>P2</b>', st_cell_center), P('Deducciones (IMSS/ISR/INFONAVIT) no implementadas', st_cell),
-     P('LSS art. 36, 110; LFT art. 804 fr. IV', st_cell),
-     P('No implementado — se asume cálculo en sistema de nómina externo.', st_cell),
-     P('<font color="#9b4740"><b>✗ Pendiente</b></font><br/><font size="6.5" color="#77756e">Por diseño</font>', st_cell_center)],
-]
-
-gaps_tbl = Table(gaps_rows, colWidths=COL_W3, repeatRows=1)
-gaps_style = TableStyle([
-    ('BACKGROUND', (0, 0), (-1, 0), HEADER_FILL),
-    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-    ('FONTNAME', (0, 0), (-1, 0), BASE_FONT_BOLD),
-    ('FONTSIZE', (0, 0), (-1, 0), 8),
-    ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-    ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
-    ('TOPPADDING', (0, 0), (-1, 0), 6),
-    ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-    ('VALIGN', (0, 1), (-1, -1), 'TOP'),
-    ('ALIGN', (0, 1), (0, -1), 'CENTER'),
-    ('ALIGN', (-1, 1), (-1, -1), 'CENTER'),
-    ('LEFTPADDING', (0, 0), (-1, -1), 5),
-    ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-    ('TOPPADDING', (0, 1), (-1, -1), 6),
-    ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-    ('FONTNAME', (0, 1), (-1, -1), BASE_FONT),
-    ('FONTSIZE', (0, 1), (-1, -1), 8),
-    ('GRID', (0, 0), (-1, -1), 0.4, BORDER),
-    ('LINEBELOW', (0, 0), (-1, 0), 1.0, HEADER_FILL),
-])
-for i in range(1, len(gaps_rows)):
-    if i % 2 == 0:
-        gaps_style.add('BACKGROUND', (0, i), (-1, i), TABLE_STRIPE)
-gaps_tbl.setStyle(gaps_style)
-story.append(gaps_tbl)
-
-story.append(Spacer(1, 10))
-
-# ─────────────────────────────────────────────────────────────────
-# Referencia legal rápida
-# ─────────────────────────────────────────────────────────────────
-story.append(P('4. Referencia legal rápida', st_h2))
 
 COL_W4 = [70, 220, 524]
 scale4 = CONTENT_W / sum(COL_W4)
@@ -814,9 +693,8 @@ story.append(ref_tbl)
 
 story.append(Spacer(1, 12))
 story.append(P(
-    '<b>Fuentes:</b> Ley Federal del Trabajo (texto vigente, reformas DOF 1-may-2026); '
-    'NOM-035-STPS-2018; NOM-037-STPS-2023; Ley del Seguro Social; Justia (art. 803–804 LFT); '
-    '3HR Consultores (Reforma Laboral 2027). Inventario de endpoints: commits 775d2df, 5472e2a, 71273ac.',
+    '<b>Fuentes:</b> Ley Federal del Trabajo (texto vigente); '
+    'NOM-035-STPS-2018; NOM-037-STPS-2023; Ley del Seguro Social; Justia (art. 803–804 LFT).',
     st_legend
 ))
 
