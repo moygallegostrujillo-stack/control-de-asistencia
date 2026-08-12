@@ -5382,6 +5382,20 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard icon={Star} label="Festivos trab." value={(totals.diasFestivosTrabajados ?? 0).toString()} sub="Pago doble (art. 75 LFT)" tone="orange" />
+        <KpiCard
+          icon={Moon}
+          label="Horas nocturnas"
+          value={`${(Number(totals.minutosNocturnos ?? 0) / 60).toFixed(1)} h`}
+          sub="Prima 25% (arts. 60 y 61 LFT)"
+          tone="violet"
+        />
+        <KpiCard
+          icon={Moon}
+          label="Empl. jornada nocturna"
+          value={(byEmployee.filter((e: any) => e.jornadaNocturna).length).toString()}
+          sub="Arts. 60 y 61 LFT"
+          tone="violet"
+        />
       </div>
       <Card>
         <CardHeader><CardTitle className="text-base">Incidencias por empleado</CardTitle></CardHeader>
@@ -5408,6 +5422,8 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                     <TableHead className="whitespace-nowrap" title="Domingos trabajados — prima dominical 25% (art. 71 LFT)">Dom.</TableHead>
                     <TableHead className="whitespace-nowrap" title="Séptimo día trabajado — pago doble (art. 72 LFT)">Sépt.</TableHead>
                     <TableHead className="whitespace-nowrap" title="Días festivos trabajados — pago doble (art. 75 LFT)">Fest.</TableHead>
+                    <TableHead className="whitespace-nowrap" title="Minutos trabajados en ventana nocturna (20:00–06:00) — prima 25% (arts. 60 y 61 LFT)">Noct.</TableHead>
+                    <TableHead className="whitespace-nowrap" title="Tipo de jornada — DIURNA/NOCTURNA/MIXTA (arts. 60 y 61 LFT)">Jornada</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -5468,6 +5484,21 @@ function IncidencesReportBody({ data, isGA }: { data: any; isGA: boolean }) {
                             {e.diasFestivosTrabajados}
                           </Badge>
                         ) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap" title="Minutos nocturnos (20:00–06:00) — prima 25% (arts. 60 y 61 LFT)">
+                        {(e.minutosNocturnos ?? 0) > 0
+                          ? `${(Number(e.minutosNocturnos) / 60).toFixed(1)}h`
+                          : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap" title="Tipo de jornada (arts. 60 y 61 LFT)">
+                        {e.jornadaNocturna ? (
+                          <Badge className="bg-violet-100 text-violet-800 hover:bg-violet-100 border-violet-200 gap-1">
+                            <Moon className="h-3 w-3" />
+                            Nocturna/Mixta
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">Diurna</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

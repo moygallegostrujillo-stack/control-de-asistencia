@@ -966,6 +966,7 @@ async function buildComparativeRows(
   let totalPresent = 0,
     totalAbsent = 0,
     totalLate = 0,
+    totalEarlyLeave = 0,
     totalOvertimeMin = 0,
     totalDoubleMin = 0,
     totalTripleMin = 0,
@@ -991,6 +992,7 @@ async function buildComparativeRows(
     let presentDays = 0,
       absentDays = 0,
       lateDays = 0,
+      earlyLeaveDays = 0,
       overtimeMin = 0,
       doubleMin = 0,
       tripleMin = 0,
@@ -1027,6 +1029,13 @@ async function buildComparativeRows(
           lateDays += 1;
           presentDays += 1;
         }
+        // Salida anticipada: cuenta como día laborado (presente) Y como evaluación
+        // no plena para el denominador de % asistencia (art. 59 LFT — jornada íntegra).
+        // Unificado con /api/reports/comparative (JSON).
+        else if (record.status === 'EARLY_LEAVE') {
+          earlyLeaveDays += 1;
+          presentDays += 1;
+        }
         // Reforma LFT 2027 — dobles/triples y prima descanso persistidos por check-out
         if (record.checkInTime && record.checkOutTime) {
           overtimeMin += record.overtimeMinutes ?? 0;
@@ -1040,13 +1049,16 @@ async function buildComparativeRows(
       }
     }
 
-    const evaluable = presentDays + absentDays;
+    // % asistencia unificado con /api/reports/comparative (JSON):
+    // denominador = presentes + ausentes + salidas anticipadas (art. 59 LFT).
+    const evaluable = presentDays + absentDays + earlyLeaveDays;
     const attendanceRate =
       evaluable > 0 ? +((presentDays / evaluable) * 100).toFixed(2) : 0;
 
     totalPresent += presentDays;
     totalAbsent += absentDays;
     totalLate += lateDays;
+    totalEarlyLeave += earlyLeaveDays;
     totalOvertimeMin += overtimeMin;
     totalDoubleMin += doubleMin;
     totalTripleMin += tripleMin;
@@ -1061,6 +1073,7 @@ async function buildComparativeRows(
       'Días Presente': presentDays,
       'Días Ausente': absentDays,
       'Días con Retardo': lateDays,
+      'Días con Salida Anticipada': earlyLeaveDays,
       'Horas Extra': minutesToHours(overtimeMin),
       // Reforma LFT 2027 — dobles/triples
       'Horas Extra Dobles': minutesToHours(doubleMin),
@@ -1072,12 +1085,14 @@ async function buildComparativeRows(
     });
   }
 
-  const totalEval = totalPresent + totalAbsent;
+  // Total global unificado: denominador incluye salidas anticipadas (art. 59 LFT).
+  const totalEval = totalPresent + totalAbsent + totalEarlyLeave;
   const summaryRows: (string | number)[][] = [
     ['Sucursales', sucursales.length],
     ['Días Presente (total)', totalPresent],
     ['Días Ausente (total)', totalAbsent],
     ['Días con Retardo (total)', totalLate],
+    ['Días con Salida Anticipada (total)', totalEarlyLeave],
     ['Horas Extra (total)', minutesToHours(totalOvertimeMin)],
     // Reforma LFT 2027 — dobles/triples
     ['Horas Extra Dobles (total)', minutesToHours(totalDoubleMin)],
