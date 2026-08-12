@@ -97,6 +97,7 @@ export async function GET(req: NextRequest) {
             name: true,
             codigoLocal: true,
             checkoutToleranceMinutes: true,
+            mealDurationMinutes: true,
           },
         },
       },
@@ -131,7 +132,7 @@ export async function GET(req: NextRequest) {
       const ot = calculateOvertime({
         record: r,
         schedule: sched,
-        sucursal: { checkoutToleranceMinutes: suc.checkoutToleranceMinutes },
+        sucursal: { checkoutToleranceMinutes: suc.checkoutToleranceMinutes, mealDurationMinutes: suc.mealDurationMinutes },
       });
       // dobles/triples y prima descanso vienen persistidos por check-out
       // (calculateOvertime no recibe weeklyAccumulatedMinutes aquí → no debe usarse

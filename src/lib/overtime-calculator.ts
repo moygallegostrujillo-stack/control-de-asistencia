@@ -1,6 +1,11 @@
 // ============================================================
-// OVERTIME CALCULATOR — fix #2 + Reforma LFT 2027 (art. 66/68) + Prima art. 73
-// Aplica checkoutToleranceMinutes antes de contar horas extra.
+// OVERTIME CALCULATOR — fix #3 + Reforma LFT 2027 (art. 66/68) + Prima art. 73
+// fix #3 (bug tolerancia): la tolerancia de salida NO se resta del overtime.
+//   - checkoutToleranceMinutes solo determina isEarlyLeave (salida anticipada),
+//     no reduce las horas extra devengadas. Ver bug report "Alicia".
+// fix #3 (bug comida): scheduledMinutes descuenta mealDurationMinutes cuando
+//   el schedule incluye comida (raw > 480min). Evita doble descuento y
+//   subreportar overtime en horarios 9-18.
 // Distingue horas extra DOBLES (art. 66) de TRIPLES (art. 68).
 // Tope semanal gradual: 9h (2026-27) → 10h (2028) → 11h (2029) → 12h (2030).
 // Tope diario: 4h extra (art. 66).
@@ -21,7 +26,7 @@ import { classifyShift, getLegalMaxMinutes, type ShiftType } from './shift-class
 export interface OvertimeInput {
   record: AttendanceRecord;
   schedule: WorkSchedule | null;
-  sucursal: Pick<Sucursal, 'checkoutToleranceMinutes'>;
+  sucursal: Pick<Sucursal, 'checkoutToleranceMinutes' | 'mealDurationMinutes'>;
   /** Minutos extra ya acumulados en la semana (excluyendo el día actual). */
   weeklyAccumulatedMinutes?: number;
 }
@@ -69,16 +74,26 @@ export function getWeeklyOvertimeCapMinutes(year: number = new Date().getFullYea
 export const DAILY_OVERTIME_CAP_MINUTES = 4 * 60;
 
 /**
- * Calcula horas trabajadas, horas extra (con tolerancia aplicada — fix #2),
- * distinción dobles/triples (reforma LFT 2027), y estado (PRESENT/LATE/EARLY_LEAVE).
+ * Calcula horas trabajadas, horas extra, distinción dobles/triples (reforma
+ * LFT 2027) y estado (PRESENT/LATE/EARLY_LEAVE).
  *
  * Si la fecha del registro es día de descanso semanal del empleado, NO se calcula
  * overtime (art. 66/68); en su lugar, la jornada completa se paga con prima del 100%
  * (art. 73 LFT). El descanso trabajado NO es tiempo extra, es jornada ordinaria
  * con recargo del 100%.
  *
- * Fórmula overtime con tolerancia (fix #2):
- *   overtimeMinutes = max(0, workedMinutes - scheduledMinutes - checkoutToleranceMinutes)
+ * Fórmula overtime (fix #3 — bug tolerancia):
+ *   overtimeMinutes = max(0, netWorkedMinutes - scheduledMinutes)
+ *   La tolerancia de salida (checkoutToleranceMinutes) solo determina isEarlyLeave;
+ *   NO se resta del overtime devengado. Antes se restaba (fix #2), lo que
+ *   subreportaba ~10 min/día de overtime (ver bug report "Alicia").
+ *
+ * Cálculo de scheduledMinutes (fix #3 — bug comida):
+ *   rawScheduledMinutes = endTime - startTime (con ajuste turno nocturno)
+ *   Si rawScheduledMinutes > 480 (jornada máxima legal diurna, art. 61 LFT),
+ *   el schedule incluye tiempo de comida → scheduledMinutes = raw - mealDurationMinutes.
+ *   Si rawScheduledMinutes <= 480, el schedule ya es la jornada real (sin comida).
+ *   Esto evita el doble descuento cuando el empleado SÍ registra comida.
  *
  * Distribución dobles/triples (reforma LFT 2027):
  *   - Tope diario: 4h (DAILY_OVERTIME_CAP_MINUTES)
@@ -178,7 +193,28 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
     if (schedule.dayOfWeek === dow) {
       const [sh, sm] = schedule.startTime.split(':').map(Number);
       const [eh, em] = schedule.endTime.split(':').map(Number);
-      scheduledMinutes = (eh * 60 + em) - (sh * 60 + sm);
+      const rawScheduledMinutes = (eh * 60 + em) - (sh * 60 + sm);
+      // ----------------------------------------------------------
+      // fix #3 — bug comida:
+      // Si el schedule dura más de la jornada máxima legal diurna (8h = 480 min,
+      // art. 61 LFT), asumimos que incluye tiempo de comida y lo descontamos
+      // usando mealDurationMinutes de la sucursal. Así scheduledMinutes refleja
+      // la jornada REAL contratada (no el tiempo en sitio esperado).
+      //
+      // Si el schedule dura <= 480 min (ej. 9-17 = 8h puras), asumimos que NO
+      // incluye comida y lo dejamos tal cual.
+      //
+      // Esto evita el doble descuento: si el empleado SÍ registró comida,
+      // netWorkedMinutes ya la tiene restada (línea 138-140 abajo); si además
+      // scheduledMinutes la incluyera, se descontaría dos veces.
+      // ----------------------------------------------------------
+      const JORNADA_LEGAL_DIURNA_MIN = 480;
+      const mealDur = sucursal.mealDurationMinutes || 0;
+      if (rawScheduledMinutes > JORNADA_LEGAL_DIURNA_MIN) {
+        scheduledMinutes = Math.max(0, rawScheduledMinutes - mealDur);
+      } else {
+        scheduledMinutes = rawScheduledMinutes;
+      }
       if (scheduledMinutes < 0) scheduledMinutes += 24 * 60; // turno nocturno
 
       // ----------------------------------------------------------
@@ -224,9 +260,11 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
     }
   }
 
-  // fix #2 — Overtime con tolerancia de salida
-  const checkoutTol = sucursal.checkoutToleranceMinutes || 0;
-  const overtimeMinutes = Math.max(0, netWorkedMinutes - scheduledMinutes - checkoutTol);
+  // fix #3 — bug tolerancia: la tolerancia de salida (checkoutToleranceMinutes)
+  // solo determina isEarlyLeave (línea 237 arriba). NO se resta del overtime
+  // devengado. Antes se restaba (fix #2), lo que subreportaba overtime en
+  // ~checkoutToleranceMinutes por día (ver bug report "Alicia").
+  const overtimeMinutes = Math.max(0, netWorkedMinutes - scheduledMinutes);
 
   // --- Reforma LFT 2027 — Doble vs Triple ---
   // Tope diario: 4h (art. 66). El excedente diario no cuenta como extra autorizada.

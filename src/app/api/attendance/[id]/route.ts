@@ -205,7 +205,7 @@ export async function PUT(
     const calc = calculateOvertime({
       record: virtualRecord,
       schedule,
-      sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes },
+      sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes, mealDurationMinutes: sucursal.mealDurationMinutes },
       weeklyAccumulatedMinutes: weeklyAcc,
     });
 

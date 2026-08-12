@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
     const calc = calculateOvertime({
       record: updatedForCalc,
       schedule,
-      sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes },
+      sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes, mealDurationMinutes: sucursal.mealDurationMinutes },
       weeklyAccumulatedMinutes: weeklyAcc,
     });
 
