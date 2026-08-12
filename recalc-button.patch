@@ -1,0 +1,277 @@
+From 7088e38ad4325180ac45a965439755fb7131724b Mon Sep 17 00:00:00 2001
+From: Z User <z@container>
+Date: Wed, 12 Aug 2026 04:28:13 +0000
+Subject: [PATCH] =?UTF-8?q?feat(admin):=20agrega=20bot=C3=B3n=20de=20rec?=
+ =?UTF-8?q?=C3=A1lculo=20de=20horas=20extra=20en=20Configuraci=C3=B3n?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Agrega un Card 'Recálculo de horas extra (fix #3 — caso Alicia)' en la
+vista de Configuración del admin, junto a los botones existentes de
+recalc-status, recalc-shift y recalc-vacations.
+
+El Card incluye:
+- Explicación visual de los bugs corregidos (tolerancia + comida)
+- Botón 'Simular recálculo' (dryRun=true) que muestra qué cambiaría
+- Botón 'Recalcular ahora' (dryRun=false) que aplica los cambios
+- Tabla con hasta 100 cambios: fecha, empleado, sucursal, OT anterior,
+  OT nuevo, delta, dobles (antes→después), triples (antes→después),
+  status (antes→después)
+- Desglose por sucursal (chips con changed/scanned)
+- Highlight en amber para triples nuevas que aparecen
+
+Resuelve la imposibilidad de invocar el endpoint /api/admin/recalc-overtime
+desde la consola del navegador (Chrome bloquea pegar código por seguridad).
+---
+ src/components/layout/admin-layout.tsx | 227 +++++++++++++++++++++++++
+ 1 file changed, 227 insertions(+)
+
+diff --git a/src/components/layout/admin-layout.tsx b/src/components/layout/admin-layout.tsx
+index 22ed3ea..27d1380 100755
+--- a/src/components/layout/admin-layout.tsx
++++ b/src/components/layout/admin-layout.tsx
+@@ -6697,6 +6697,57 @@ function SettingsView() {
+     }
+   };
+ 
++  // --- Recálculo de overtime (fix #3 — bugs tolerancia + comida, caso Alicia) ---
++  const [recalcOvertimeLoading, setRecalcOvertimeLoading] = useState(false);
++  const [recalcOvertimeDryRunLoading, setRecalcOvertimeDryRunLoading] = useState(false);
++  const [recalcOvertimeResult, setRecalcOvertimeResult] = useState<{
++    scanned: number;
++    changed: number;
++    dryRun: boolean;
++    bySucursal: Record<string, { scanned: number; changed: number }>;
++    details: Array<{
++      recordId: string;
++      employeeName: string;
++      sucursalName: string;
++      date: string;
++      oldOvertimeMinutes: number | null;
++      newOvertimeMinutes: number;
++      oldDoubleMinutes: number | null;
++      newDoubleMinutes: number;
++      oldTripleMinutes: number | null;
++      newTripleMinutes: number;
++      oldStatus: string;
++      newStatus: string;
++      deltaOvertime: number;
++    }>;
++  } | null>(null);
++
++  const runRecalcOvertime = async (dryRun: boolean) => {
++    if (dryRun) {
++      setRecalcOvertimeDryRunLoading(true);
++    } else {
++      setRecalcOvertimeLoading(true);
++    }
++    try {
++      const data = await apiSend<{ scanned: number; changed: number; dryRun: boolean; bySucursal: any; details: any[] }>(
++        '/api/admin/recalc-overtime',
++        'POST',
++        { dryRun }
++      );
++      setRecalcOvertimeResult(data);
++      if (dryRun) {
++        toast.info(`Simulación: ${data.scanned} registros revisados, ${data.changed} cambiarían de overtime.`);
++      } else {
++        toast.success(`Recálculo completado: ${data.changed} registros corregidos de ${data.scanned} revisados.`);
++      }
++    } catch (e) {
++      toast.error(e instanceof Error ? e.message : 'Error al recalcular overtime');
++    } finally {
++      setRecalcOvertimeDryRunLoading(false);
++      setRecalcOvertimeLoading(false);
++    }
++  };
++
+   // Cargar estado de MFA al montar
+   const refreshMfaStatus = useCallback(async () => {
+     setLoadingStatus(true);
+@@ -7394,6 +7445,182 @@ function SettingsView() {
+         </CardContent>
+       </Card>
+ 
++      {/* ============================================================ */}
++      {/* RECÁLCULO DE OVERTIME — fix #3 (bugs tolerancia + comida) */}
++      {/* ============================================================ */}
++      <Card className="border-amber-200">
++        <CardHeader>
++          <div className="flex items-start justify-between gap-4 flex-wrap">
++            <div>
++              <CardTitle className="flex items-center gap-2">
++                <ClipboardPen className="h-5 w-5 text-amber-600" />
++                Recálculo de horas extra (fix #3 — caso Alicia)
++              </CardTitle>
++              <CardDescription className="max-w-2xl">
++                Recalcula overtime, dobles, triples y status de todos los registros
++                con check-in y check-out, usando la lógica corregida (fix #3).
++              </CardDescription>
++            </div>
++          </div>
++        </CardHeader>
++        <CardContent className="space-y-4">
++          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
++            <div className="flex items-start gap-3">
++              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
++              <div className="space-y-1.5 text-sm">
++                <p className="font-medium text-amber-900">
++                  Bugs corregidos por fix #3 (commit 28e5345)
++                </p>
++                <p className="text-amber-800">
++                  <strong>Bug 1 (tolerancia):</strong> antes se restaba
++                  <code className="mx-1 px-1 py-0.5 bg-amber-100 rounded text-xs">checkoutToleranceMinutes</code>
++                  del overtime, subreportando ~10 min/día. Ahora solo determina
++                  <em> isEarlyLeave</em>, no reduce el overtime devengado.
++                </p>
++                <p className="text-amber-800">
++                  <strong>Bug 2 (comida):</strong> <code className="mx-1 px-1 py-0.5 bg-amber-100 rounded text-xs">scheduledMinutes</code>
++                  no descontaba <code className="mx-1 px-1 py-0.5 bg-amber-100 rounded text-xs">mealDurationMinutes</code>
++                  cuando el schedule incluía comida (9-18 = 540min). Ahora descuenta
++                  mealDuration si el schedule dura &gt; 480 min (jornada máxima legal diurna).
++                </p>
++                <p className="text-amber-800">
++                  <strong>Efecto cascada:</strong> al corregir el overtime total, el
++                  acumulado semanal también se corrige, lo que puede hacer aparecer
++                  <strong> horas triples</strong> que antes quedaban escondidas bajo el tope de 9h/semana.
++                </p>
++                <p className="text-amber-800">
++                  <strong>Caso Alicia:</strong> 08:58 → 19:03 Mexico, schedule 9-18, sin comida.
++                  Antes: 55 min de overtime. Ahora: <strong>95 min</strong> (+10 por Bug 1, +30 por Bug 2).
++                </p>
++                <p className="text-amber-800">
++                  Usa primero <strong>&laquo;Simular&raquo;</strong> para ver qué registros
++                  cambiarían, y luego <strong>&laquo;Recalcular&raquo;</strong> para aplicar.
++                  Revisa TODOS los registros (sin límite de fecha).
++                </p>
++              </div>
++            </div>
++          </div>
++
++          <div className="flex flex-wrap gap-2">
++            <Button
++              variant="outline"
++              onClick={() => runRecalcOvertime(true)}
++              disabled={recalcOvertimeDryRunLoading || recalcOvertimeLoading}
++            >
++              {recalcOvertimeDryRunLoading ? (
++                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Simulando...</>
++              ) : (
++                <><RefreshCw className="h-4 w-4 mr-1" /> Simular recálculo</>
++              )}
++            </Button>
++            <Button
++              onClick={() => runRecalcOvertime(false)}
++              disabled={recalcOvertimeDryRunLoading || recalcOvertimeLoading}
++              className="bg-amber-600 hover:bg-amber-700"
++            >
++              {recalcOvertimeLoading ? (
++                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Recalculando...</>
++              ) : (
++                <><RefreshCw className="h-4 w-4 mr-1" /> Recalcular ahora</>
++              )}
++            </Button>
++          </div>
++
++          {recalcOvertimeResult && (
++            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3">
++              <div className="flex items-center justify-between flex-wrap gap-2">
++                <p className="text-sm font-medium text-zinc-900">
++                  {recalcOvertimeResult.dryRun ? 'Resultado de la simulación' : 'Recálculo aplicado'}
++                </p>
++                <div className="flex gap-4 text-sm">
++                  <span className="text-zinc-600">
++                    Revisados: <strong className="text-zinc-900">{recalcOvertimeResult.scanned}</strong>
++                  </span>
++                  <span className="text-zinc-600">
++                    {recalcOvertimeResult.dryRun ? 'Cambiarían' : 'Corregidos'}:{" "}
++                    <strong className={recalcOvertimeResult.changed > 0 ? 'text-amber-700' : 'text-zinc-900'}>
++                      {recalcOvertimeResult.changed}
++                    </strong>
++                  </span>
++                </div>
++              </div>
++
++              {/* Desglose por sucursal */}
++              {recalcOvertimeResult.bySucursal && Object.keys(recalcOvertimeResult.bySucursal).length > 0 && (
++                <div className="flex flex-wrap gap-2 text-xs">
++                  {Object.entries(recalcOvertimeResult.bySucursal).map(([suc, st]: [string, any]) => (
++                    <span key={suc} className="px-2 py-1 rounded-md bg-white border border-zinc-200 text-zinc-700">
++                      {suc}: {st.changed}/{st.scanned}
++                    </span>
++                  ))}
++                </div>
++              )}
++
++              {recalcOvertimeResult.details.length > 0 && (
++                <div className="max-h-96 overflow-y-auto rounded-md border border-zinc-200 bg-white">
++                  <Table>
++                    <TableHeader>
++                      <TableRow>
++                        <TableHead className="w-[110px]">Fecha</TableHead>
++                        <TableHead>Empleado</TableHead>
++                        <TableHead className="w-[130px]">Sucursal</TableHead>
++                        <TableHead className="w-[90px]">OT ant.</TableHead>
++                        <TableHead className="w-[90px]">OT nuevo</TableHead>
++                        <TableHead className="w-[80px]">Delta</TableHead>
++                        <TableHead className="w-[80px]">Dobles</TableHead>
++                        <TableHead className="w-[80px]">Triples</TableHead>
++                        <TableHead className="w-[110px]">Status</TableHead>
++                      </TableRow>
++                    </TableHeader>
++                    <TableBody>
++                      {recalcOvertimeResult.details.slice(0, 100).map((d) => (
++                        <TableRow key={d.recordId}>
++                          <TableCell className="font-mono text-xs">{d.date}</TableCell>
++                          <TableCell className="text-xs">{d.employeeName}</TableCell>
++                          <TableCell className="text-xs">{d.sucursalName}</TableCell>
++                          <TableCell className="font-mono text-xs text-zinc-500">{d.oldOvertimeMinutes ?? '—'}</TableCell>
++                          <TableCell className="font-mono text-xs text-emerald-700">{d.newOvertimeMinutes}</TableCell>
++                          <TableCell className={`font-mono text-xs ${d.deltaOvertime > 0 ? 'text-emerald-700' : d.deltaOvertime < 0 ? 'text-rose-600' : 'text-zinc-500'}`}>
++                            {d.deltaOvertime > 0 ? '+' : ''}{d.deltaOvertime}
++                          </TableCell>
++                          <TableCell className="font-mono text-xs">
++                            <span className="text-zinc-500">{d.oldDoubleMinutes ?? '—'}</span>
++                            <span className="text-zinc-400 mx-1">→</span>
++                            <span className="text-emerald-700">{d.newDoubleMinutes}</span>
++                          </TableCell>
++                          <TableCell className="font-mono text-xs">
++                            <span className="text-zinc-500">{d.oldTripleMinutes ?? '—'}</span>
++                            <span className="text-zinc-400 mx-1">→</span>
++                            <span className={d.newTripleMinutes > 0 ? 'text-amber-700 font-bold' : 'text-zinc-700'}>{d.newTripleMinutes}</span>
++                          </TableCell>
++                          <TableCell className="text-xs">
++                            <span className="text-zinc-500">{d.oldStatus}</span>
++                            <span className="text-zinc-400 mx-1">→</span>
++                            <span className="text-zinc-900">{d.newStatus}</span>
++                          </TableCell>
++                        </TableRow>
++                      ))}
++                    </TableBody>
++                  </Table>
++                </div>
++              )}
++
++              {recalcOvertimeResult.details.length > 100 && (
++                <p className="text-xs text-zinc-500">
++                  Mostrando 100 de {recalcOvertimeResult.details.length} cambios. Los demás se aplicaron correctamente.
++                </p>
++              )}
++
++              {recalcOvertimeResult.changed === 0 && (
++                <p className="text-sm text-zinc-600">
++                  No hay registros que corregir. Todo está en orden.
++                </p>
++              )}
++            </div>
++          )}
++        </CardContent>
++      </Card>
++
+       {/* ============================================================ */}
+       {/* DIALOG: Activación MFA (3 pasos) */}
+       {/* ============================================================ */}
+-- 
+2.47.3
+
