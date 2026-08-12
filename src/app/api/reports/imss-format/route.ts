@@ -68,18 +68,17 @@ interface ImssRecord {
 // ------------------------------------------------------------
 
 /**
- * Mapea el Vacation.type (+ reason) al código IMSS:
- *   - MATERNIDAD                      → "MATERNIDAD" (art. 170 LFT — 12 semanas)
- *   - INCAPACIDAD + reason≈"riesgo"   → "RIESGO_TRABAJO" (art. 51 LSS)
- *   - INCAPACIDAD (cualquier otro)    → "ENFERMEDAD_GENERAL" (art. 96 LSS — 52 semanas)
+ * Mapea el Vacation.type al código IMSS:
+ *   - MATERNIDAD       → "MATERNIDAD" (art. 170 LFT — 12 semanas)
+ *   - RIESGO_TRABAJO   → "RIESGO_TRABAJO" (LSS art. 41, 51 — accidente/enfermedad de trabajo)
+ *   - INCAPACIDAD      → "ENFERMEDAD_GENERAL" (LSS art. 96 — 52 semanas)
+ *
+ * Antes se infería RIESGO_TRABAJO por regex sobre el `reason`; ahora es un
+ * tipo explícito en el modelo Vacation (reforma del schema).
  */
-function mapTipoIncapacidad(
-  type: string,
-  reason: string | null | undefined
-): TipoIncapacidad {
+function mapTipoIncapacidad(type: string): TipoIncapacidad {
   if (type === 'MATERNIDAD') return 'MATERNIDAD';
-  // type === 'INCAPACIDAD'
-  if (reason && /riesgo/i.test(reason)) return 'RIESGO_TRABAJO';
+  if (type === 'RIESGO_TRABAJO') return 'RIESGO_TRABAJO';
   return 'ENFERMEDAD_GENERAL';
 }
 
@@ -158,7 +157,7 @@ export async function GET(req: NextRequest) {
       endDate: { gte: Date };
       employee?: { sucursalId: string };
     } = {
-      type: { in: ['INCAPACIDAD', 'MATERNIDAD'] },
+      type: { in: ['INCAPACIDAD', 'MATERNIDAD', 'RIESGO_TRABAJO'] },
       status: 'APPROVED',
       startDate: { lte: end },
       endDate: { gte: start },
@@ -167,16 +166,12 @@ export async function GET(req: NextRequest) {
       where.employee = { sucursalId };
     }
 
-    // --- NOTA sobre campos no existentes en el schema actual ---
-    // El modelo Employee NO tiene `nss`, `firstName` ni `lastName`.
-    // El modelo Vacation NO tiene `folioIMSS` ni `certificateUrl`
-    //   (no aparecen en prisma/schema.prisma).
-    // El nombre del trabajador se toma de `employee.user.name` (campo
-    //   único en User), tal como lo hace lib/stps-report.ts (línea 531).
-    // NSS se devuelve como cadena vacía (gap del schema — no se captura).
-    // folioIMSS se devuelve como null (gap del schema). Si en el futuro
-    //   se agregan estos campos a la BD, basta con cambiar los defaults
-    //   en el map() de abajo.
+    // --- Query de incapacidades/maternidades/riesgos de trabajo aprobadas
+    //     que se solapan con el periodo [start, end].
+    //     Overlap: vacation.startDate <= range.end AND
+    //              vacation.endDate   >= range.start
+    //     (equivalente al filtro que usa stps-report.ts líneas 414-415).
+    //     Incluye nss (Employee) y folioIMSS (Vacation) — reforma del schema.
     const vacations = await db.vacation.findMany({
       where,
       include: {
@@ -205,17 +200,17 @@ export async function GET(req: NextRequest) {
       return {
         employeeId: emp?.id ?? '',
         employeeNumber: emp?.employeeNumber ?? '',
-        nss: '', // No existe el campo NSS en el schema actual.
+        nss: emp?.nss ?? '', // NSS del Employee (LSS art. 15) — capturado por el admin.
         rfc: emp?.rfc ?? '',
         curp: emp?.curp ?? '',
         nombreCompleto: emp?.user?.name ?? '',
         sucursalName: suc?.name ?? '',
         sucursalCodigoLocal: suc?.codigoLocal ?? '',
-        tipoIncapacidad: mapTipoIncapacidad(v.type, v.reason),
+        tipoIncapacidad: mapTipoIncapacidad(v.type),
         fechaInicio: toISODate(vStart),
         fechaFin: toISODate(vEnd),
         dias: calcDays(vStart, vEnd),
-        folioIMSS: null, // No existe el campo folioIMSS en el schema.
+        folioIMSS: v.folioIMSS ?? null, // Folio IMSS (ST-3/ST-7/SV-CAE) — capturado al aprobar.
         notas: v.reason ?? null,
       };
     });

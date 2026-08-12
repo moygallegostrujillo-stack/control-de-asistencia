@@ -38,9 +38,13 @@ const VALID_TYPES = new Set([
   'PERMISO',
   'INCAPACIDAD',
   'MATERNIDAD',
+  'RIESGO_TRABAJO',
   'PATERNIDAD',
   'OTRO',
 ]);
+
+// Tipos que requieren Folio IMSS (LSS art. 15).
+const IMSS_TYPES_LIST = ['INCAPACIDAD', 'MATERNIDAD', 'RIESGO_TRABAJO'];
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -52,9 +56,10 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
-    const { status, rejectionReason } = body as {
+    const { status, rejectionReason, folioIMSS } = body as {
       status?: string;
       rejectionReason?: string | null;
+      folioIMSS?: string | null;
     };
 
     if (status !== 'APPROVED' && status !== 'REJECTED') {
@@ -126,6 +131,12 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
             approvedById: user.id,
             approvedAt: new Date(),
             rejectionReason: null,
+            // Folio IMSS (LSS art. 15) — se captura al aprobar incapacidades,
+            // maternidades y riesgos de trabajo. Solo aplica a esos tipos.
+            ...(['INCAPACIDAD', 'MATERNIDAD', 'RIESGO_TRABAJO'].includes(existing.type) &&
+              folioIMSS !== undefined
+              ? { folioIMSS: folioIMSS && folioIMSS.trim() !== '' ? folioIMSS.trim() : null }
+              : {}),
           },
         });
       }
@@ -288,11 +299,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
-    const { startDate, endDate, type, reason } = body as {
+    const { startDate, endDate, type, reason, folioIMSS } = body as {
       startDate?: string; // "YYYY-MM-DD"
       endDate?: string; // "YYYY-MM-DD"
       type?: string;
       reason?: string | null;
+      folioIMSS?: string | null; // LSS art. 15
     };
 
     // Validar tipo si se provee.
@@ -432,6 +444,13 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       if (newEnd) data.endDate = newEnd;
       if (type !== undefined) data.type = type;
       if (reason !== undefined) data.reason = reason ?? null;
+      // Folio IMSS (LSS art. 15) — solo se persiste si el tipo efectivo lo permite.
+      if (folioIMSS !== undefined) {
+        data.folioIMSS =
+          IMSS_TYPES_LIST.includes(effectiveType) && folioIMSS && folioIMSS.trim() !== ''
+            ? folioIMSS.trim()
+            : null;
+      }
 
       return tx.vacation.update({
         where: { id },
@@ -468,6 +487,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           endDate: toISODate(existing.endDate),
           days: existing.days,
           reason: existing.reason,
+          folioIMSS: existing.folioIMSS,
         },
         after: {
           type: effectiveType,
@@ -475,6 +495,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
           endDate: toISODate(effectiveEnd),
           days: newDays,
           reason: reason !== undefined ? (reason ?? null) : existing.reason,
+          folioIMSS: folioIMSS !== undefined
+            ? (IMSS_TYPES_LIST.includes(effectiveType) && folioIMSS && folioIMSS.trim() !== ''
+              ? folioIMSS.trim()
+              : null)
+            : existing.folioIMSS,
         },
         balanceAdjusted:
           existing.status === 'APPROVED' &&

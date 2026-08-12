@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
       vacationBalanceDays,
       rfc,
       curp,
+      nss,
       schedules,
     } = body as {
       name?: string;
@@ -125,6 +126,7 @@ export async function POST(req: NextRequest) {
       vacationBalanceDays?: number;
       rfc?: string;
       curp?: string;
+      nss?: string;
       schedules?: Array<{
         dayOfWeek: number;
         startTime: string;
@@ -156,6 +158,14 @@ export async function POST(req: NextRequest) {
     if (curp && curp.length > 18) {
       return NextResponse.json(
         { error: 'La CURP no puede tener más de 18 caracteres' },
+        { status: 400 }
+      );
+    }
+    // NSS: opcional, 11 dígitos numéricos (LSS art. 15). Se valida formato
+    // para evitar capturas erróneas (letras, guiones, longitudes distintas).
+    if (nss && nss.trim() !== '' && !/^\d{11}$/.test(nss.trim())) {
+      return NextResponse.json(
+        { error: 'El NSS debe tener exactamente 11 dígitos numéricos' },
         { status: 400 }
       );
     }
@@ -239,6 +249,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Unicidad de NSS (si se capturó) — LSS art. 15.
+    if (nss && nss.trim() !== '') {
+      const dupNss = await db.employee.findUnique({
+        where: { nss: nss.trim() },
+        select: { id: true },
+      });
+      if (dupNss) {
+        return NextResponse.json(
+          { error: 'El NSS ya está registrado en otro empleado' },
+          { status: 409 }
+        );
+      }
+    }
+
     // -----------------------------------------------------
     // Horario semanal — asignación MANUAL obligatoria.
     // El frontend envía el array `schedules` con los días
@@ -276,10 +300,12 @@ export async function POST(req: NextRequest) {
           hireDate: hireDate ? new Date(hireDate) : new Date(),
           baseSalary: baseSalary ?? null,
           vacationBalanceDays: vacationBalanceDays ?? 12,
-          // RFC/CURP: cadena vacía → NULL (para no violar unique con "").
-          // Se guarda tal cual (sin trim/lowercase).
+          // RFC/CURP/NSS: cadena vacía → NULL (para no violar unique con "").
+          // Se guarda tal cual (sin trim/lowercase); NSS se trima porque es
+          // numérico y el admin podría pegarlo con espacios.
           rfc: rfc && rfc.trim() !== '' ? rfc : null,
           curp: curp && curp.trim() !== '' ? curp : null,
+          nss: nss && nss.trim() !== '' ? nss.trim() : null,
           isActive: true,
         },
         select: { id: true, employeeNumber: true },

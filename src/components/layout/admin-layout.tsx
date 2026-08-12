@@ -72,9 +72,10 @@ interface EmployeeRow {
   isActive: boolean;
   hireDate?: string | null;
   vacationBalanceDays?: number;
-  // RFC y CURP: opcionales (art. 804 LFT). Se guardan tal cual.
+  // RFC, CURP y NSS: opcionales (art. 804 LFT, LSS art. 15). Se guardan tal cual.
   rfc?: string | null;
   curp?: string | null;
+  nss?: string | null;
   user: { id: string; name: string; email: string; isActive: boolean };
   sucursal: { id: string; name: string; codigoLocal: string | null };
   workSchedules?: Array<{ id: string; dayOfWeek: number; startTime: string; endTime: string; toleranceMinutes: number; isWeeklyRest: boolean }>;
@@ -131,6 +132,8 @@ interface VacationRow {
   startTime: string | null;
   endTime: string | null;
   partialHours: number | null;
+  // Folio IMSS (LSS art. 15) — capturado al aprobar incapacidades/maternidad/riesgo.
+  folioIMSS?: string | null;
   employee: {
     id: string;
     employeeNumber: string;
@@ -211,11 +214,15 @@ function StatusBadge({ status }: { status: string }) {
 const VACATION_TYPE_LABEL: Record<string, string> = {
   VACACIONES: 'Vacaciones',
   PERMISO: 'Permiso',
-  INCAPACIDAD: 'Incapacidad',
+  INCAPACIDAD: 'Incapacidad (enfermedad general)',
   MATERNIDAD: 'Maternidad',
+  RIESGO_TRABAJO: 'Riesgo de trabajo',
   PATERNIDAD: 'Paternidad',
   OTRO: 'Otro',
 };
+
+// Tipos que requieren Folio IMSS al aprobarse (LSS art. 15).
+const IMSS_TYPES = ['INCAPACIDAD', 'MATERNIDAD', 'RIESGO_TRABAJO'];
 
 const VACATION_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pendiente',
@@ -1876,6 +1883,9 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
   // (mayúsculas normalmente), sin normalización (trim/lowercase).
   const [rfc, setRfc] = useState(employee?.rfc || '');
   const [curp, setCurp] = useState(employee?.curp || '');
+  // NSS (Número de Seguro Social) — LSS art. 15. Opcional, 11 dígitos.
+  // Se usa en el reporte IMSS para reconciliar incapacidades con SUA/IDSE.
+  const [nss, setNss] = useState(employee?.nss || '');
   const [sucursalId, setSucursalId] = useState(employee?.sucursalId || userSucursalId || '');
   const [dayConfigs, setDayConfigs] = useState<DayConfig[]>(
     isEdit && employee?.workSchedules
@@ -1949,12 +1959,13 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
         // RFC/CURP opcionales: cadena vacía → el backend la guarda como NULL.
         body.rfc = rfc;
         body.curp = curp;
+        body.nss = nss;
         // --- Cambio 1: incluir contraseña solo si el admin escribió una nueva ---
         if (password) body.password = password;
         await apiSend(`/api/employees/${employee.id}`, 'PUT', body);
         toast.success('Empleado actualizado');
       } else {
-        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId, rfc, curp, schedules });
+        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId, rfc, curp, nss, schedules });
         toast.success('Empleado creado');
       }
       onSaved();
@@ -1999,7 +2010,7 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
             <Label htmlFor="f-dep">Departamento *</Label>
             <Input id="f-dep" value={department} onChange={(e) => setDepartment(e.target.value)} required />
           </div>
-          {/* RFC y CURP — opcionales (art. 804 LFT). Se guardan tal cual. */}
+          {/* RFC, CURP y NSS — opcionales (art. 804 LFT, LSS art. 15). Se guardan tal cual. */}
           <div className="space-y-1.5">
             <Label htmlFor="f-rfc">RFC</Label>
             <Input id="f-rfc" value={rfc} onChange={(e) => setRfc(e.target.value)} maxLength={13} placeholder="Opcional · 13 caracteres" autoCapitalize="characters" />
@@ -2009,6 +2020,11 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
             <Label htmlFor="f-curp">CURP</Label>
             <Input id="f-curp" value={curp} onChange={(e) => setCurp(e.target.value)} maxLength={18} placeholder="Opcional · 18 caracteres" autoCapitalize="characters" />
             <p className="text-xs text-muted-foreground">Opcional. Se usa en el reporte STPS.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="f-nss">NSS (IMSS)</Label>
+            <Input id="f-nss" value={nss} onChange={(e) => setNss(e.target.value.replace(/\D/g, ''))} maxLength={11} inputMode="numeric" placeholder="Opcional · 11 dígitos" title="Número de Seguro Social — Ley del Seguro Social art. 15" />
+            <p className="text-xs text-muted-foreground">Opcional. Se usa en el reporte IMSS (art. 15 LSS).</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="f-suc">Sucursal *</Label>
@@ -3027,6 +3043,7 @@ function VacationsView() {
   const [filterStart, setFilterStart] = useState('');
   const [filterEnd, setFilterEnd] = useState('');
   const [rejectTarget, setRejectTarget] = useState<VacationRow | null>(null);
+  const [approveTarget, setApproveTarget] = useState<VacationRow | null>(null);
   const [grantOpen, setGrantOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<VacationRow | null>(null);
 
@@ -3055,14 +3072,10 @@ function VacationsView() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleApprove(v: VacationRow) {
-    try {
-      await apiSend(`/api/vacations/${v.id}`, 'PUT', { status: 'APPROVED' });
-      toast.success('Solicitud aprobada');
-      load();
-    } catch (e) {
-      toast.error('Error al aprobar', { description: (e as Error).message });
-    }
+  // Abre el diálogo de aprobación. Para incapacidades/maternidad/riesgo de
+  // trabajo, el diálogo permite capturar el Folio IMSS (LSS art. 15).
+  function handleApprove(v: VacationRow) {
+    setApproveTarget(v);
   }
 
   async function handleReject(reason: string) {
@@ -3207,6 +3220,7 @@ function VacationsView() {
                         <TableHead className="w-[70px] whitespace-nowrap">Días</TableHead>
                         <TableHead className="w-[110px] whitespace-nowrap">Estado</TableHead>
                         <TableHead className="w-[100px] whitespace-nowrap">Origen</TableHead>
+                        <TableHead className="w-[130px] whitespace-nowrap" title="Folio IMSS — LSS art. 15">Folio IMSS</TableHead>
                         <TableHead className="w-[140px] whitespace-nowrap">Solicitado</TableHead>
                         <TableHead className="w-[80px] whitespace-nowrap text-right">Acciones</TableHead>
                       </TableRow>
@@ -3232,6 +3246,13 @@ function VacationsView() {
                               ? <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">Otorgado</Badge>
                               : <span className="text-xs text-muted-foreground">Solicitud</span>}
                             {v.isPartial && <Badge variant="outline" className="ml-1">Parcial</Badge>}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap" title="Folio IMSS — LSS art. 15">
+                            {IMSS_TYPES.includes(v.type) && v.folioIMSS
+                              ? <Badge variant="outline" className="gap-1 bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950 dark:text-cyan-300"><FileText className="h-3 w-3" />{v.folioIMSS}</Badge>
+                              : IMSS_TYPES.includes(v.type) && v.status === 'APPROVED'
+                                ? <span className="text-xs text-rose-600" title="Sin folio capturado — requerido para inspección IMSS">Sin folio</span>
+                                : <span className="text-xs text-muted-foreground">—</span>}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTimeInMexico(v.createdAt)}</TableCell>
                           <TableCell className="whitespace-nowrap text-right">
@@ -3269,6 +3290,33 @@ function VacationsView() {
           vacation={rejectTarget}
           onClose={() => setRejectTarget(null)}
           onReject={handleReject}
+        />
+      )}
+
+      {approveTarget && (
+        <ApproveDialog
+          vacation={approveTarget}
+          onClose={() => setApproveTarget(null)}
+          onApprove={async (folioIMSS) => {
+            const v = approveTarget;
+            try {
+              const body: Record<string, unknown> = { status: 'APPROVED' };
+              // Solo envía folioIMSS si el tipo lo requiere (LSS art. 15).
+              if (IMSS_TYPES.includes(v.type)) {
+                body.folioIMSS = folioIMSS.trim() || null;
+              }
+              await apiSend(`/api/vacations/${v.id}`, 'PUT', body);
+              toast.success('Solicitud aprobada', {
+                description: IMSS_TYPES.includes(v.type) && folioIMSS.trim()
+                  ? `Folio IMSS capturado: ${folioIMSS.trim()}`
+                  : undefined,
+              });
+              setApproveTarget(null);
+              load();
+            } catch (e) {
+              toast.error('Error al aprobar', { description: (e as Error).message });
+            }
+          }}
         />
       )}
 
@@ -3382,6 +3430,8 @@ function GrantVacationDialog({ onClose, onGranted }: { onClose: () => void; onGr
   const [partialDate, setPartialDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+  // Folio IMSS (LSS art. 15) — visible solo para INCAPACIDAD/MATERNIDAD/RIESGO_TRABAJO.
+  const [folioIMSS, setFolioIMSS] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -3412,6 +3462,10 @@ function GrantVacationDialog({ onClose, onGranted }: { onClose: () => void; onGr
       grantMode: 'ADMIN_GRANTED',
       reason: reason.trim() || null,
     };
+    // Folio IMSS — solo se envía si el tipo lo requiere (LSS art. 15).
+    if (IMSS_TYPES.includes(type)) {
+      body.folioIMSS = folioIMSS.trim() || null;
+    }
 
     if (isPartial) {
       if (!partialDate) { toast.error('Indica la fecha del permiso parcial'); return; }
@@ -3543,6 +3597,24 @@ function GrantVacationDialog({ onClose, onGranted }: { onClose: () => void; onGr
             <Textarea id="g-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Ej. Vacaciones por año completado, permiso por asunto familiar…" />
           </div>
 
+          {/* Folio IMSS — visible solo para incapacidades / maternidad / riesgo de trabajo (LSS art. 15). */}
+          {IMSS_TYPES.includes(type) && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="g-folio">Folio IMSS (ST-3 / ST-7 / SV-CAE)</Label>
+              <Input
+                id="g-folio"
+                value={folioIMSS}
+                onChange={(e) => setFolioIMSS(e.target.value)}
+                placeholder="Opcional al crear, obligatorio ante inspección IMSS"
+                title="Folio que emite el IMSS al tramitar la incapacidad — LSS art. 15"
+              />
+              <p className="text-xs text-muted-foreground">
+                Si ya lo tienes, captúralo. Si no, podrás editarlo después desde el historial.
+                Este folio aparece en el reporte IMSS para reconciliar con SUA/IDSE.
+              </p>
+            </div>
+          )}
+
           <DialogFooter className="sm:col-span-2 mt-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
             <Button type="submit" disabled={saving} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
@@ -3552,6 +3624,62 @@ function GrantVacationDialog({ onClose, onGranted }: { onClose: () => void; onGr
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ApproveDialog({ vacation, onClose, onApprove }: { vacation: VacationRow; onClose: () => void; onApprove: (folioIMSS: string) => Promise<void> }) {
+  const isIMSS = IMSS_TYPES.includes(vacation.type);
+  const [folioIMSS, setFolioIMSS] = useState('');
+  const [saving, setSaving] = useState(false);
+  async function handleSubmit() {
+    setSaving(true);
+    try { await onApprove(folioIMSS); } finally { setSaving(false); }
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Aprobar solicitud</DialogTitle>
+          <DialogDescription>
+            {vacation.employee.user.name} · {VACATION_TYPE_LABEL[vacation.type] || vacation.type}
+            <br />
+            {formatDateInMexico(vacation.startDate)} → {formatDateInMexico(vacation.endDate)} · {vacation.days} día(s)
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          {isIMSS ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="a-folio">Folio IMSS (ST-3 / ST-7 / SV-CAE) *</Label>
+              <Input
+                id="a-folio"
+                value={folioIMSS}
+                onChange={(e) => setFolioIMSS(e.target.value)}
+                placeholder="Ej. ABC1234567"
+                title="Folio que emite el IMSS al tramitar la incapacidad — LSS art. 15"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                Captura el folio que emitió el IMSS. Si aún no lo tienes, puedes
+                aprobar y editar después, pero es <strong>obligatorio exhibirlo</strong>
+                ante una inspección (LSS art. 15).
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              ¿Confirmas la aprobación de esta solicitud?
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Aprobar
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -3618,6 +3746,8 @@ function EditVacationDialog({
     return formatDateInMexico(d).split('/').reverse().join('-');
   });
   const [reason, setReason] = useState(vacation.reason ?? '');
+  // Folio IMSS (LSS art. 15) — editable solo para tipos IMSS.
+  const [folioIMSS, setFolioIMSS] = useState(vacation.folioIMSS ?? '');
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -3631,12 +3761,17 @@ function EditVacationDialog({
 
     setSaving(true);
     try {
-      await apiSend(`/api/vacations/${vacation.id}`, 'PATCH', {
+      const body: Record<string, unknown> = {
         startDate,
         endDate,
         type,
         reason: reason.trim() || null,
-      });
+      };
+      // Folio IMSS — solo se envía si el tipo es IMSS (LSS art. 15).
+      if (IMSS_TYPES.includes(type)) {
+        body.folioIMSS = folioIMSS.trim() || null;
+      }
+      await apiSend(`/api/vacations/${vacation.id}`, 'PATCH', body);
       toast.success('Registro actualizado correctamente');
       onSaved();
     } catch (e) {
@@ -3695,6 +3830,23 @@ function EditVacationDialog({
             <Label htmlFor="e-reason">Motivo / notas (opcional)</Label>
             <Textarea id="e-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Notas internas…" />
           </div>
+
+          {/* Folio IMSS — visible solo para incapacidades / maternidad / riesgo de trabajo (LSS art. 15). */}
+          {IMSS_TYPES.includes(type) && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="e-folio">Folio IMSS (ST-3 / ST-7 / SV-CAE)</Label>
+              <Input
+                id="e-folio"
+                value={folioIMSS}
+                onChange={(e) => setFolioIMSS(e.target.value)}
+                placeholder="Folio que emitió el IMSS — obligatorio ante inspección"
+                title="LSS art. 15"
+              />
+              <p className="text-xs text-muted-foreground">
+                Este folio aparece en el reporte IMSS para reconciliar con SUA/IDSE.
+              </p>
+            </div>
+          )}
 
           {previewDays > 0 && (
             <p className="sm:col-span-2 text-xs text-muted-foreground">

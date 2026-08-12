@@ -40,6 +40,7 @@ const VALID_TYPES = new Set([
   'PERMISO',
   'INCAPACIDAD',
   'MATERNIDAD',
+  'RIESGO_TRABAJO',
   'PATERNIDAD',
   'OTRO',
 ]);
@@ -168,6 +169,7 @@ export async function POST(req: NextRequest) {
       startTime,
       endTime,
       partialHours,
+      folioIMSS,
     } = body as {
       employeeId?: string;
       type?: string;
@@ -179,6 +181,7 @@ export async function POST(req: NextRequest) {
       startTime?: string;
       endTime?: string;
       partialHours?: number;
+      folioIMSS?: string | null;
     };
 
     // -----------------------------------------------------
@@ -347,6 +350,12 @@ export async function POST(req: NextRequest) {
           startTime: parsedStart,
           endTime: parsedEnd,
           partialHours: isPartialFlag ? (partialHours ?? null) : null,
+          // Folio IMSS (LSS art. 15) — solo aplica a INCAPACIDAD / MATERNIDAD /
+          // RIESGO_TRABAJO. Se persiste tal cual; en otros tipos se ignora.
+          folioIMSS:
+            isGrant && ['INCAPACIDAD', 'MATERNIDAD', 'RIESGO_TRABAJO'].includes(type)
+              ? (folioIMSS && folioIMSS.trim() !== '' ? folioIMSS.trim() : null)
+              : null,
           requestedById: user.id,
           approvedById: isGrant ? user.id : null,
           approvedAt: isGrant ? new Date() : null,

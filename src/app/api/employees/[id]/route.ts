@@ -86,6 +86,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       vacationBalanceDays,
       rfc,
       curp,
+      nss,
       isActive,
       schedules,
       password,
@@ -100,6 +101,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       vacationBalanceDays?: number;
       rfc?: string | null;
       curp?: string | null;
+      nss?: string | null;
       isActive?: boolean;
       schedules?: Array<{
         dayOfWeek: number;
@@ -192,6 +194,13 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         { status: 400 }
       );
     }
+    // NSS: opcional, 11 dígitos numéricos (LSS art. 15).
+    if (nss && nss.trim() !== '' && !/^\d{11}$/.test(nss.trim())) {
+      return NextResponse.json(
+        { error: 'El NSS debe tener exactamente 11 dígitos numéricos' },
+        { status: 400 }
+      );
+    }
     // Unicidad de RFC (excluyendo al propio empleado).
     if (rfc && rfc.trim() !== '') {
       const dupRfc = await db.employee.findUnique({
@@ -214,6 +223,19 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       if (dupCurp && dupCurp.id !== id) {
         return NextResponse.json(
           { error: 'La CURP ya está registrada en otro empleado' },
+          { status: 409 }
+        );
+      }
+    }
+    // Unicidad de NSS (excluyendo al propio empleado) — LSS art. 15.
+    if (nss && nss.trim() !== '') {
+      const dupNss = await db.employee.findUnique({
+        where: { nss: nss.trim() },
+        select: { id: true },
+      });
+      if (dupNss && dupNss.id !== id) {
+        return NextResponse.json(
+          { error: 'El NSS ya está registrado en otro empleado' },
           { status: 409 }
         );
       }
@@ -245,10 +267,11 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       if (baseSalary !== undefined) empData.baseSalary = baseSalary;
       if (hireDate) empData.hireDate = new Date(hireDate);
       if (vacationBalanceDays !== undefined) empData.vacationBalanceDays = vacationBalanceDays;
-      // RFC/CURP: se actualizan solo si vienen en el body. Cadena vacía → NULL.
-      // Se guarda tal cual (sin trim/lowercase).
+      // RFC/CURP/NSS: se actualizan solo si vienen en el body. Cadena vacía → NULL.
+      // Se guarda tal cual (sin trim/lowercase); NSS se trima porque es numérico.
       if (rfc !== undefined) empData.rfc = rfc && rfc.trim() !== '' ? rfc : null;
       if (curp !== undefined) empData.curp = curp && curp.trim() !== '' ? curp : null;
+      if (nss !== undefined) empData.nss = nss && nss.trim() !== '' ? nss.trim() : null;
       if (isActive !== undefined) empData.isActive = isActive;
       if (Object.keys(empData).length > 0) {
         await tx.employee.update({
