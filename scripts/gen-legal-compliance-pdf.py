@@ -254,7 +254,8 @@ COL_W = [
 scale = CONTENT_W / sum(COL_W)
 COL_W = [w * scale for w in COL_W]
 
-ENDPOINTS = ['incidences', 'absences', 'overtime', 'emp-ot', 'corrections', 'daily', 'comparative', 'stps-format', 'export', 'my-export']
+# Títulos de columna en español (terminología del sistema)
+ENDPOINTS = ['Incidencias', 'Ausencias', 'Horas extra', 'HE empleado', 'Correcciones', 'Diario', 'Comparativa', 'Formato STPS', 'Exportación', 'Mi exportación']
 
 # Encabezado
 header_row = [P('Concepto legal', st_cell_header)] + [P(e, st_cell_header) for e in ENDPOINTS]
@@ -266,37 +267,37 @@ rows_data = [
     ('Días trabajados',
      [('ok', 'diasLaborados'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('warn', 'records'), ('ok', 'presentDays'), ('ok', 'diasTrabajados'),
-      ('ok', 'incidences'), ('no', '')],
+      ('ok', 'incidencias'), ('no', '')],
      'LFT art. 132 XXXIV'),
     ('Faltas injustificadas',
      [('ok', 'faltas'), ('ok', 'absentDays'), ('no', ''), ('no', ''), ('no', ''),
       ('ok', 'absent'), ('ok', 'absentDays'), ('ok', 'diasFalta'),
-      ('ok', 'absences/incidences'), ('no', '')],
+      ('ok', 'ausencias/incidencias'), ('no', '')],
      'LFT art. 42, 47'),
     ('Incapacidades (días)',
      [('ok', 'diasIncapacidad'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('no', ''), ('no', ''), ('ok', 'diasIncapacidad'),
-      ('ok', 'incidences'), ('no', '')],
+      ('ok', 'incidencias'), ('no', '')],
      'LSS art. 96, 170'),
     ('Vacaciones (días)',
      [('ok', 'diasVacaciones'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('no', ''), ('no', ''), ('ok', 'diasVacac.'),
-      ('ok', 'incidences'), ('no', '')],
+      ('ok', 'incidencias'), ('no', '')],
      'LFT art. 76–80'),
     ('Descansos trabajados',
      [('ok', 'diasDescanso'), ('no', ''), ('ok', 'restDayWorked'), ('ok', ''), ('no', ''),
       ('ok', 'restDayWorked'), ('ok', ''), ('ok', 'diasDescanso'),
-      ('ok', 'incidences/ot'), ('ok', '')],
+      ('ok', 'incidencias/he'), ('ok', '')],
      'LFT art. 73'),
     ('Permisos (días)',
-     [('warn', 'skip'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
+     [('warn', 'salteado'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('no', ''), ('no', ''), ('ok', 'diasPermiso'),
       ('no', ''), ('no', '')],
      'LFT art. 132 XVII'),
     ('Retardos (conteo)',
      [('ok', 'retardos'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('ok', 'late'), ('ok', 'lateDays'), ('ok', 'diasLlegoTarde'),
-      ('ok', 'incidences'), ('no', '')],
+      ('ok', 'incidencias'), ('no', '')],
      'LFT art. 132 XXXIV'),
     ('Retardos (minutos)',
      [('no', ''), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
@@ -306,12 +307,12 @@ rows_data = [
     ('Salidas anticipadas',
      [('ok', 'salidasAnt.'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('ok', 'earlyLeave'), ('ok', 'earlyLeaveDays'), ('ok', 'diasSalioTarde'),
-      ('ok', 'incidences'), ('no', '')],
+      ('ok', 'incidencias'), ('no', '')],
      'LFT art. 784'),
     ('Horas extra simples',
      [('ok', 'horasExtraMin'), ('no', ''), ('ok', 'overtimeMin'), ('ok', ''), ('no', ''),
       ('ok', 'totalOvertime'), ('ok', ''), ('no', ''),
-      ('ok', 'ot/daily'), ('ok', '')],
+      ('ok', 'he/diario'), ('ok', '')],
      'LFT art. 66'),
     ('Horas extra dobles',
      [('ok', 'horasExtraDoble'), ('no', ''), ('ok', ''), ('ok', ''), ('no', ''),
@@ -350,24 +351,24 @@ rows_data = [
     ('Minutos nocturnos',
      [('ok', 'minutosNocturnos'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('ok', ''), ('ok', ''), ('ok', 'totalNocturno'),
-      ('ok', 'daily/ot'), ('no', '')],
+      ('ok', 'diario/he'), ('no', '')],
      'LFT art. 60–61'),
     ('Jornada (D/N/M)',
      [('ok', 'jornadaNocturna'), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('ok', ''), ('ok', ''), ('ok', 'jornada'),
-      ('ok', 'daily/ot'), ('no', '')],
+      ('ok', 'diario/he'), ('no', '')],
      'LFT art. 60'),
 
     # ── Trazabilidad y prueba ──
     ('Correcciones (trazabilidad)',
-     [('no', ''), ('no', ''), ('no', ''), ('no', ''), ('ok', 'endpoint'),
-      ('warn', 'en records'), ('no', ''), ('no', ''),
-      ('ok', 'daily audit'), ('ok', '')],
+     [('no', ''), ('no', ''), ('no', ''), ('no', ''), ('ok', 'ruta'),
+      ('warn', 'en registros'), ('no', ''), ('no', ''),
+      ('ok', 'auditoría diario'), ('ok', '')],
      'LFT art. 132 XXXIV'),
     ('Geolocalización / IP',
      [('no', ''), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
       ('ok', 'lat/long/IP'), ('no', ''), ('ok', 'fueraGeofence'),
-      ('ok', 'daily audit'), ('no', '')],
+      ('ok', 'auditoría diario'), ('no', '')],
      'NOM-037 art. 27'),
     ('Firma del empleado',
      [('no', ''), ('no', ''), ('no', ''), ('no', ''), ('no', ''),
@@ -453,8 +454,8 @@ story.append(Spacer(1, 8))
 story.append(P(
     '<b>Nota:</b> Las celdas con nombre de campo (p. ej. <font face="Helvetica-Oblique">diasLaborados</font>) '
     'indican el nombre exacto del atributo devuelto por el endpoint en su respuesta JSON. '
-    'El reporte <b>export</b> es un multi-endpoint que genera CSV/XLSX según el parámetro <font face="Helvetica-Oblique">?type=</font>; '
-    'la columna indica qué <font face="Helvetica-Oblique">type</font> incluye el concepto.',
+    'El reporte de <b>exportación</b> es multi-reporte que genera CSV/XLSX según el parámetro <font face="Helvetica-Oblique">?type=</font>; '
+    'la columna indica qué <font face="Helvetica-Oblique">tipo</font> incluye el concepto.',
     st_legend
 ))
 
@@ -477,7 +478,7 @@ scale2 = CONTENT_W / sum(COL_W2)
 COL_W2 = [w * scale2 for w in COL_W2]
 
 campos_header = [
-    P('Reporte (endpoint)', st_cell_header),
+    P('Reporte (ruta API)', st_cell_header),
     P('Campos principales que expone', st_cell_header),
     P('Cumplimiento legal (LFT / NOM / LSS)', st_cell_header),
 ]
@@ -553,17 +554,18 @@ campos_rows = [
           'art. 60–61 (jornada nocturna); LSS art. 96, 170 (incapacidades); NOM-037 (geofence)', st_cell),
     ],
     [
-        P('<b>Export multi-tipo</b><br/><font size="6.5" color="#77756e">/api/reports/export?type=</font>', st_cell),
-        P('Genera CSV/XLSX según type: <font face="Helvetica-Oblique">daily</font> (registros con lat/long/IP/method, '
-          'auditRows de correcciones), <font face="Helvetica-Oblique">overtime</font> (HE dobles/triples, prima descanso), '
-          '<font face="Helvetica-Oblique">incidences</font> (todas las métricas por empleado + totales), '
-          '<font face="Helvetica-Oblique">comparative</font> (resumen comparativo), <font face="Helvetica-Oblique">absences</font> '
-          '(fechas de ausencia)', st_cell),
+        P('<b>Exportación multi-tipo</b><br/><font size="6.5" color="#77756e">/api/reports/export?type=</font>', st_cell),
+        P('Genera CSV/XLSX según el parámetro <font face="Helvetica-Oblique">?type=</font>: '
+          'Diario (<font face="Helvetica-Oblique">daily</font> — registros con lat/long/IP/método, '
+          'auditRows de correcciones), Horas extra (<font face="Helvetica-Oblique">overtime</font> — HE dobles/triples, prima descanso), '
+          'Incidencias (<font face="Helvetica-Oblique">incidences</font> — todas las métricas por empleado + totales), '
+          'Comparativa (<font face="Helvetica-Oblique">comparative</font> — resumen comparativo), '
+          'Ausencias (<font face="Helvetica-Oblique">absences</font> — fechas de ausencia)', st_cell),
         P('Art. 804 fr. III–IV (controles + comprobantes); art. 132 XXXIV (registro); art. 66, 68 (HE); '
-          'art. 73 (prima descanso); NOM-037 art. 27 (lat/long/IP/method para prueba plena)', st_cell),
+          'art. 73 (prima descanso); NOM-037 art. 27 (lat/long/IP/método para prueba plena)', st_cell),
     ],
     [
-        P('<b>Mi export (empleado)</b><br/><font size="6.5" color="#77756e">/api/reports/my-export</font>', st_cell),
+        P('<b>Mi exportación (empleado)</b><br/><font size="6.5" color="#77756e">/api/reports/my-export</font>', st_cell),
         P('Por registro: Fecha, Entrada, Descanso Inicio/Fin, Salida, Estado, Hrs. Trabajadas, '
           'Hrs. Extra (dobles/triples como subtexto), Min. extra, Descanso (Sí/No), Prima 100% (min), '
           'Domingo (Sí/No), <b>Firmado</b> (employeeSignedAt), ¿Corregido?, Motivo corrección, Notas', st_cell),
