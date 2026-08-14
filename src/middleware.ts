@@ -78,12 +78,17 @@ const PUBLIC_PATHS = [
   '/api/download',
   '/api/diagrama/download',
   '/api/route',
-  // Migración de emergencia: requiere ?token=MIGRATE_NSS_FOLIO_2026 (ver handler).
-  // Es público a nivel middleware porque el login puede estar roto por falta
-  // de columnas; el handler valida el token internamente.
+  // Migración de emergencia: requiere ?token=MIGRATE_NSS_FOLIO_2026 o
+  // ?token=MIGRATE_VAC_YEARS_2026 (ver handler). Es público a nivel middleware
+  // porque el login puede estar roto por falta de columnas; el handler valida
+  // el token internamente.
   '/api/migrate',
   // Diagnóstico de DB: requiere ?token=DIAGNOSE_2026 (ver handler).
   '/api/diagnose-db',
+  // Carga masiva de vacaciones: requiere ?token=BULK_VACATIONS_2026 (ver handler).
+  // Es público a nivel middleware para poder ejecutarlo sin sesión de admin
+  // (el handler valida el token internamente y también acepta sesión admin).
+  '/api/vacations/bulk-load',
   // ⚠️ Tarea 1 (audit seguridad): /api/download-env y /api/seed REMOVIDOS de
   // rutas públicas. /api/download-env fue eliminado por completo (exponía .env).
   // /api/seed ahora requiere sesión + rol GENERAL_ADMIN (ver handler).
