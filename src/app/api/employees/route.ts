@@ -109,6 +109,8 @@ export async function POST(req: NextRequest) {
       baseSalary,
       hireDate,
       vacationBalanceDays,
+      vacationBalanceDays2026,
+      vacationBalanceDays2027,
       rfc,
       curp,
       nss,
@@ -124,6 +126,8 @@ export async function POST(req: NextRequest) {
       baseSalary?: number;
       hireDate?: string;
       vacationBalanceDays?: number;
+      vacationBalanceDays2026?: number;
+      vacationBalanceDays2027?: number;
       rfc?: string;
       curp?: string;
       nss?: string;
@@ -300,6 +304,8 @@ export async function POST(req: NextRequest) {
           hireDate: hireDate ? new Date(hireDate) : new Date(),
           baseSalary: baseSalary ?? null,
           vacationBalanceDays: vacationBalanceDays ?? 12,
+          vacationBalanceDays2026: vacationBalanceDays2026 ?? null,
+          vacationBalanceDays2027: vacationBalanceDays2027 ?? null,
           // RFC/CURP/NSS: cadena vacía → NULL (para no violar unique con "").
           // Se guarda tal cual (sin trim/lowercase); NSS se trima porque es
           // numérico y el admin podría pegarlo con espacios.

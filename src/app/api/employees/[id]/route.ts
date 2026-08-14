@@ -84,6 +84,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       baseSalary,
       hireDate,
       vacationBalanceDays,
+      vacationBalanceDays2026,
+      vacationBalanceDays2027,
       rfc,
       curp,
       nss,
@@ -99,6 +101,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       baseSalary?: number | null;
       hireDate?: string;
       vacationBalanceDays?: number;
+      vacationBalanceDays2026?: number | null;
+      vacationBalanceDays2027?: number | null;
       rfc?: string | null;
       curp?: string | null;
       nss?: string | null;
@@ -267,6 +271,10 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       if (baseSalary !== undefined) empData.baseSalary = baseSalary;
       if (hireDate) empData.hireDate = new Date(hireDate);
       if (vacationBalanceDays !== undefined) empData.vacationBalanceDays = vacationBalanceDays;
+      // Saldos por año (2026/2027): se actualizan si vienen en el body.
+      // null es válido (para borrar el valor).
+      if (vacationBalanceDays2026 !== undefined) empData.vacationBalanceDays2026 = vacationBalanceDays2026;
+      if (vacationBalanceDays2027 !== undefined) empData.vacationBalanceDays2027 = vacationBalanceDays2027;
       // RFC/CURP/NSS: se actualizan solo si vienen en el body. Cadena vacía → NULL.
       // Se guarda tal cual (sin trim/lowercase); NSS se trima porque es numérico.
       if (rfc !== undefined) empData.rfc = rfc && rfc.trim() !== '' ? rfc : null;

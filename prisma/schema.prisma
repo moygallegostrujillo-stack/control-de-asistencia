@@ -161,6 +161,16 @@ model Employee {
   hireDate            DateTime @default(now())
   baseSalary          Float?
   vacationBalanceDays Int      @default(12)
+  // --- Saldos de vacaciones por año (LFT art. 76 — prima vacacional) ---
+  // vacationBalanceDays: saldo "actual" que se descuenta al otorgar vacaciones
+  //   (mantiene compatibilidad con la lógica existente en /api/vacations).
+  // vacationBalanceDays2026: saldo correspondiente al año 2026.
+  // vacationBalanceDays2027: saldo correspondiente al año 2027.
+  // Los campos por año son informativos/de referencia para que el admin sepa
+  // cuántos días le corresponden a cada empleado en cada año; el saldo activo
+  // que se descuenta al otorgar vacaciones sigue siendo vacationBalanceDays.
+  vacationBalanceDays2026 Int?
+  vacationBalanceDays2027 Int?
   // --- RFC y CURP (identificadores fiscales y de identidad, art. 804 LFT) ---
   // RFC: Registro Federal de Contribuyentes (emite el SAT), 12-13 caracteres.
   // CURP: Clave Única de Registro de Población (emite el RENAPO), 18 caracteres.
