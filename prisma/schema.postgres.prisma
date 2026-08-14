@@ -171,6 +171,13 @@ model Employee {
   // sin normalización automática (trim/lowercase).
   rfc                 String?  @unique
   curp                String?  @unique
+  // --- NSS (Número de Seguro Social) — LSS art. 15, art. 804 fr. II LFT ---
+  // 11 dígitos que emite el IMSS al inscribir al trabajador. OPCIONAL para no
+  // bloquear la captura de empleados nuevos pendientes de registro ante el IMSS.
+  // ÚNICO porque un NSS no se asigna a dos trabajadores. Se usa en el reporte
+  // IMSS (/api/reports/imss-format) para reconciliar incapacidades con SUA/IDSE.
+  // Formato esperado: 11 dígitos (sin letras ni guiones).
+  nss                 String?  @unique
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -288,7 +295,10 @@ model AttendanceRecord {
 model Vacation {
   id              String   @id @default(cuid())
   employeeId      String
-  type            String   @default("VACACIONES") // VACACIONES|PERMISO|INCAPACIDAD|MATERNIDAD|PATERNIDAD|OTRO
+  // VACACIONES|PERMISO|INCAPACIDAD|MATERNIDAD|RIESGO_TRABAJO|PATERNIDAD|OTRO
+  // RIESGO_TRABAJO: incapacidad por accidente/enfermedad de trabajo (LSS art. 41, 51).
+  //                Se reporta al IMSS por separado (ST-7) y se refleja en SUA.
+  type            String   @default("VACACIONES")
   startDate       DateTime
   endDate         DateTime
   days            Int
@@ -300,6 +310,14 @@ model Vacation {
   rejectionReason String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  // --- Folio IMSS — LSS art. 15 (incapacidades y maternidad) ---
+  // Folio que emite el IMSS al tramitar la incapacidad (ST-3 / ST-7 / SV-CAE).
+  // OPCIONAL al crear la solicitud (el IMSS lo asigna después); obligatorio
+  // exhibirlo ante una inspección. Se usa en /api/reports/imss-format para
+  // reconciliar con SUA/IDSE. Solo aplica para type IN ('INCAPACIDAD',
+  // 'MATERNIDAD', 'RIESGO_TRABAJO').
+  folioIMSS       String?
 
   // --- Nuevos campos: permisos parciales y otorgamiento directo por admin ---
   // grantMode: EMPLOYEE_REQUEST (solicitud del empleado, queda PENDING)
