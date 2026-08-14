@@ -123,10 +123,13 @@ export async function anonymizeUserData(
   };
 
   try {
-    // 1. Verificar que el usuario existe y cargar su Employee.
+    // RESILIENCE: select específico del employee (solo lo que se necesita
+    // para la anonimización) en lugar de include completo.
     const user = await db.user.findUnique({
       where: { id: userId },
-      include: { employee: true },
+      include: {
+        employee: { select: { id: true } },
+      },
     });
     if (!user) {
       result.errors.push(`Usuario ${userId} no encontrado`);

@@ -46,10 +46,13 @@ export async function POST(req: NextRequest) {
     const { ip, ua } = getIpAndUA(req);
     const now = new Date();
 
-    // Cargar el User real desde BD con todas las relaciones para re-emitir el JWT.
+    // RESILIENCE: select específicos para no romper si falta columna en prod.
     const dbUser = await db.user.findUnique({
       where: { id: user.id },
-      include: { sucursal: true, employee: true },
+      include: {
+        sucursal: { select: { name: true, codigoLocal: true } },
+        employee: { select: { id: true } },
+      },
     });
     if (!dbUser) return unauthorizedResponse();
 

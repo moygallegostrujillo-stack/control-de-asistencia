@@ -61,9 +61,17 @@ export async function validateCredentials(
   const normalizedEmail = email.toLowerCase().trim();
   const now = getMexicoNow().toJSDate();
 
+  // RESILIENCE: usamos select con campos específicos en lugar de
+  // include: { employee: true } (que hace SELECT *). Así, si en el futuro
+  // se agrega una columna nueva a Employee pero la migración no se aplica
+  // en producción, el login NO se rompe — solo se seleccionan los campos
+  // que realmente se usan (employee.id, sucursal.name, sucursal.codigoLocal).
   const user = await db.user.findUnique({
     where: { email: normalizedEmail },
-    include: { sucursal: true, employee: true },
+    include: {
+      sucursal: { select: { name: true, codigoLocal: true } },
+      employee: { select: { id: true } },
+    },
   });
 
   if (!user) {

@@ -74,9 +74,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // RESILIENCE: select específicos para no romper login si falta columna.
     const user = await db.user.findUnique({
       where: { id: dynamicQR.createdById },
-      include: { sucursal: true, employee: true },
+      include: {
+        sucursal: { select: { name: true, codigoLocal: true } },
+        employee: { select: { id: true } },
+      },
     });
 
     if (!user || !user.isActive) {

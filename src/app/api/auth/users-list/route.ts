@@ -20,11 +20,19 @@ export async function GET(req: NextRequest) {
 
     let users;
 
+    // RESILIENCE: select específicos (employeeNumber, position, department,
+    // name, codigoLocal) en lugar de include completo. Evita que la lista
+    // de usuarios se rompa si una columna de Employee/Sucursal no existe en prod.
+    const userInclude = {
+      sucursal: { select: { name: true, codigoLocal: true } },
+      employee: { select: { employeeNumber: true, position: true, department: true } },
+    };
+
     if (authUser.role === 'GENERAL_ADMIN') {
       // All active users
       users = await db.user.findMany({
         where: { isActive: true },
-        include: { sucursal: true, employee: true },
+        include: userInclude,
         orderBy: [{ role: 'desc' }, { name: 'asc' }],
       });
     } else if (
@@ -40,14 +48,14 @@ export async function GET(req: NextRequest) {
           isActive: true,
           sucursalId: authUser.sucursalId,
         },
-        include: { sucursal: true, employee: true },
+        include: userInclude,
         orderBy: [{ role: 'desc' }, { name: 'asc' }],
       });
     } else {
       // EMPLOYEE: only themselves
       const me = await db.user.findUnique({
         where: { id: authUser.id },
-        include: { sucursal: true, employee: true },
+        include: userInclude,
       });
       users = me ? [me] : [];
     }

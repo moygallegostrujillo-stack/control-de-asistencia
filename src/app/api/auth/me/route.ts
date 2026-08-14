@@ -13,11 +13,14 @@ export async function GET(req: NextRequest) {
     const authUser = await getAuthUser(req);
     if (!authUser) return unauthorizedResponse();
 
-    // Re-fetch the user with relations so we can include sucursal info
-    // (name, codigoLocal) and employeeId in the response.
+    // RESILIENCE: select con campos específicos en lugar de include completo.
+    // Evita que el login se rompa si una columna de Employee/Sucursal no existe en prod.
     const user = await db.user.findUnique({
       where: { id: authUser.id },
-      include: { sucursal: true, employee: true },
+      include: {
+        sucursal: { select: { name: true, codigoLocal: true } },
+        employee: { select: { id: true } },
+      },
     });
 
     if (!user || !user.isActive) {

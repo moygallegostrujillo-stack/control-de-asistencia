@@ -21,10 +21,13 @@ export async function POST(req: NextRequest) {
     const authUser = await getAuthUser(req);
     if (!authUser) return unauthorizedResponse();
 
-    // Re-fetch the user to return fresh data (role/sucursal/privacy may have changed)
+    // RESILIENCE: select específicos para no romper refresh si falta columna.
     const user = await db.user.findUnique({
       where: { id: authUser.id },
-      include: { sucursal: true, employee: true },
+      include: {
+        sucursal: { select: { name: true, codigoLocal: true } },
+        employee: { select: { id: true } },
+      },
     });
 
     if (!user || !user.isActive) {
