@@ -83,5 +83,36 @@ export async function GET(req: NextRequest) {
     result.checks.loginQueryError = e instanceof Error ? e.message : String(e);
   }
 
+  try {
+    // 5. Verificar saldos de vacaciones cargados (2026/2027)
+    const vacBalances = await db.$queryRaw<
+      {
+        name: string;
+        vacationBalanceDays: number | null;
+        vacationBalanceDays2026: number | null;
+        vacationBalanceDays2027: number | null;
+      }[]
+    >`
+      SELECT u.name,
+             e."vacationBalanceDays",
+             e."vacationBalanceDays2026",
+             e."vacationBalanceDays2027"
+      FROM "Employee" e
+      JOIN "User" u ON u."employeeId" = e.id
+      WHERE e."vacationBalanceDays2026" IS NOT NULL
+         OR e."vacationBalanceDays2027" IS NOT NULL
+      ORDER BY u.name
+    `;
+    result.checks.vacationBalances = vacBalances.map((r) => ({
+      name: r.name,
+      active: r.vacationBalanceDays,
+      year2026: r.vacationBalanceDays2026,
+      year2027: r.vacationBalanceDays2027,
+    }));
+    result.checks.vacationBalancesCount = vacBalances.length;
+  } catch (e) {
+    result.checks.vacationBalancesError = e instanceof Error ? e.message : String(e);
+  }
+
   return NextResponse.json(result);
 }
