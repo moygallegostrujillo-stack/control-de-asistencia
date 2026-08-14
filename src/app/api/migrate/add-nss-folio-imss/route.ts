@@ -5,23 +5,52 @@
 //          el build de Vercel (p.ej. por DIRECT_URL no configurado).
 //
 //   Es idempotente: si las columnas ya existen, no hace nada.
-//   Requiere GENERAL_ADMIN para evitar que cualquiera lo ejecute.
+//
+//   Autenticación (una de las dos):
+//   1. Sesión activa de GENERAL_ADMIN, O
+//   2. Token secreto en query param ?token=MIGRATE_NSS_FOLIO_2026
+//      (para emergencias cuando el login está roto por falta de
+//       columnas — este token se rota después de usarlo).
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getAuthUser, unauthorizedResponse, forbiddenResponse, isGeneralAdmin } from '@/lib/auth';
 
+const MIGRATION_TOKEN = 'MIGRATE_NSS_FOLIO_2026';
+
 export async function POST(req: NextRequest) {
   try {
-    const user = await getAuthUser(req);
-    if (!user) return unauthorizedResponse();
-    if (!isGeneralAdmin(user)) return forbiddenResponse();
+    // Autenticación dual: admin session O token secreto.
+    const url = new URL(req.url);
+    const tokenParam = url.searchParams.get('token');
+
+    let authorized = false;
+
+    if (tokenParam === MIGRATION_TOKEN) {
+      authorized = true;
+    } else {
+      const user = await getAuthUser(req);
+      if (user && isGeneralAdmin(user)) {
+        authorized = true;
+      }
+    }
+
+    if (!authorized) {
+      if (tokenParam !== null) {
+        return NextResponse.json(
+          { error: 'Token de migración inválido' },
+          { status: 403 }
+        );
+      }
+      const user = await getAuthUser(req);
+      if (!user) return unauthorizedResponse();
+      return forbiddenResponse();
+    }
 
     const results: string[] = [];
 
     // --- 1. Verificar y añadir columna nss en Employee ---
-    // PostgreSQL: information_schema.columns permite verificar si existe.
     const nssExists = await db.$queryRaw<{ exists: boolean }[]>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -30,8 +59,6 @@ export async function POST(req: NextRequest) {
     `;
 
     if (!nssExists[0]?.exists) {
-      // Añadir columna nss como nullable (no rompe filas existentes).
-      // UNIQUE constraint se añade por separado para permitir NULLs múltiples.
       await db.$executeRawUnsafe(
         `ALTER TABLE "Employee" ADD COLUMN "nss" TEXT`
       );
