@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
              e."vacationBalanceDays2026",
              e."vacationBalanceDays2027"
       FROM "Employee" e
-      JOIN "User" u ON u."employeeId" = e.id
+      JOIN "User" u ON u.id = e."userId"
       WHERE e."vacationBalanceDays2026" IS NOT NULL
          OR e."vacationBalanceDays2027" IS NOT NULL
       ORDER BY u.name
