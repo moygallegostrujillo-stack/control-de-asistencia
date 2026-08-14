@@ -82,6 +82,8 @@ const PUBLIC_PATHS = [
   // Es público a nivel middleware porque el login puede estar roto por falta
   // de columnas; el handler valida el token internamente.
   '/api/migrate',
+  // Diagnóstico de DB: requiere ?token=DIAGNOSE_2026 (ver handler).
+  '/api/diagnose-db',
   // ⚠️ Tarea 1 (audit seguridad): /api/download-env y /api/seed REMOVIDOS de
   // rutas públicas. /api/download-env fue eliminado por completo (exponía .env).
   // /api/seed ahora requiere sesión + rol GENERAL_ADMIN (ver handler).
