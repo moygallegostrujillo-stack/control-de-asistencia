@@ -1,7 +1,7 @@
 # Documento del Proyecto — Control de Asistencia NOM-037
 
-> **Versión del documento**: 1.2 (15 de agosto 2026)
-> **Versión del producto**: 2.4.0
+> **Versión del documento**: 1.3 (15 de agosto 2026)
+> **Versión del producto**: 2.4.1
 > **Propósito**: Brindar contexto completo al iniciar futuras sesiones de desarrollo. Al leer este documento, un agente nuevo entiende el dominio, la arquitectura, las reglas de negocio críticas y los convenios del proyecto sin tener que re-descubrirlos.
 
 ---
@@ -491,6 +491,27 @@ Servicio independiente (bun project propio) para notificaciones real-time:
 1. Verificar `NEXTAUTH_SECRET` en Vercel → Settings → Environment Variables.
 2. Migración `archivedAt` en Supabase: `prisma/migrations/auditoria_p0_archived_at/migration.postgres.sql` (ya ejecutada la sesión pasada — confirmar).
 3. Verificar los 4 flujos críticos en prod: onboarding acuerdo → check-in → hash verify → retention.
+
+### Fix vacaciones — días laborables (15 de agosto 2026, commit `9769537`)
+**Bug reportado por cliente**: Sandra Gonzalez Perez tenía vacaciones 17-29 ago 2026 y el sistema marcaba **13 días** (días naturales, contando el domingo 23), pero el cliente autorizó **12 días** (días laborables, sin domingo).
+
+**Causa raíz**: 5 sitios usaban la fórmula `Math.ceil((end - start) / 86400000) + 1` que cuenta días naturales sin excluir domingos ni festivos.
+
+**Solución implementada**:
+- **Nuevo helper** `src/lib/vacation-calculator.ts` con `computeVacationDays(start, end, dbHolidays?)` que excluye:
+  - Domingos (art. 71 LFT — descanso semanal)
+  - Festivos oficiales (art. 74 LFT, calculados algorítmicamente: 1 ene, primer lun feb, 3er lun mar, 1 may, 16 sep, 3er lun nov, 1 dic cada 6 años, 25 dic)
+  - Feriados extra cargados en BD (tabla `Holiday`)
+- **5 sitios actualizados**: `api/vacations/route.ts` (crear), `api/vacations/[id]/route.ts` (editar), `api/admin/recalc-vacations/route.ts` (recalc timezone), `admin-layout.tsx` (GrantVacationDialog + EditVacationDialog previews).
+- **Endpoint retroactivo** `POST /api/admin/recalc-vacations-holidays` — recalcula `days` de todos los Vacation type=VACACIONES, ajusta `vacationBalanceDays` con la diferencia. Auth dual: sesión GENERAL_ADMIN o `?token=RECALC_HOLIDAYS_2026`. Soporta `dryRun=true`. Añadido a `PUBLIC_PATHS` en middleware.
+- **Política (decisión del usuario)**: Opción C (sin toggle, siempre días laborables), fix retroactivo a todos los vacaciones históricos con domingos, excluir domingos + festivos oficiales art. 74 LFT.
+
+**Verificación end-to-end (dev)**:
+- Caso Sandra 17-29 ago 2026: 13 → 12 días ✅
+- Saldo ajustado: 11 → 12 (+1 día devuelto) ✅
+- Idempotencia: segundo recalc detecta 0 cambios ✅
+
+**Pendiente en producción**: ejecutar `POST /api/admin/recalc-vacations-holidays?token=RECALC_HOLIDAYS_2026` (dryRun=true primero, luego sin dryRun). Esto corregirá todos los Vacation históricos y devolverá días a los saldos.
 
 ### Fixes recientes previos (todos en producción)
 1. **fix #3 (overtime)** — commit `28e5345`. Caso Alicia resuelto: 55→95 min de overtime.
