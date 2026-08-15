@@ -3,7 +3,7 @@
 
 **Sistema:** Control de Asistencia v2.2
 **Normativa aplicable:**
-- Reforma a la Ley Federal del Trabajo (LFT), publicada en el Diario Oficial de la Federación el 1 de mayo de 2026, con entrada en vigor el **1 de enero de 2027**.
+- Reforma a la Ley Federal del Trabajo (LFT), publicada en el Diario Oficial de la Federación el **27 de diciembre de 2024**, con entrada en vigor el **1 de enero de 2027**.
 - NOM-037-STPS-2023 (Trabajo a distancia).
 - NOM-035-STPS-2018 (Factores de riesgo psicosocial).
 
@@ -90,7 +90,7 @@ El sistema calcula automáticamente las **horas trabajadas reales** cada día, c
 ### Qué dice la ley
 - **Art. 66 LFT:** Las horas extra se pagan **al doble** durante las primeras 9 horas extra a la semana.
 - **Art. 67 y 68 LFT:** Las horas extra que excedan de 9 a la semana se pagan **al triple**.
-- **Transitorio Cuarto** de la reforma (DOF 1-may-2026): A partir de 2027, el tope máximo de horas extra semanales es de **9 horas**. A partir de 2030, subirá a 12 horas.
+- **Transitorio Cuarto** de la reforma (DOF 27-dic-2024): A partir de 2027, la jornada semanal ordinaria se reduce gradualmente (48h→46h→44h→42h→40h para 2030). El tope de horas extra del art. 66 LFT permanece **fijo en 9 horas semanales** — no se ve afectado por la reducción de la jornada ordinaria.
 
 ### Qué hace el sistema
 Cada vez que un trabajador registra su salida, el sistema calcula automáticamente:
@@ -329,7 +329,7 @@ La pantalla "Auditoría" permite consultar el historial completo de acciones, fi
 | 3 | Asignación manual de horario semanal | Art. 61 LFT | El patrón define día a día si trabaja, descansa o no labora, con horas |
 | 4 | Cálculo automático de horas extra dobles | Art. 66 LFT | Las primeras 9 h extra/semana se calculan y reportan al doble |
 | 5 | Cálculo automático de horas extra triples | Arts. 67 y 68 LFT | Las horas extra que excedan 9/semana se calculan y reportan al triple |
-| 6 | Tope de 9 horas extra semanales (2027) | Transitorio Cuarto DOF 1-may-2026 | Alerta automática si se excede el tope |
+| 6 | Tope de 9 horas extra semanales (fijo, art. 66 LFT) | Art. 66 LFT (DOF 27-dic-2024 no modifica el tope) | Alerta automática si se excede el tope |
 | 7 | Día de descanso semanal obligatorio | Art. 69 y 71 LFT | El sistema bloquea el alta/edición si no hay día de descanso marcado |
 | 8 | Detección de trabajo en día de descanso + cálculo de prima del 100% | Art. 73 LFT (prima del 100%) y Art. 71 LFT (prima dominical) | El sistema detecta registros en días marcados como descanso, calcula `restDayPremiumMinutes` (prima del 100%), marca `isSunday`, y genera alerta NOM-035 `REST_DAY_WORKED`. Los reportes incluyen columnas separadas para el cálculo de nómina. |
 | 9 | Registros inalterables | Espíritu NOM-037 y Reforma LFT 2027 | Hora original bloqueada; correcciones dejan rastro en auditoría |

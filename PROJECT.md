@@ -1,7 +1,7 @@
 # Documento del Proyecto — Control de Asistencia NOM-037
 
-> **Versión del documento**: 1.0 (12 de agosto 2026)
-> **Versión del producto**: 2.2.1
+> **Versión del documento**: 1.1 (14 de agosto 2026)
+> **Versión del producto**: 2.3.0
 > **Propósito**: Brindar contexto completo al iniciar futuras sesiones de desarrollo. Al leer este documento, un agente nuevo entiende el dominio, la arquitectura, las reglas de negocio críticas y los convenios del proyecto sin tener que re-descubrirlos.
 
 ---
@@ -454,6 +454,11 @@ Servicio independiente (bun project propio) para notificaciones real-time:
 2. **Endpoint `/api/admin/recalc-overtime`** — commit `28e5345`. Recálculo histórico con acumulador semanal in-memory.
 3. **Botón "Recálculo de horas extra" en Configuración** — commit `7088e38`. UI para invocar el endpoint con dryRun/real.
 4. **Recálculo ejecutado por el usuario** — registros históricos corregidos.
+5. **PDF con títulos en español** — commit `3d447f0`. Reportes PDF con encabezados localizados.
+6. **NSS / RFC / CURP en Employee** — commits `112a54f` (schema) + `47323c9` (migración). Añadidos campos `nss`, `rfc`, `curp` al modelo Employee en ambos schemas. Migración manual ejecutada en prod vía endpoint `/api/migrate/add-nss-folio-imss`.
+7. **Login roto por schema desincronizado** — commit `e89788d`/`b347bd6`. El deploy que regeneró Prisma Client esperando columna `nss` rompió el login de TODOS los usuarios (16 en prod) porque la DB física no la tenía. Fix: migración manual vía endpoint + **consultas de auth cambiadas de `include: { employee: true }` (SELECT *) a `select` con campos específicos** para que el login no se rompa si falta una columna. Patrón de resilience aplicado en: `auth.config.ts`, `api/auth/me`, `api/auth/quick-login`, `api/auth/qr-login`, `api/auth/refresh`, `api/auth/users-list`, `api/user/privacy/accept`, `lib/privacy.ts`.
+8. **Diagnóstico de DB** — commit `3695b18`. Endpoint `/api/diagnose-db?token=DIAGNOSE_2026` verifica columnas, usuarios por rol, y consulta exacta de login. Mejorado en commit `200d595` para listar saldos de vacaciones cargados.
+9. **Saldos de vacaciones por año (2026/2027)** — commits `5a9963f` (schema + endpoints), `c2ea555` (fix middleware), `be9348f`+`200d595` (verificación). Añadidos campos `vacationBalanceDays2026` y `vacationBalanceDays2027` al modelo Employee. Carga masiva ejecutada para 13 empleados (18 registros: 5 de 2026 + 13 de 2027). Ver [§16. Saldos de vacaciones](#16-saldos-de-vacaciones-20262027) para detalle.
 
 ### Features principales ya en producción
 - Check-in/out geolocalizado con QR dinámico rotativo
@@ -517,4 +522,45 @@ Si eres un agente nuevo, sigue estos pasos:
 
 ---
 
-*Documento generado el 12 de agosto 2026. Mantener actualizado al finalizar cada sesión de cambios significativos.*
+## 16. Saldos de vacaciones (2026/2027)
+
+### Schema
+El modelo `Employee` tiene tres campos de saldo de vacaciones:
+- `vacationBalanceDays Int @default(12)` — **saldo activo** que se descuenta al otorgar vacaciones (lo usa `/api/vacations`).
+- `vacationBalanceDays2026 Int?` — saldo correspondiente al año 2026 (informativo/referencia).
+- `vacationBalanceDays2027 Int?` — saldo correspondiente al año 2027 (informativo/referencia).
+
+Los campos por año son de referencia para que el admin sepa cuántos días le corresponden a cada empleado en cada año; el saldo que se descuenta al otorgar vacaciones sigue siendo `vacationBalanceDays`.
+
+### Endpoints
+- **`/api/migrate/add-vacation-year-columns`** (POST) — migración idempotente que añade las columnas `vacationBalanceDays2026` y `vacationBalanceDays2027` a la tabla Employee. Auth dual: sesión admin O `?token=MIGRATE_VAC_YEARS_2026`. Ya ejecutado en prod.
+- **`/api/vacations/bulk-load`** (POST) — carga masiva de saldos. Recibe `{ items: [{ name, year: 2026|2027, days }] }` y hace match por nombre (case-insensitive, sin acentos). Si year=2026, también actualiza `vacationBalanceDays` (saldo activo). Auth dual: sesión admin O `?token=BULK_VACATIONS_2026`. Es público a nivel middleware (commit `c2ea555`) para poder ejecutarlo sin sesión.
+- **`/api/diagnose-db`** (GET, `?token=DIAGNOSE_2026`) — verifica columnas, usuarios por rol, consulta de login, y lista saldos de vacaciones cargados (commit `200d595`).
+
+### Datos cargados en producción (14 de agosto 2026)
+13 empleados con saldos cargados desde PDF `upload/VACACIONES EMPLEADOS.pdf`:
+
+| Empleado | Activo | 2026 | 2027 |
+|---|---|---|---|
+| ALICIA GUADALUPE HERNANDEZ GONZALEZ | 12 | — | 16 |
+| CAROLINA CRUZ PEREZ | 14 | 14 | 16 |
+| CAROLINA ELIZABETH ROBLERO GUTIERREZ | 14 | 14 | 16 |
+| CLARA IDALIA GOMEZ SANTIZO | 12 | — | 26 |
+| CLARIVEL ARREOLA CLEMENTE | 12 | — | 14 |
+| CRISTIAN JOAN VELAZQUEZ MONTOYA | 12 | 12 | 14 |
+| GABRIELA ESTEFANIA ALVAREZ PASCACIO | 12 | — | 12 |
+| JONATHAN FRANCISCO SANCHEZ GONZALEZ | 12 | — | 16 |
+| JOSE CANDELARIO GOMEZ HERNANDEZ | 12 | — | 16 |
+| JUANA MARTINEZ MENDOZA | 18 | 18 | 20 |
+| LUCIA MARAI GALDAMEZ VILLARREAL | 12 | — | 12 |
+| SANDRA ISABEL GONZALEZ PEREZ | 24 | 24 | 24 |
+| XIMENA VELASCO MARROQUIN | 12 | — | 12 |
+
+**Notas**:
+- Los 5 empleados con datos de 2026 también actualizaron su saldo activo (estamos en agosto 2026).
+- Los 8 empleados que solo aparecen en 2027 mantienen saldo activo en 12 (default).
+- Abreviaturas del PDF resueltas: GTZ→GUTIERREZ, FCO→FRANCISCO, GPE→GUADALUPE.
+
+---
+
+*Documento generado el 12 de agosto 2026. Última actualización: 14 de agosto 2026 (saldos de vacaciones por año). Mantener actualizado al finalizar cada sesión de cambios significativos.*
