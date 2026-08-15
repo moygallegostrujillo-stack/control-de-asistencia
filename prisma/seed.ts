@@ -4,7 +4,24 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Iniciando seed v2.2...');
+  console.log('🌱 Iniciando seed v2.3...');
+
+  // 0. JornadaConfig — RT-P0.1 (tope semanal por año, art. 61 LFT, DOF 27-dic-2024)
+  console.log('  → JornadaConfig (topes semanales 2026-2030)');
+  const jornadaConfigSeed: Array<{ year: number; maxWeeklyHours: number }> = [
+    { year: 2026, maxWeeklyHours: 48 },
+    { year: 2027, maxWeeklyHours: 46 },
+    { year: 2028, maxWeeklyHours: 44 },
+    { year: 2029, maxWeeklyHours: 42 },
+    { year: 2030, maxWeeklyHours: 40 },
+  ];
+  for (const cfg of jornadaConfigSeed) {
+    await prisma.jornadaConfig.upsert({
+      where: { year: cfg.year },
+      update: { maxWeeklyHours: cfg.maxWeeklyHours },
+      create: cfg,
+    });
+  }
 
   // 1. Company (singleton) — fix #3
   console.log('  → Company');
@@ -191,6 +208,7 @@ async function main() {
 
   console.log('✅ Seed completado:');
   console.log('   • 1 Empresa (singleton)');
+  console.log('   • 5 Topes de jornada semanal (JornadaConfig 2026-2030, RT-P0.1)');
   console.log('   • 2 Sucursales (Matriz=codigoLocal 261, Sucursal 1)');
   console.log('   • 7 Días feriados 2025');
   console.log('   • 3 Admins (1 general + 2 sucursal)');
