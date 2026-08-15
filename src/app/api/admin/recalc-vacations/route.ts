@@ -51,6 +51,7 @@ import {
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { toISODate, formatDateInMexico } from '@/lib/timezone';
+import { computeVacationDays } from '@/lib/vacation-calculator';
 
 /** Offset de México en minutos (UTC-6, sin DST desde 2022). */
 const MEXICO_OFFSET_MINUTES = 6 * 60;
@@ -144,9 +145,14 @@ export async function POST(req: NextRequest) {
       const newStart = startBuggy ? fixBuggyDate(r.startDate) : r.startDate;
       const newEnd = endBuggy ? fixBuggyDate(r.endDate) : r.endDate;
 
-      // Recalcular días naturales (debe dar lo mismo, pero por consistencia).
-      const newDays =
-        Math.ceil((newEnd.getTime() - newStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      // Recalcular días laborables (excluye domingos art. 71 LFT y
+      // festivos oficiales art. 74 LFT + feriados de BD).
+      // Fix 15-ago-2026.
+      const dbHolidays = await db.holiday.findMany({
+        where: { date: { gte: newStart, lte: newEnd } },
+        select: { date: true },
+      });
+      const newDays = computeVacationDays(newStart, newEnd, dbHolidays);
 
       changes.push({
         id: r.id,

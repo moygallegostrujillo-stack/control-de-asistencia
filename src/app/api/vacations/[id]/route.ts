@@ -32,6 +32,7 @@ import {
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { emitVacationStatus } from '@/lib/realtime';
 import { toISODate, buildDateTimeInMexico } from '@/lib/timezone';
+import { computeVacationDays } from '@/lib/vacation-calculator';
 
 const VALID_TYPES = new Set([
   'VACACIONES',
@@ -383,15 +384,22 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       );
     }
 
-    // Recalcular días naturales.
-    const newDays =
-      Math.ceil(
-        (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60 * 60 * 24)
-      ) + 1;
+    // Recalcular días laborables (excluye domingos art. 71 LFT y
+    // festivos oficiales art. 74 LFT + feriados de BD).
+    // Fix 15-ago-2026.
+    const dbHolidays = await db.holiday.findMany({
+      where: { date: { gte: effectiveStart, lte: effectiveEnd } },
+      select: { date: true },
+    });
+    const newDays = computeVacationDays(effectiveStart, effectiveEnd, dbHolidays);
 
     if (newDays <= 0) {
       return NextResponse.json(
-        { error: 'El rango de fechas debe ser de al menos 1 día' },
+        {
+          error:
+            'El rango de fechas debe contener al menos 1 día laborable ' +
+            '(excluyendo domingos y festivos oficiales).',
+        },
         { status: 400 }
       );
     }

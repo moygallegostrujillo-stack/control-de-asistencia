@@ -92,6 +92,10 @@ const PUBLIC_PATHS = [
   // RT-P0.8: Retención 12 meses (LFT art. 804). Cron de Vercel ejecuta el día 1
   // de cada mes. Requiere ?token=RETENTION_2027 o sesión GENERAL_ADMIN.
   '/api/admin/retention/archive',
+  // Fix retroactivo vacaciones (15-ago-2026): recálculo de días excluyendo
+  // domingos (art. 71 LFT) y festivos oficiales (art. 74 LFT). Requiere
+  // ?token=RECALC_HOLIDAYS_2026 o sesión GENERAL_ADMIN.
+  '/api/admin/recalc-vacations-holidays',
   // ⚠️ Tarea 1 (audit seguridad): /api/download-env y /api/seed REMOVIDOS de
   // rutas públicas. /api/download-env fue eliminado por completo (exponía .env).
   // /api/seed ahora requiere sesión + rol GENERAL_ADMIN (ver handler).

@@ -1,211 +1,218 @@
 // ============================================================
-// src/lib/vacation-calculator.ts
-//   Utilidades de cálculo de vacaciones y prima vacacional (LFT).
+// VACATION CALCULATOR — cálculo de días de vacaciones
 //
-//   Cumple con:
-//     - art. 76 LFT: días de vacaciones por año de servicio (tabla progresiva).
-//     - art. 80 LFT: prima vacacional mínima del 25% sobre el salario.
-//     - art. 81 LFT: caducidad del derecho (referencia para未来的 vencimiento).
+// Fix (15-ago-2026): El cliente reportó que el sistema contaba
+// días naturales (incluyendo domingos), pero la política de la
+// empresa es contar días laborables (excluyendo domingos y días
+// festivos oficiales art. 74 LFT).
 //
-//   RT-P0.13 (auditoría 14-ago-2026): implementación inicial.
-//   Estas funciones no existían en el sistema. Antes los saldos de vacaciones
-//   se cargaban manualmente vía /api/vacations/bulk-load sin accrual automático,
-//   y la prima vacacional NO se calculaba en ningún lado.
+// Este helper unifica el cálculo en un solo lugar y es usado por:
+//   - POST /api/vacations           (crear)
+//   - PATCH /api/vacations/[id]     (editar)
+//   - POST /api/admin/recalc-vacations-holidays  (fix retroactivo)
+//   - Frontend: GrantVacationDialog y EditVacationDialog (preview)
+//
+// LFT art. 71 — descanso semanal (domingo).
+// LFT art. 74 — días festivos oficiales.
 // ============================================================
 
+import { DateTime } from 'luxon';
+import { MEXICO_TZ, toISODate, getDayOfWeek } from './timezone';
+
 /**
- * Tabla del art. 76 LFT (reformada 2012, vigente desde 2013):
- *   Año 1 → 12 días
- *   Año 2 → 14 días
- *   Año 3 → 16 días
- *   Año 4 → 18 días
- *   Año 5 → 20 días
- *   Años 6 al 10 → aumentan en 2 días cada año (22, 24, 26, 28, 30)
- *   Años 11 al 15 → aumentan en 2 días cada año (32, 34, 36, 38, 40)
- *   ... y así sucesivamente, +2 días por cada año adicional.
+ * Días festivos oficiales de México conforme al art. 74 LFT.
+ * Devuelve un Set de strings ISO "YYYY-MM-DD" para un año dado.
  *
- * Fuente legal: art. 76 LFT (texto vigente post-reforma 2012).
+ * Lista (art. 74 LFT):
+ *   I.   1 de enero
+ *   II.  Primer lunes de febrero (5 de febrero)
+ *   III. Tercer lunes de marzo (21 de marzo)
+ *   IV.  1 de mayo
+ *   V.   16 de septiembre
+ *   VI.  Tercer lunes de noviembre (20 de noviembre)
+ *   VII. 1 de diciembre cada 6 años (transmisión Poder Ejecutivo: 2024, 2030...)
+ *   VIII.25 de diciembre
  *
- * @param yearsOfService - Años completos de servicio (entero >= 0).
- * @returns Días de vacaciones que corresponden al año indicado. 0 si < 1 año.
+ * Nota: Las elecciones (fr. IX) no se incluyen porque varían por año y
+ * entidad, y no aplican recursivamente al cálculo de vacaciones.
  */
-export function accrualByYearsOfService(yearsOfService: number): number {
-  if (!Number.isFinite(yearsOfService) || yearsOfService < 1) {
-    return 0;
+export function getOfficialMexicanHolidays(year: number): Set<string> {
+  const holidays = new Set<string>();
+
+  // I. 1 de enero
+  holidays.add(`${year}-01-01`);
+
+  // II. Primer lunes de febrero
+  holidays.add(firstMondayOfMonth(year, 2));
+
+  // III. Tercer lunes de marzo
+  holidays.add(nthMondayOfMonth(year, 3, 3));
+
+  // IV. 1 de mayo
+  holidays.add(`${year}-05-01`);
+
+  // V. 16 de septiembre
+  holidays.add(`${year}-09-16`);
+
+  // VI. Tercer lunes de noviembre
+  holidays.add(nthMondayOfMonth(year, 11, 3));
+
+  // VII. 1 de diciembre cada 6 años (transmisión Poder Ejecutivo).
+  // Secuencia: 1934, 1940, ..., 2000, 2006, 2012, 2018, 2024, 2030...
+  // 2024 % 6 = 2, 2030 % 6 = 2, 2018 % 6 = 2 → year % 6 === 2
+  if (year % 6 === 2) {
+    holidays.add(`${year}-12-01`);
   }
-  const years = Math.floor(yearsOfService);
-  if (years <= 0) return 0;
-  if (years === 1) return 12;
-  if (years === 2) return 14;
-  if (years === 3) return 16;
-  if (years === 4) return 18;
-  if (years === 5) return 20;
-  // A partir del año 6, aumentan 2 días por cada año adicional.
-  // Año 6 → 22, año 7 → 24, ..., año 10 → 30, año 11 → 32, etc.
-  return 20 + (years - 5) * 2;
+
+  // VIII. 25 de diciembre
+  holidays.add(`${year}-12-25`);
+
+  return holidays;
 }
 
 /**
- * Calcula los años completos de servicio entre la fecha de ingreso y una
- * fecha de referencia (por defecto, hoy).
- *
- * @param hireDate - Fecha de ingreso del empleado.
- * @param asOf - Fecha de referencia (default: ahora).
- * @returns Años completos (entero >= 0). 0 si aún no cumple 1 año.
+ * Devuelve el primer lunes de un mes/año dado, en formato "YYYY-MM-DD".
  */
-export function computeYearsOfService(
-  hireDate: Date,
-  asOf: Date = new Date()
-): number {
-  if (!hireDate || !asOf || hireDate > asOf) return 0;
-  const msPerYear = 365.25 * 24 * 60 * 60 * 1000; // año juliano (con bisiesto)
-  const diffMs = asOf.getTime() - hireDate.getTime();
-  const years = Math.floor(diffMs / msPerYear);
-  return Math.max(0, years);
+function firstMondayOfMonth(year: number, month: number): string {
+  return nthMondayOfMonth(year, month, 1);
 }
 
 /**
- * Calcula los días de vacaciones que le corresponden a un empleado según
- * su fecha de ingreso y una fecha de referencia.
+ * Devuelve el N-ésimo lunes de un mes/año dado (n=1 primer lunes, n=3 tercero).
+ */
+function nthMondayOfMonth(year: number, month: number, n: number): string {
+  // Luxon: weekday=1 es lunes. Si day=8, weekday es el del 8vo día del mes.
+  // Buscamos el primer día del mes y avanzamos hasta el primer lunes.
+  const first = DateTime.fromObject({ year, month, day: 1 }, { zone: MEXICO_TZ });
+  let monday = first;
+  // weekday: 1=mon..7=sun (luxon)
+  const offset = (1 - first.weekday + 7) % 7; // días hasta el primer lunes
+  monday = first.plus({ days: offset });
+  // Avanzar (n-1) semanas
+  monday = monday.plus({ weeks: n - 1 });
+  return monday.toFormat('yyyy-MM-dd');
+}
+
+/**
+ * Interfaz para feriados extra (de la BD Holiday) que el backend puede pasar.
+ */
+export interface ExtraHoliday {
+  date: Date;
+}
+
+/**
+ * Calcula los días laborables de vacaciones en un rango [startDate, endDate],
+ * excluyendo:
+ *   - Domingos (día de descanso obligatorio, art. 71 LFT)
+ *   - Días festivos oficiales (art. 74 LFT, calculados algorítmicamente)
+ *   - Días festivos adicionales cargados en la BD (tabla Holiday, opcionales)
  *
- * Wrapper conveniente que combina `computeYearsOfService` + `accrualByYearsOfService`.
+ * El resultado es el número de días que se descuentan del saldo de vacaciones.
  *
- * @param hireDate - Fecha de ingreso del empleado.
- * @param asOf - Fecha de referencia (default: ahora).
- * @returns Días de vacaciones correspondientes al año de servicio actual.
+ * @param startDate Fecha de inicio (inclusive)
+ * @param endDate   Fecha de fin (inclusive)
+ * @param extraHolidays Feriados extra de la BD (opcional). El backend los
+ *                      carga con db.holiday.findMany; el frontend puede omitirlos.
+ * @returns Número de días laborables (>= 0)
  */
 export function computeVacationDays(
-  hireDate: Date,
-  asOf: Date = new Date()
+  startDate: Date,
+  endDate: Date,
+  extraHolidays?: ExtraHoliday[]
 ): number {
-  const years = computeYearsOfService(hireDate, asOf);
-  return accrualByYearsOfService(years);
+  if (!startDate || !endDate || endDate < startDate) {
+    return 0;
+  }
+
+  // ---- Construir set de festivos (oficiales + BD) para todos los años del rango ----
+  const holidaySet = new Set<string>();
+
+  // Años que toca el rango (en zona Mexico)
+  const startYear = DateTime.fromJSDate(startDate).setZone(MEXICO_TZ).year;
+  const endYear = DateTime.fromJSDate(endDate).setZone(MEXICO_TZ).year;
+  for (let y = startYear; y <= endYear; y++) {
+    getOfficialMexicanHolidays(y).forEach((d) => holidaySet.add(d));
+  }
+
+  // Feriados extra de la BD (si los pasa el backend)
+  if (extraHolidays && extraHolidays.length > 0) {
+    for (const h of extraHolidays) {
+      holidaySet.add(toISODate(h.date));
+    }
+  }
+
+  // ---- Iterar día por día, contando los laborables ----
+  let count = 0;
+  const current = DateTime.fromJSDate(startDate).setZone(MEXICO_TZ).startOf('day');
+  const end = DateTime.fromJSDate(endDate).setZone(MEXICO_TZ).startOf('day');
+
+  let cursor = current;
+  while (cursor <= end) {
+    const iso = cursor.toFormat('yyyy-MM-dd');
+    // getDayOfWeek: 0=domingo..6=sábado (igual que Date.getDay pero en Mexico TZ)
+    const dow = cursor.weekday % 7; // luxon: 1=lunes..7=domingo → 0=domingo..6=sábado
+    const isSunday = dow === 0;
+    const isHoliday = holidaySet.has(iso);
+
+    if (!isSunday && !isHoliday) {
+      count++;
+    }
+    cursor = cursor.plus({ days: 1 });
+  }
+
+  return count;
 }
 
 /**
- * Calcula la prima vacacional (LFT art. 80).
+ * Versión ligera para el frontend: calcula días excluyendo domingos y
+ * festivos oficiales (sin consultar la BD). El backend usa
+ * `computeVacationDays` con `extraHolidays` para mayor precisión.
  *
- * Fórmula:
- *   primaVacacional = díasVacaciones × salarioDiario × tasa
- *
- * donde:
- *   - díasVacaciones: días de vacaciones que se van a disfrutar.
- *   - salarioDiario: salario diario del empleado (baseSalary / 30, o el
- *     salario integrado si se quiere calcular sobre CSD).
- *   - tasa: 0.25 (mínimo legal del 25%). Puede ser mayor si la empresa
- *     otorga una prima más alta por contrato colectivo o política interna.
- *
- * @param vacationDays - Días de vacaciones que se van a disfrutar.
- * @param dailySalary - Salario diario del empleado.
- * @param rate - Tasa de la prima (default 0.25, mínimo legal art. 80 LFT).
- * @returns Monto de la prima vacacional (en la misma unidad que dailySalary).
+ * El frontend puede usar este helper para mostrar un preview aproximado;
+ * el valor almacenado lo calcula el backend.
  */
-export function computePrimaVacacional(
-  vacationDays: number,
-  dailySalary: number,
-  rate: number = 0.25
+export function computeVacationDaysFrontend(
+  startDate: Date,
+  endDate: Date
 ): number {
-  if (!Number.isFinite(vacationDays) || vacationDays < 0) return 0;
-  if (!Number.isFinite(dailySalary) || dailySalary < 0) return 0;
-  if (!Number.isFinite(rate) || rate < 0) return 0;
-  return vacationDays * dailySalary * rate;
+  return computeVacationDays(startDate, endDate, undefined);
 }
 
 /**
- * Calcula el salario diario a partir del salario mensual.
- *
- * Por convención mexicana (art. 60 LFT, jurisprudencia), el salario diario
- * se calcula dividiendo el salario mensual entre 30 días (mes comercial),
- * independientemente del número real de días del mes.
- *
- * @param monthlySalary - Salario mensual bruto.
- * @returns Salario diario (= monthlySalary / 30).
+ * Devuelve la lista de festivos oficiales (ISO strings) que caen dentro
+ * de un rango dado. Útil para mostrar al usuario qué días se excluyeron.
  */
-export function computeDailySalary(monthlySalary: number): number {
-  if (!Number.isFinite(monthlySalary) || monthlySalary < 0) return 0;
-  return monthlySalary / 30;
-}
-
-/**
- * Resultado completo del cálculo vacacional para un empleado.
- */
-export interface VacationAccrualResult {
-  yearsOfService: number;
-  vacationDays: number;
-  dailySalary: number;
-  primaVacacional: number;
-  primaVacacionalRate: number;
-  legalReference: string;
-}
-
-/**
- * Calcula todo lo relacionado con vacaciones y prima vacacional para un
- * empleado, en una sola llamada.
- *
- * @param hireDate - Fecha de ingreso del empleado.
- * @param monthlySalary - Salario mensual bruto (opcional; si no se pasa, no se calcula prima).
- * @param asOf - Fecha de referencia (default: ahora).
- * @param primaRate - Tasa de la prima vacacional (default 0.25, mínimo legal art. 80 LFT).
- * @returns Objeto con años de servicio, días de vacaciones, prima vacacional, etc.
- */
-export function computeVacationAccrual(
-  hireDate: Date,
-  monthlySalary?: number | null,
-  asOf: Date = new Date(),
-  primaRate: number = 0.25
-): VacationAccrualResult {
-  const yearsOfService = computeYearsOfService(hireDate, asOf);
-  const vacationDays = accrualByYearsOfService(yearsOfService);
-  const dailySalary =
-    monthlySalary && monthlySalary > 0 ? computeDailySalary(monthlySalary) : 0;
-  const primaVacacional = computePrimaVacacional(
-    vacationDays,
-    dailySalary,
-    primaRate
-  );
-  return {
-    yearsOfService,
-    vacationDays,
-    dailySalary,
-    primaVacacional,
-    primaVacacionalRate: primaRate,
-    legalReference:
-      'LFT art. 76 (vacaciones por antigüedad); art. 80 (prima vacacional mínima 25%)',
-  };
-}
-
-/**
- * Valida que la duración de una incapacidad de maternidad no exceda
- * las 12 semanas (84 días naturales) establecidas por el art. 101 LSS.
- *
- * @param days - Días naturales de la incapacidad.
- * @returns `null` si OK, o un mensaje de error si excede el límite.
- */
-export function validateMaternidadDuration(days: number): string | null {
-  const MAX_MATERNIDAD_DAYS = 84; // 12 semanas × 7 días = 84 días (LSS art. 101)
-  if (!Number.isFinite(days) || days <= 0) {
-    return 'La duración de la maternidad debe ser mayor a 0 días.';
+export function getHolidaysInRange(
+  startDate: Date,
+  endDate: Date,
+  extraHolidays?: ExtraHoliday[]
+): string[] {
+  const holidaySet = new Set<string>();
+  const startYear = DateTime.fromJSDate(startDate).setZone(MEXICO_TZ).year;
+  const endYear = DateTime.fromJSDate(endDate).setZone(MEXICO_TZ).year;
+  for (let y = startYear; y <= endYear; y++) {
+    getOfficialMexicanHolidays(y).forEach((d) => holidaySet.add(d));
   }
-  if (days > MAX_MATERNIDAD_DAYS) {
-    return `La maternidad excede las 12 semanas (${MAX_MATERNIDAD_DAYS} días) establecidas por el art. 101 LSS.`;
+  if (extraHolidays) {
+    for (const h of extraHolidays) {
+      holidaySet.add(toISODate(h.date));
+    }
   }
-  return null;
-}
 
-/**
- * Valida que la duración de un permiso de paternidad no exceda
- * los 5 días establecidos por el art. 132 Bis LFT.
- *
- * @param days - Días naturales del permiso.
- * @returns `null` si OK, o un mensaje de error si excede el límite.
- */
-export function validatePaternidadDuration(days: number): string | null {
-  const MAX_PATERNIDAD_DAYS = 5; // art. 132 Bis LFT
-  if (!Number.isFinite(days) || days <= 0) {
-    return 'La duración del permiso de paternidad debe ser mayor a 0 días.';
+  const inRange: string[] = [];
+  const start = DateTime.fromJSDate(startDate).setZone(MEXICO_TZ).startOf('day');
+  const end = DateTime.fromJSDate(endDate).setZone(MEXICO_TZ).startOf('day');
+  let cursor = start;
+  while (cursor <= end) {
+    const iso = cursor.toFormat('yyyy-MM-dd');
+    const dow = cursor.weekday % 7;
+    if (dow === 0) {
+      // domingo — lo incluimos en la lista de excluidos también
+      inRange.push(iso + ' (domingo)');
+    } else if (holidaySet.has(iso)) {
+      inRange.push(iso + ' (festivo)');
+    }
+    cursor = cursor.plus({ days: 1 });
   }
-  if (days > MAX_PATERNIDAD_DAYS) {
-    return `El permiso de paternidad excede los ${MAX_PATERNIDAD_DAYS} días establecidos por el art. 132 Bis LFT.`;
-  }
-  return null;
+  return inRange;
 }

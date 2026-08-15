@@ -17,6 +17,7 @@ import type { AuthUser } from '@/lib/auth';
 import { useRealtime } from '@/hooks/use-realtime';
 import { cn } from '@/lib/utils';
 import { formatTimeInMexico, formatDateInMexico, formatMinutes, minutesToHours, formatDateTimeInMexico, getMexicoTodayISO, toISODate } from '@/lib/timezone';
+import { computeVacationDaysFrontend } from '@/lib/vacation-calculator';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -3586,7 +3587,8 @@ function GrantVacationDialog({ onClose, onGranted }: { onClose: () => void; onGr
               </div>
               {type === 'VACACIONES' && startDate && endDate && (
                 <p className="sm:col-span-2 text-xs text-emerald-700 dark:text-emerald-400">
-                  Se descontarán <strong>{Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} día(s)</strong> del saldo de {selectedEmp?.user.name ?? 'el empleado'}.
+                  Se descontarán <strong>{computeVacationDaysFrontend(new Date(startDate), new Date(endDate))} día(s) laborable(s)</strong> del saldo de {selectedEmp?.user.name ?? 'el empleado'}.
+                  <span className="block text-[10px] text-muted-foreground mt-0.5">No se cuentan domingos ni festivos oficiales (art. 71 y 74 LFT).</span>
                 </p>
               )}
             </>
@@ -3781,9 +3783,9 @@ function EditVacationDialog({
     }
   }
 
-  // Calcular días naturales para mostrar preview.
+  // Calcular días laborables para mostrar preview (excluye domingos y festivos).
   const previewDays = startDate && endDate
-    ? Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1
+    ? computeVacationDaysFrontend(new Date(startDate), new Date(endDate))
     : 0;
 
   return (
@@ -3850,7 +3852,8 @@ function EditVacationDialog({
 
           {previewDays > 0 && (
             <p className="sm:col-span-2 text-xs text-muted-foreground">
-              Nuevo total: <strong>{previewDays} día(s)</strong>
+              Nuevo total: <strong>{previewDays} día(s) laborable(s)</strong>
+              <span className="block text-[10px]">No se cuentan domingos ni festivos oficiales (art. 71 y 74 LFT).</span>
               {vacation.days !== previewDays && type === 'VACACIONES' && vacation.status === 'APPROVED' && !vacation.isPartial && (
                 <span className="ml-2 text-amber-700 dark:text-amber-400">
                   (saldo del empleado se reajustará: {vacation.days} → {previewDays})
