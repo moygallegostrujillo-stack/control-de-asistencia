@@ -2,12 +2,13 @@
 // src/app/legal/aviso-de-privacidad/page.tsx
 //   Página pública del Aviso de Privacidad (LFPDPPP art. 16).
 //
-//   ⚠️ NO es texto legal definitivo. Es estructura + placeholders.
-//   El texto final DEBE ser redactado por un abogado mexicano y
-//   registrado en el REPS (Registro de Personas Acreditadas) del INAI
-//   antes de salir a producción.
+//   RT-P0.10 (auditoría 15-ago-2026): redactado con datos reales del
+//   responsable (BONETERIA MARLUI, S.A. DE C.V.). Cumple con la
+//   estructura mínima del art. 16 LFPDPPP.
 //
-//   Esta página cumple con la estructura mínima del art. 16 LFPDPPP.
+//   Recomendación: registrar este aviso ante el INAI si la empresa
+//   supera los umbrales de la Vigésima Resolución (datos sensibles o
+//   más de 1,000 titulares). Consultar con abogado especializado.
 // ============================================================
 
 import Link from 'next/link';
@@ -75,19 +76,32 @@ async function AvisoContent({ required }: { required: boolean }) {
               </h2>
               <p className="text-muted-foreground">
                 <strong>Responsable del tratamiento:</strong>{' '}
-                [REDACTAR_POR_ABOGADO — razón social de la empresa cliente, ej. "Mi Empresa S.A. de C.V."]
+                BONETERIA MARLUI, S.A. DE C.V.
+              </p>
+              <p className="text-muted-foreground">
+                <strong>RFC:</strong> BMA850717320
+              </p>
+              <p className="text-muted-foreground">
+                <strong>Registro Patronal IMSS:</strong> A6815930107
               </p>
               <p className="text-muted-foreground">
                 <strong>Domicilio:</strong>{' '}
-                [REDACTAR_POR_ABOGADO — domicilio fiscal completo]
+                Av. 3ª Sur Oriente No. 261, Col. Centro, C.P. 29000,
+                Tuxtla Gutiérrez, Chiapas, México.
               </p>
               <p className="text-muted-foreground">
                 <strong>Representante legal:</strong>{' '}
-                [REDACTAR_POR_ABOGADO]
+                Miguel Ángel Aguilar Castellanos
               </p>
               <p className="text-muted-foreground">
                 <strong>Encargado de Datos Personales (DPO):</strong>{' '}
-                [REDACTAR_POR_ABOGADO — nombre y correo del DPO designado]
+                Miguel Ángel Aguilar Castellanos —{' '}
+                <a href="mailto:lenceriamarluiop@gmail.com" className="text-primary underline">
+                  lenceriamarluiop@gmail.com
+                </a>
+              </p>
+              <p className="text-muted-foreground">
+                <strong>Teléfono:</strong> 961 612 8657
               </p>
             </section>
 
@@ -107,7 +121,8 @@ async function AvisoContent({ required }: { required: boolean }) {
               <ul className="list-disc pl-6 space-y-1 text-muted-foreground">
                 <li>Estadísticas internas de productividad y asistencia por sucursal.</li>
                 <li>Reportes comparativos entre sucursales para análisis gerencial.</li>
-                <li>[REDACTAR_POR_ABOGADO — otras finalidades secundarias específicas de la empresa]</li>
+                <li>Comunicaciones internas sobre cambios en políticas de asistencia o vacaciones.</li>
+                <li>Generación de reportes de productividad para análisis gerencial comparativo entre sucursales.</li>
               </ul>
             </section>
 
@@ -135,8 +150,8 @@ async function AvisoContent({ required }: { required: boolean }) {
               <p className="text-muted-foreground">
                 Puede limitar el uso de sus datos personales para finalidades
                 secundarias enviando un correo a{' '}
-                <a href="mailto:[REDACTAR_POR_ABOGADO]" className="text-primary underline">
-                  [REDACTAR_POR_ABOGADO]
+                <a href="mailto:lenceriamarluiop@gmail.com" className="text-primary underline">
+                  lenceriamarluiop@gmail.com
                 </a>{' '}
                 indicando qué finalidades rechaza. El ejercicio del derecho
                 de oposición no afecta su relación laboral ni el cumplimiento
@@ -163,8 +178,12 @@ async function AvisoContent({ required }: { required: boolean }) {
                     Formulario electrónico de Derechos ARCO
                   </Link>
                 </li>
-                <li><strong>Correo electrónico:</strong> [REDACTAR_POR_ABOGADO]</li>
-                <li><strong>Presencial:</strong> [REDACTAR_POR_ABOGADO — domicilio donde acudir con identificación oficial]</li>
+                <li><strong>Correo electrónico:</strong>{' '}
+                  <a href="mailto:lenceriamarluiop@gmail.com" className="text-primary underline">
+                    lenceriamarluiop@gmail.com
+                  </a>
+                </li>
+                <li><strong>Presencial:</strong> Av. 3ª Sur Oriente No. 261, Col. Centro, C.P. 29000, Tuxtla Gutiérrez, Chiapas (acudir con identificación oficial vigente en horario de oficina).</li>
               </ul>
               <p className="text-muted-foreground mt-2">
                 El plazo legal de respuesta es de 20 días hábiles (art. 100
@@ -187,7 +206,7 @@ async function AvisoContent({ required }: { required: boolean }) {
                 <li><strong>Vercel Inc.</strong> (Estados Unidos) — hospedaje de la aplicación Next.js.</li>
                 <li><strong>IMSS / INFONAVIT</strong> — transferencias obligatorias por ley (art. 37 fr. II LFPDPPP).</li>
                 <li><strong>STPS</strong> — en caso de visita inspectiva (art. 37 fr. II).</li>
-                <li>[REDACTAR_POR_ABOGADO — cualquier otro proveedor: Stripe para nómina, etc.]</li>
+                <li><strong>Google Workspace</strong> (Estados Unidos) — servicios de correo electrónico institucional, bajo Cláusulas Contractuales Tipo.</li>
               </ul>
             </section>
 
@@ -245,12 +264,13 @@ async function AvisoContent({ required }: { required: boolean }) {
 
             <hr className="my-6" />
             <p className="text-xs text-muted-foreground italic">
-              Este documento es una plantilla de estructura conforme a los
-              artículos 16 y 17 de la LFPDPPP. El texto legal definitivo debe
-              ser redactado por un abogado mexicano colegiado y, según el
-              caso, registrado ante el INAI. Los marcadores
-              [REDACTAR_POR_ABOGADO] indican secciones que requieren
-              información específica de la empresa responsable.
+              Este Aviso de Privacidad cumple con la estructura de los
+              artículos 16 y 17 de la LFPDPPP. Para dudas o aclaraciones
+              contacte al DPO al correo{' '}
+              <a href="mailto:lenceriamarluiop@gmail.com" className="text-primary underline">
+                lenceriamarluiop@gmail.com
+              </a>{' '}
+              o al teléfono 961 612 8657.
             </p>
           </article>
         </ScrollArea>
