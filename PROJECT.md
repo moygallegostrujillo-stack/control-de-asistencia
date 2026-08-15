@@ -1,6 +1,24 @@
 # Documento del Proyecto — Control de Asistencia NOM-037
 
-> **Versión del documento**: 1.4 (15 de agosto 2026 — sesión deploy a producción)
+> ⚠️ **CONFIGURACIÓN DE PRODUCCIÓN — NO OLVIDAR NUNCA** ⚠️
+>
+> | Recurso | Valor |
+> |---|---|
+> | **URL de la app (producción)** | **https://control-asistencia-v22.vercel.app/** |
+> | **BD de producción** | **Supabase (PostgreSQL)** — https://supabase.com/dashboard/project/xvimpyvwncsxfsumgosv |
+> | **Repo GitHub** | https://github.com/moygallegostrujillo-stack/control-de-asistencia |
+> | **Rama de producción** | `main` (Vercel auto-deploya al recibir push) |
+> | **Cómo se deploya** | `git push origin main` → Vercel deploya en ~60s |
+> | **Cómo se accede a la BD** | **SOLO** vía endpoints HTTP ya deployados en la app de producción. **NUNCA** con scripts locales que usen credenciales directas. |
+> | **BD local del sandbox** | `db/custom.db` (SQLite) — **NO es producción**, está vacía y solo sirve para pruebas locales |
+>
+> **REGLA ABSOLUTA**: siempre que se hable de "la base de datos" o "producción" sin más, se refiere a la BD de **Supabase** accesible desde **https://control-asistencia-v22.vercel.app/**. No trabajar sobre ninguna otra BD ni deployar en otro dominio sin autorización explícita del cliente.
+>
+> Ver §11 para el flujo detallado de deploy con GitHub PAT efímero.
+
+---
+
+> **Versión del documento**: 1.5 (15 de agosto 2026 — configuración de producción fijada al inicio)
 > **Versión del producto**: 2.4.2
 > **Propósito**: Brindar contexto completo al iniciar futuras sesiones de desarrollo. Al leer este documento, un agente nuevo entiende el dominio, la arquitectura, las reglas de negocio críticas y los convenios del proyecto sin tener que re-descubrirlos.
 
