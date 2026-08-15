@@ -1,7 +1,7 @@
 # Documento del Proyecto — Control de Asistencia NOM-037
 
-> **Versión del documento**: 1.1 (14 de agosto 2026)
-> **Versión del producto**: 2.3.0
+> **Versión del documento**: 1.2 (15 de agosto 2026)
+> **Versión del producto**: 2.4.0
 > **Propósito**: Brindar contexto completo al iniciar futuras sesiones de desarrollo. Al leer este documento, un agente nuevo entiende el dominio, la arquitectura, las reglas de negocio críticas y los convenios del proyecto sin tener que re-descubrirlos.
 
 ---
@@ -449,7 +449,50 @@ Servicio independiente (bun project propio) para notificaciones real-time:
 
 ## 13. Estado actual (agosto 2026)
 
-### Fixes recientes aplicados (todos en producción)
+### ✅ Auditoría jurídico-laboral P0 — COMPLETADA (15 de agosto 2026)
+
+**13/13 requisitos P0 cerrados** (código + DB + verificación end-to-end). La auditoría completa está en `AUDITORIA-JURIDICO-LABORAL.md` (59 hallazgos, 49 requisitos). Commits relevantes: `a79dd56`, `8a3e204`, `dff2535`, `cc23c4d`, `5d8e3da`.
+
+| # | Requisito P0 | Estado | Artefacto clave |
+|---|--------------|--------|-----------------|
+| RT-P0.1 | Schema P0 (JornadaConfig, ElectronicRecordAgreement, hash-chain AuditLog) | ✅ | `prisma/schema.prisma` + `schema.postgres.prisma`; migración ejecutada en Supabase |
+| RT-P0.2 | Overtime con tope art. 66 (9h fijas) | ✅ | `src/lib/overtime-calculator.ts` |
+| RT-P0.3 | Prima por descanso trabajado (art. 73) | ✅ | `overtime-calculator.ts` |
+| RT-P0.4 | Vacaciones + prima vacacional 25% (art. 76/80) | ✅ | `src/app/api/vacations/*` |
+| RT-P0.5 | Onboarding ElectronicRecordAgreement (art. 132 XXXIV) | ✅ | `src/app/api/employee/agreement/*` + `src/components/layout/employee-layout.tsx` (modal no-cerrable, hash SHA-256) |
+| RT-P0.6 | Reportes STPS (art. 804) | ✅ | `src/app/api/reports/stps-*` |
+| RT-P0.7 | Hash chaining en AuditLog (tamper-evident) | ✅ | `src/lib/audit.ts` + `src/app/api/audit/verify/route.ts` |
+| RT-P0.8 | Retención 12 meses + `archivedAt` (art. 804) | ✅ | `src/app/api/admin/retention/archive/route.ts` |
+| RT-P0.9 | Derechos ARCO (LFPDPPP) | ✅ | `/legal/derechos-arco` + `/api/user/privacy/*` |
+| RT-P0.10 | Aviso de Privacidad (art. 16 LFPDPPP) | ✅ | `/legal/aviso-de-privacidad` — datos reales de la empresa |
+| RT-P0.11 | UI firma del empleado | ✅ | `employee-layout.tsx` |
+| RT-P0.12 | Horarios con tope semanal | ✅ | `JornadaConfig` + `overtime-calculator.ts` |
+| RT-P0.13 | Cumplimiento DOF 27-dic-2024 | ✅ | referenciado en acuerdo electrónico + reportes |
+
+**Verificación end-to-end realizada (15-ago-2026):**
+- Login → 200, JWT emitido (HMAC-SHA512)
+- `/api/audit/verify` → `chainIntact: true`, 7 registros verificados, 0 manipulados
+- `/api/admin/retention/archive` → reporte dry-run OK, referencia "LFT art. 804"
+- `/api/employee/agreement/status` → responde correctamente (admin = `USER_IS_NOT_EMPLOYEE`)
+- Páginas `/legal/aviso-de-privacidad` y `/legal/derechos-arco` renderizan con todos los datos
+
+**Datos de la empresa (en Aviso de Privacidad y acuerdo electrónico):**
+- Razón social: **BONETERIA MARLUI, S.A. DE C.V.**
+- RFC: **BMA850717320**
+- Registro Patronal IMSS: A6815930107
+- Domicilio: Av. 3ª Sur Oriente No. 261, Col. Centro, C.P. 29000, Tuxtla Gutiérrez, Chiapas
+- Representante legal / DPO: Miguel Ángel Aguilar Castellanos
+- Email ARCO: lenceriamarluiop@gmail.com
+- Teléfono: 961 612 8657
+
+**Fix crítico de entorno (15-ago-2026):** El `.env` local NO tenía `NEXTAUTH_SECRET`, lo que rompía el login con `TypeError: "ikm" must be an instance of Uint8Array or a string`. Añadido al `.env` local. **En Vercel, verificar que `NEXTAUTH_SECRET` esté en Environment Variables** (si no, el login fallará igual).
+
+**Pendientes en producción (post-deploy):**
+1. Verificar `NEXTAUTH_SECRET` en Vercel → Settings → Environment Variables.
+2. Migración `archivedAt` en Supabase: `prisma/migrations/auditoria_p0_archived_at/migration.postgres.sql` (ya ejecutada la sesión pasada — confirmar).
+3. Verificar los 4 flujos críticos en prod: onboarding acuerdo → check-in → hash verify → retention.
+
+### Fixes recientes previos (todos en producción)
 1. **fix #3 (overtime)** — commit `28e5345`. Caso Alicia resuelto: 55→95 min de overtime.
 2. **Endpoint `/api/admin/recalc-overtime`** — commit `28e5345`. Recálculo histórico con acumulador semanal in-memory.
 3. **Botón "Recálculo de horas extra" en Configuración** — commit `7088e38`. UI para invocar el endpoint con dryRun/real.
@@ -563,4 +606,4 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 14 de agosto 2026 (saldos de vacaciones por año). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+*Documento generado el 12 de agosto 2026. Última actualización: 15 de agosto 2026 (cierre de 13 requisitos P0 auditoría jurídico-laboral + verificación end-to-end + fix NEXTAUTH_SECRET). Mantener actualizado al finalizar cada sesión de cambios significativos.*
