@@ -274,21 +274,27 @@ function drawSectionDetalleEmpleado(
   doc.moveDown(0.3);
 
   // Columnas del detalle diario — optimizadas para landscape (680pt)
+  // RT-P0.9 (auditoría 14-ago-2026): añadidas columnas 'Firmado' y 'Hash'
+  // para evidenciar la firma del trabajador (art. 132 XXXIV LFT — prueba plena).
+  // Se redujeron ligeramente otras columnas para hacer espacio (total 680pt).
   const cols = [
-    { header: 'Fecha', key: 'fecha', width: 62, align: 'left' as const },
-    { header: 'Entrada', key: 'entrada', width: 42, align: 'center' as const },
-    { header: 'Salida', key: 'salida', width: 42, align: 'center' as const },
-    { header: 'Comida', key: 'tiempoComidaMin', width: 48, align: 'right' as const },
-    { header: 'Hrs.Trab', key: 'totalHorasDia', width: 46, align: 'right' as const },
-    { header: 'HE Dob', key: 'horasExtraDobles', width: 42, align: 'right' as const },
-    { header: 'HE Trip', key: 'horasExtraTriples', width: 46, align: 'right' as const },
-    { header: 'Min.Noct', key: 'minutosNocturnos', width: 46, align: 'right' as const },
-    { header: 'Jornada', key: 'jornada', width: 52, align: 'left' as const },
-    { header: 'Geofence', key: 'fueraGeofence', width: 52, align: 'center' as const },
-    { header: 'Status', key: 'status', width: 56, align: 'center' as const },
-    { header: 'Desc.Trab', key: 'descansoSemanalTrabajado', width: 56, align: 'right' as const },
+    { header: 'Fecha', key: 'fecha', width: 56, align: 'left' as const },
+    { header: 'Entrada', key: 'entrada', width: 40, align: 'center' as const },
+    { header: 'Salida', key: 'salida', width: 40, align: 'center' as const },
+    { header: 'Comida', key: 'tiempoComidaMin', width: 44, align: 'right' as const },
+    { header: 'Hrs.Trab', key: 'totalHorasDia', width: 44, align: 'right' as const },
+    { header: 'HE Dob', key: 'horasExtraDobles', width: 40, align: 'right' as const },
+    { header: 'HE Trip', key: 'horasExtraTriples', width: 44, align: 'right' as const },
+    { header: 'Min.Noct', key: 'minutosNocturnos', width: 44, align: 'right' as const },
+    { header: 'Jornada', key: 'jornada', width: 48, align: 'left' as const },
+    { header: 'Geofence', key: 'fueraGeofence', width: 48, align: 'center' as const },
+    { header: 'Status', key: 'status', width: 52, align: 'center' as const },
+    { header: 'Desc.Trab', key: 'descansoSemanalTrabajado', width: 50, align: 'right' as const },
+    // RT-P0.9: firma del trabajador (art. 132 XXXIV LFT)
+    { header: 'Firmado', key: 'firmaFecha', width: 62, align: 'center' as const },
+    { header: 'Hash (16)', key: 'firmaHash', width: 68, align: 'left' as const },
   ];
-  // Total: 62+42+42+48+46+42+46+46+52+52+56+56 = 650 → 30pt buffer para margen seguro
+  // Total: 56+40+40+44+44+40+44+44+48+48+52+50+62+68 = 680 ✅
 
   drawTableHeader(doc, cols);
 

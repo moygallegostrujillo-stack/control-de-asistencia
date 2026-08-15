@@ -597,7 +597,7 @@ def section_marco_legal():
 
     elems.append(Paragraph("2.1 Reforma a la Ley Federal del Trabajo (LFT) 2027", STY_H2))
     elems.append(Paragraph(
-        "La reforma publicada en el Diario Oficial de la Federacion el 1 de mayo de 2026 entra en vigor "
+        "La reforma publicada en el Diario Oficial de la Federacion el 27 de diciembre de 2024 entra en vigor "
         "el 1 de enero de 2027. Obliga a todos los patrones a llevar un <b>registro electronico de "
         "asistencia</b> que permita conocer con precision la hora de entrada, salida y tiempo de comida "
         "de cada trabajador. Tambien establece un tope maximo de 9 horas extra por semana (que subira a "
@@ -1134,7 +1134,7 @@ def section_cumplimiento_detalle():
          "Arts. 67 y 68 LFT",
          "Las horas extra que excedan 9/semana se calculan y reportan al triple"),
         ("Tope de 9 horas extra semanales (2027)",
-         "Transitorio Cuarto DOF 1-may-2026",
+         "Transitorio Cuarto DOF 27-dic-2024",
          "Alerta automatica NOM-035 si se excede el tope"),
         ("Dia de descanso semanal obligatorio",
          "Arts. 69 y 71 LFT",

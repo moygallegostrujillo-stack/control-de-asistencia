@@ -1220,6 +1220,14 @@ function HistoryView() {
   const [customEnd, setCustomEnd] = useState<string>(getMexicoTodayISO());
   const [downloading, setDownloading] = useState(false);
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
+  // RT-P0.6 (auditoría 14-ago-2026): estado para el diálogo de firma de registros.
+  // El trabajador puede firmar (acknowledge) sus registros del periodo visible
+  // con un PIN de 4+ dígitos. El backend genera un HMAC-SHA256 y persiste
+  // employeeSignedAt + employeeSignatureHash + employeeSignedIp.
+  const [signDialogOpen, setSignDialogOpen] = useState(false);
+  const [signaturePin, setSignaturePin] = useState('');
+  const [signing, setSigning] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['attendance', 'history', period, date, customStart, customEnd],
@@ -1313,6 +1321,58 @@ function HistoryView() {
     }
   };
 
+  // RT-P0.6 (auditoría 14-ago-2026): handler para firmar los registros del periodo.
+  // Invoca POST /api/attendance/sign con el rango visible y el PIN del empleado.
+  // El backend genera un HMAC-SHA256 sobre el contenido canónico de los registros
+  // y persiste employeeSignedAt + employeeSignatureHash + employeeSignedIp como
+  // evidencia probatoria (art. 132 XXXIV LFT — prueba plena si fue acordado).
+  const handleSign = async () => {
+    if (!signaturePin || signaturePin.length < 4) {
+      toast.error('PIN inválido', { description: 'El PIN debe tener al menos 4 caracteres.' });
+      return;
+    }
+    if (records.length === 0) {
+      toast.error('No hay registros para firmar en el periodo seleccionado.');
+      return;
+    }
+    setSigning(true);
+    try {
+      const { startDate, endDate } = resolveExportRange();
+      const res = await authFetch('/api/attendance/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate, endDate, signaturePin }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || 'Error al firmar los registros');
+      }
+      const data = await res.json() as {
+        signed: number;
+        signatureHash: string;
+        signedAt: string;
+        message?: string;
+      };
+      toast.success('Registros firmados', {
+        description: data.message || `Se firmaron ${data.signed} registro(s). Hash: ${data.signatureHash.slice(0, 16)}…`,
+      });
+      setSignDialogOpen(false);
+      setSignaturePin('');
+      // Invalidar cache para que la UI muestre el checkmark de "firmado".
+      void queryClient.invalidateQueries({ queryKey: ['attendance', 'history'] });
+    } catch (e) {
+      toast.error('Error al firmar los registros', { description: (e as Error).message });
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  // Cuenta cuántos registros del periodo visible aún no están firmados
+  // (para mostrar el badge en el botón "Firmar mis registros").
+  const unsignedCount = records.filter(
+    (r) => r.checkOutTime && !r.employeeSignedAt,
+  ).length;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -1322,7 +1382,29 @@ function HistoryView() {
     >
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-xl font-bold">Mi Historial</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* RT-P0.6 (auditoría 14-ago-2026): botón para firmar los registros del periodo.
+              El art. 132 XXXIV LFT (reforma DOF 27-dic-2024, vigente 1-ene-2027) establece
+              que el registro electrónico "hará prueba plena si fue acordado entre la persona
+              trabajadora y empleadora". La firma del trabajador es la evidencia de ese acuerdo. */}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setSignDialogOpen(true)}
+            disabled={unsignedCount === 0}
+            className="gap-1.5"
+            title={unsignedCount === 0
+              ? 'No hay registros sin firma en el periodo visible'
+              : `Firmar ${unsignedCount} registro(s) del periodo (art. 132 XXXIV LFT)`}
+          >
+            <BadgeCheck className="w-4 h-4" />
+            Firmar
+            {unsignedCount > 0 && (
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                {unsignedCount}
+              </Badge>
+            )}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -1525,6 +1607,83 @@ function HistoryView() {
           )}
         </CardContent>
       </Card>
+
+      {/* RT-P0.6 (auditoría 14-ago-2026): Dialog para capturar el PIN de firma.
+          El PIN se usa como sal del HMAC-SHA256 en el backend (no se guarda).
+          Mínimo 4 caracteres. */}
+      <Dialog open={signDialogOpen} onOpenChange={(v) => {
+        setSignDialogOpen(v);
+        if (!v) setSignaturePin('');
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BadgeCheck className="w-5 h-5 text-emerald-600" />
+              Firmar mis registros del periodo
+            </DialogTitle>
+            <DialogDescription>
+              Al firmar, usted reconoce que los registros de asistencia del periodo
+              seleccionado son correctos y fueron acordados con el patrón (art. 132
+              fracción XXXIV LFT, reforma DOF 27-dic-2024). La firma hace prueba plena.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="signature-pin">
+                PIN de firma <span className="text-rose-600">*</span>
+              </Label>
+              <Input
+                id="signature-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={signaturePin}
+                onChange={(e) => setSignaturePin(e.target.value)}
+                placeholder="Mínimo 4 dígitos"
+                maxLength={20}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !signing && signaturePin.length >= 4) {
+                    void handleSign();
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                El PIN se combina con el secreto del servidor para generar un HMAC-SHA256
+                que se persiste como evidencia. No se almacena el PIN en sí.
+              </p>
+            </div>
+            <div className="rounded-md bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900">
+              <p className="font-semibold mb-1">Resumen de la firma:</p>
+              <ul className="space-y-0.5 list-disc pl-4">
+                <li>Registros por firmar: <strong>{unsignedCount}</strong></li>
+                <li>Periodo: <strong>{resolveExportRange().startDate}</strong> a <strong>{resolveExportRange().endDate}</strong></li>
+                <li>Algoritmo: <strong>HMAC-SHA256</strong></li>
+                <li>Base legal: <strong>art. 132 XXXIV LFT</strong></li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => {
+              setSignDialogOpen(false);
+              setSignaturePin('');
+            }} disabled={signing}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSign}
+              disabled={signing || signaturePin.length < 4 || unsignedCount === 0}
+              className="gap-1.5"
+            >
+              {signing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <BadgeCheck className="w-4 h-4" />
+              )}
+              Firmar {unsignedCount} registro(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }

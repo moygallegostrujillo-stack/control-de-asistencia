@@ -162,15 +162,20 @@ export async function GET(req: NextRequest) {
 
         if (vacation) {
           // Vacaciones / incapacidad / permiso — contar días naturales
+          // RT-P0.12 (auditoría 14-ago-2026): incluir RIESGO_TRABAJO y PATERNIDAD
+          // en diasIncapacidad. Antes se caían al "no se cuentan" y subreportaban
+          // días de incapacidad ante la STPS (discrepancia con SUA/IDSE).
           if (
             vacation.type === 'INCAPACIDAD' ||
-            vacation.type === 'MATERNIDAD'
+            vacation.type === 'MATERNIDAD' ||
+            vacation.type === 'RIESGO_TRABAJO' ||
+            vacation.type === 'PATERNIDAD'
           ) {
             diasIncapacidad += 1;
           } else if (vacation.type === 'VACACIONES') {
             diasVacaciones += 1;
           }
-          // PERMISO/PATERNIDAD/OTRO: no se cuentan como faltas ni como laborados
+          // PERMISO/OTRO: no se cuentan como faltas ni como laborados
           continue;
         }
 

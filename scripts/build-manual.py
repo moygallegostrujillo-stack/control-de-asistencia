@@ -372,7 +372,7 @@ story.append(bullet('<b>Art. 73 LFT</b>: prima del 100% adicional por trabajar e
 story.append(bullet('<b>Art. 74 LFT</b>: dias feriados oficiales (7 feriados 2027 pre-cargados).'))
 story.append(bullet('<b>Art. 132 fraccion XXXIV LFT</b>: firma de registros por el empleado (prueba plena, HMAC-SHA256 con PIN).'))
 story.append(bullet('<b>Art. 804 LFT</b>: conservacion minima de 12 meses (export XLSX soporta hasta 366 dias).'))
-story.append(bullet('<b>Transitorio Cuarto DOF 1-may-2026</b>: tope semanal gradual: 9h (2026-27), 10h (2028), 11h (2029), 12h (2030).'))
+story.append(bullet('<b>Transitorio Cuarto DOF 27-dic-2024</b>: reduce gradualmente la jornada ordinaria semanal (48h 2026 → 40h 2030). El tope de horas extra del art. 66 LFT permanece fijo en 9h semanales.'))
 story.append(bullet('<b>NOM-035-STPS-2018</b>: alertas automaticas por sobrecarga de horas extra, sin descanso semanal, o trabajo en dia de descanso.'))
 
 story.append(h2('1.3 Arquitectura tecnica'))
@@ -648,7 +648,7 @@ story.append(make_table(
 ))
 story.append(p('Cada alerta muestra: badge level, titulo (ej. "Exceso de horas extra semanales (Juan Perez)"), '
                'descripcion detallada, recomendacion, referencia legal (ej. "LFT art. 66/68 + Transitorio '
-               'Cuarto DOF 1-may-2026; NOM-035-STPS-2018 A.5"), sucursal y numero de empleado. Orden: HIGH -> MEDIUM -> LOW.'))
+               'Cuarto DOF 27-dic-2024; NOM-035-STPS-2018 A.5"), sucursal y numero de empleado. Orden: HIGH -> MEDIUM -> LOW.'))
 
 # 2.9 Auditoria
 story.append(h2('2.9 Auditoria'))
@@ -836,7 +836,7 @@ story.append(p('Las primeras horas extra de la semana, hasta el tope semanal apl
 story.append(make_table(
     ['Periodo', 'Tope semanal (doble)', 'Base legal'],
     [
-        ['2026-2027', '9 horas (540 min)', 'Transitorio Cuarto DOF 1-may-2026'],
+        ['2026-2027', '9 horas (540 min)', 'Art. 66 LFT (tope fijo, DOF 27-dic-2024 no lo modifica)'],
         ['2028', '10 horas (600 min)', 'Escalado gradual'],
         ['2029', '11 horas (660 min)', 'Escalado gradual'],
         ['2030 en adelante', '12 horas (720 min)', 'Tope final'],
@@ -1216,7 +1216,7 @@ story.append(make_table(
     ['Termino', 'Definicion'],
     [
         ['NOM-037', 'Norma Oficial Mexicana NOM-037-STPS-2023, telefonos y trabajo a distancia. Registra asistencia, horas y lugar.'],
-        ['LFT', 'Ley Federal del Trabajo (Mexico). Reformada en 2026 (DOF 1-may-2026) con cambios graduales en horas extra.'],
+        ['LFT', 'Ley Federal del Trabajo (Mexico). Reformada en 2024 (DOF 27-dic-2024) con reduccion gradual de jornada y registro electronico.'],
         ['MFA', 'Multi-Factor Authentication. Segundo factor ademas del password (en este sistema: TOTP).'],
         ['TOTP', 'Time-based One-Time Password (RFC 6238). Codigo de 6 digitos que cambia cada 30 segundos.'],
         ['HMAC', 'Hash-based Message Authentication Code. Firma criptografica con clave secreta (SHA-256 en este sistema).'],
@@ -1254,7 +1254,7 @@ story.append(make_table(
         ['LFT art. 132 XXXIV', 'Firma de registros por el empleado (prueba plena)', 'POST /api/attendance/sign con HMAC-SHA256 + PIN'],
         ['LFT art. 76', 'Vacaciones (dias completos)', 'Vacation type=VACACIONES descuenta saldo; permisos parciales no descuentan'],
         ['LFT art. 804', 'Conservacion minima 12 meses', 'Export XLSX soporta hasta 366 dias; AuditLog sin expiracion'],
-        ['Transitorio Cuarto DOF 1-may-2026', 'Tope semanal gradual: 9h (2026-27) -> 12h (2030)', 'getWeeklyOvertimeCapMinutes(year)'],
+        ['Transitorio Cuarto DOF 27-dic-2024', 'Reduccion gradual jornada ordinaria: 48h (2026) -> 40h (2030)', 'JornadaConfig + validateWorkSchedules'],
         ['NOM-035-STPS-2018', 'Factores de riesgo psicosocial', '/api/alerts/nom-035 genera 5 tipos de alerta automaticas'],
     ],
     col_widths=[3, 4, 6]

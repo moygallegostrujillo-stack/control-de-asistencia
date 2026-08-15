@@ -7,9 +7,15 @@
 //   el schedule incluye comida (raw > 480min). Evita doble descuento y
 //   subreportar overtime en horarios 9-18.
 // Distingue horas extra DOBLES (art. 66) de TRIPLES (art. 68).
-// Tope semanal gradual: 9h (2026-27) → 10h (2028) → 11h (2029) → 12h (2030).
+// Tope semanal: 9h FIJO (art. 66 LFT, NO se ve afectado por la reducción
+//   gradual de la jornada ordinaria del Transitorio Cuarto del DOF 27-dic-2024).
 // Tope diario: 4h extra (art. 66).
 // Prima por descanso trabajado (art. 73 LFT): jornada completa con prima del 100%.
+//
+// RT-P0.2 (14-ago-2026): Corregido `getWeeklyOvertimeCapMinutes` a retorno
+//   fijo `9 * 60` para todos los años. La reforma DOF 27-dic-2024 reduce la
+//   jornada ORDINARIA semanal (48→46→44→42→40h), NO el tope de horas extra
+//   del art. 66 LFT, que permanece fijo en 9h semanales.
 // ============================================================
 
 import type { AttendanceRecord, Sucursal, WorkSchedule } from '@prisma/client';
@@ -56,18 +62,24 @@ export interface OvertimeResult {
 }
 
 /**
- * Devuelve el tope semanal de horas extra (en minutos) según el año.
- * Transitorio Cuarto, DOF 1-may-2026.
- *   2026-2027: 9h
- *   2028: 10h
- *   2029: 11h
- *   2030+: 12h
+ * Devuelve el tope semanal de horas extra (en minutos).
+ *
+ * RT-P0.2 (auditoría 14-ago-2026): CORREGIDO.
+ *
+ * El art. 66 LFT establece un tope semanal FIJO de 9 horas extra.
+ * La reforma DOF 27-dic-2024 NO modifica el art. 66 — solo reduce la jornada
+ * ORDINARIA semanal del art. 61 (48→46→44→42→40h entre 2026 y 2030).
+ *
+ * La versión anterior escalaba erróneamente el tope de overtime a 10/11/12h
+ * en 2028/2029/2030, interpretando incorrectamente que la reducción de la
+ * jornada ordinaria "liberaba" espacio para más overtime. Eso NO está en la
+ * ley y hubiera causado sub-pago de triples a partir de 2028.
+ *
+ * @param _year - Año (ignorado; el tope es fijo para todos los años).
+ * @returns 540 minutos (9 horas × 60) — art. 66 LFT.
  */
-export function getWeeklyOvertimeCapMinutes(year: number = new Date().getFullYear()): number {
-  if (year <= 2027) return 9 * 60;
-  if (year === 2028) return 10 * 60;
-  if (year === 2029) return 11 * 60;
-  return 12 * 60;
+export function getWeeklyOvertimeCapMinutes(_year?: number): number {
+  return 9 * 60; // art. 66 LFT — tope semanal fijo de 9 horas.
 }
 
 /** Tope diario de horas extra (art. 66 LFT) — 4 horas = 240 minutos. */
@@ -97,7 +109,7 @@ export const DAILY_OVERTIME_CAP_MINUTES = 4 * 60;
  *
  * Distribución dobles/triples (reforma LFT 2027):
  *   - Tope diario: 4h (DAILY_OVERTIME_CAP_MINUTES)
- *   - Tope semanal (gradual): 9h en 2027 → 12h en 2030
+ *   - Tope semanal (FIJO per art. 66 LFT): 9h = 540 min (no escala con el año)
  *   - overtimeDaily = min(overtimeMinutes, 240)
  *   - weeklyBefore = weeklyAccumulatedMinutes (días previos de la misma semana)
  *   - cabeEnDoble = max(0, capSemanal - weeklyBefore)
@@ -106,8 +118,34 @@ export const DAILY_OVERTIME_CAP_MINUTES = 4 * 60;
  *   - El excedente sobre el tope diario no se paga como extra ese día
  *     (es jornada no autorizada, se reporta pero no se acumula).
  */
+
+/**
+ * Interfaz de entrada para calculateOvertime.
+ *
+ * RT-P0.3 (auditoría 14-ago-2026): añadido `isRestDayWorkedExplicit`.
+ * El caller (check-out) debe determinar explícitamente si la fecha es día de
+ * descanso semanal del empleado usando `findRestScheduleForDate`, y pasarlo
+ * como input. Esto evita el bug donde `schedule === null` (día no programado,
+ * no descanso) activaba incorrectamente la prima del 100% del art. 73 LFT.
+ */
+export interface OvertimeInput {
+  record: AttendanceRecord;
+  schedule: WorkSchedule | null;
+  sucursal: Pick<Sucursal, 'checkoutToleranceMinutes' | 'mealDurationMinutes'>;
+  /** Minutos extra ya acumulados en la semana (excluyendo el día actual). */
+  weeklyAccumulatedMinutes?: number;
+  /**
+   * RT-P0.3: Indica explícitamente si la fecha del registro es día de descanso
+   * semanal del empleado (WorkSchedule.isWeeklyRest=true para ese día).
+   * Si es `true`, se aplica la prima del 100% del art. 73 LFT.
+   * Si es `false` o `undefined`, se cae al comportamiento legacy (inferir de
+   * `schedule === null`), que se mantiene por compatibilidad con callers
+   * que no hayan sido actualizados aún.
+   */
+  isRestDayWorkedExplicit?: boolean;
+}
 export function calculateOvertime(input: OvertimeInput): OvertimeResult {
-  const { record, schedule, sucursal, weeklyAccumulatedMinutes = 0 } = input;
+  const { record, schedule, sucursal, weeklyAccumulatedMinutes = 0, isRestDayWorkedExplicit } = input;
 
   // Si no hay check-in ni check-out, no se puede calcular
   if (!record.checkInTime || !record.checkOutTime) {
@@ -147,12 +185,22 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
   netWorkedMinutes = Math.max(0, netWorkedMinutes);
 
   // Detectar si la fecha es día de descanso semanal del empleado.
-  // Si schedule es null porque hoy es descanso (isWeeklyRest=true), es descanso trabajado.
+  //
+  // RT-P0.3 (auditoría 14-ago-2026): CORREGIDO.
+  // Antes se infería `isRestDayWorked = schedule === null || schedule?.isWeeklyRest`,
+  // lo que activaba incorrectamente la prima del 100% del art. 73 LFT cuando
+  // `schedule === null` porque el día no estaba configurado (no era descanso).
+  //
+  // Ahora se prefiere el input explícito `isRestDayWorkedExplicit` pasado por
+  // el caller (que usa `findRestScheduleForDate`). Si no viene, se cae al
+  // comportamiento legacy por compatibilidad con callers no actualizados
+  // (recalc-overtime ya usa `findRestScheduleForDate` correctamente).
   const dow = getDayOfWeek(record.date);
   const isSunday = dow === 0;
-  // Si el schedule pasado es el de descanso (isWeeklyRest=true), marcamos isRestDayWorked=true.
-  // Si schedule es null, asumimos descanso solo si existe un WorkSchedule con isWeeklyRest para este dow.
-  const isRestDayWorked = schedule === null || (schedule?.isWeeklyRest === true);
+  const isRestDayWorked =
+    isRestDayWorkedExplicit !== undefined
+      ? isRestDayWorkedExplicit
+      : schedule === null || (schedule?.isWeeklyRest === true);
 
   // Caso especial: día de descanso trabajado (art. 73 LFT).
   // La jornada completa se paga con prima del 100% (NO es overtime art. 66/68).

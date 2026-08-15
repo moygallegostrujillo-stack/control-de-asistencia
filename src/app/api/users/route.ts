@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
     // Si los provee, se validan estrictamente antes de tocar la BD.
     let schedulesToCreate: ScheduleInput[] = DEFAULT_SCHEDULES;
     if (wantEmployee && workSchedules !== undefined) {
-      const validationError = validateWorkSchedules(workSchedules);
+      const validationError = await validateWorkSchedules(workSchedules);
       if (validationError) {
         return NextResponse.json(
           { error: validationError },

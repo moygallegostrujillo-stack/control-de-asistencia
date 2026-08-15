@@ -10,5 +10,11 @@
   },
   "github": {
     "silent": true
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/admin/retention/archive?token=RETENTION_2027",
+      "schedule": "0 3 1 * *"
+    }
+  ]
 }

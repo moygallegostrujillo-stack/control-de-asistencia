@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
     // art. 71 LFT (mínimo 1 descanso semanal).
     // -----------------------------------------------------
     const passwordHash = await bcrypt.hash(password, 12);
-    const schedError = validateWorkSchedules(schedules);
+    const schedError = await validateWorkSchedules(schedules);
     if (schedError) {
       return NextResponse.json({ error: schedError }, { status: 400 });
     }

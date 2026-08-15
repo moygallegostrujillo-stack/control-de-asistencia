@@ -106,6 +106,13 @@ export interface FilaDetalleDiario {
   fueraGeofence: string; // 'Sí (Xm)' | 'No' | 'No aplica' | 'N/A'
   status: string; // PRESENTE | AUSENTE | RETRASO | SALIDA TEMPRANO
   descansoSemanalTrabajado: string; // 'Sí' | 'No'
+  // --- RT-P0.9 (auditoría 14-ago-2026): firma del trabajador (art. 132 XXXIV LFT) ---
+  // firmaFecha: fecha en que el empleado firmó el registro (employeeSignedAt), o '—'.
+  // firmaHash: hash truncado a 16 chars (primeros 16 del HMAC-SHA256), o '—'.
+  // Estos campos se incluyen en el PDF STPS para evidenciar que el registro
+  // fue acordado con el trabajador ("prueba plena" del art. 132 XXXIV).
+  firmaFecha: string; // 'YYYY-MM-DD HH:mm' o '—'
+  firmaHash: string; // primeros 16 chars del hash, o '—'
 }
 
 /** Sección 3 — Detalle agrupado por empleado. */
@@ -493,12 +500,22 @@ export async function buildStpsReport(
     // con el periodo del reporte (clamped), excluyendo permisos parciales.
     let diasVacaciones = 0;
     let diasPermiso = 0;
-    let diasIncapacidad = 0; // INCAPACIDAD + MATERNIDAD (art. 804 fr. IV LFT)
+    // RT-P0.12 (auditoría 14-ago-2026): diasIncapacidad ahora incluye
+    // RIESGO_TRABAJO (LSS art. 51, ST-7) y PATERNIDAD (LFT art. 132 Bis).
+    // Antes solo se contaban INCAPACIDAD (enfermedad general, LSS art. 96)
+    // y MATERNIDAD (LSS art. 101), lo que subreportaba días de incapacidad
+    // ante la STPS y causaba discrepancia con SUA/IDSE.
+    let diasIncapacidad = 0; // INCAPACIDAD + MATERNIDAD + RIESGO_TRABAJO + PATERNIDAD (art. 804 fr. IV LFT)
     for (const v of empVacations) {
       const d = diasVacacionEnPeriodo(v, fechaInicio, fechaFin);
       if (v.type === 'VACACIONES') diasVacaciones += d;
       else if (v.type === 'PERMISO') diasPermiso += d;
-      else if (v.type === 'INCAPACIDAD' || v.type === 'MATERNIDAD')
+      else if (
+        v.type === 'INCAPACIDAD' ||
+        v.type === 'MATERNIDAD' ||
+        v.type === 'RIESGO_TRABAJO' ||
+        v.type === 'PATERNIDAD'
+      )
         diasIncapacidad += d;
     }
 
@@ -569,6 +586,13 @@ export async function buildStpsReport(
       fueraGeofence: evaluarGeofence(r, r.sucursal),
       status: r.status,
       descansoSemanalTrabajado: r.isRestDayWorked ? 'Sí' : 'No',
+      // RT-P0.9: firma del trabajador (art. 132 XXXIV LFT — prueba plena)
+      firmaFecha: r.employeeSignedAt
+        ? formatTimeInMexico(r.employeeSignedAt)
+        : '—',
+      firmaHash: r.employeeSignatureHash
+        ? r.employeeSignatureHash.slice(0, 16)
+        : '—',
     }));
 
     detalle.push({

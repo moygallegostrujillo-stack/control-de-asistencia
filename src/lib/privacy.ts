@@ -156,13 +156,31 @@ export async function anonymizeUserData(
     });
     result.anonymizedUser = true;
 
-    // 3. ANONIMIZAR Employee (si existe) — suprimir position/department.
+    // 3. ANONIMIZAR Employee (si existe) — suprimir position/department
+    //    Y los identificadores fiscales reversibles a la identidad.
+    //
+    //    RT-P0.11 (auditoría 14-ago-2026): CORREGIDO.
+    //    Antes solo se anonimizaban `position` y `department`, dejando
+    //    `employeeNumber`, `rfc`, `curp`, `nss` intactos. Estos campos son
+    //    ÚNICOS y reversibles a la identidad del titular, lo que incumplía
+    //    el art. 31 LFPDPPP (supresión efectiva) y exponía a sanción INAI.
+    //
+    //    Ahora se ponen en `null` los identificadores fiscales (RFC, CURP, NSS)
+    //    y se reemplaza `employeeNumber` por un valor anónimo. En SQL,
+    //    `NULL` no rompe la constraint `@unique` (múltiples filas pueden
+    //    tener NULL en una columna UNIQUE).
     if (user.employee) {
       await db.employee.update({
         where: { id: user.employee.id },
         data: {
           position: 'ANONIMIZADO',
           department: 'ANONIMIZADO',
+          // RT-P0.11: identificadores fiscales a null (supresión efectiva, art. 31 LFPDPPP)
+          rfc: null,
+          curp: null,
+          nss: null,
+          // employeeNumber se reemplaza por un valor único anónimo (preserva la constraint @unique)
+          employeeNumber: `ANON-${user.employee.id.slice(0, 8)}`,
           isActive: false,
         },
       });

@@ -5,8 +5,8 @@
 //
 //   Categorías de alerta:
 //     - WEEKLY_OVERTIME_EXCEEDED: empleado con > tope semanal de horas
-//       extra (9h en 2027, gradual hasta 12h en 2030 — Transitorio
-//       Cuarto DOF 1-may-2026).
+//       extra (9h fijo per art. 66 LFT — NO escala con la reducción de
+//       jornada del DOF 27-dic-2024, que solo afecta la jornada ordinaria).
 //     - DAILY_OVERTIME_EXCEEDED: empleado con > 4h extra en un solo día
 //       (art. 66 LFT — tope diario).
 //     - CONSECUTIVE_LONG_DAYS: empleado con ≥ 3 días consecutivos con
@@ -188,7 +188,7 @@ export async function GET(req: NextRequest) {
             consecutiveLongDays,
           },
           recommendation: 'Redistribuir carga, contratar personal, o autorizar expresamente las horas triple. Documentar la causa.',
-          legalReference: 'LFT art. 66/68 + Transitorio Cuarto DOF 1-may-2026; NOM-035-STPS-2018 A.5',
+          legalReference: 'LFT art. 66/68 (tope semanal fijo 9h); NOM-035-STPS-2018 A.5',
         });
       }
 

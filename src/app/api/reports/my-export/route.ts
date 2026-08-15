@@ -225,7 +225,7 @@ export async function GET(req: NextRequest) {
     portada.addRow([]);
     portada.addRow(['Este documento es una constancia de mi registro de']);
     portada.addRow(['asistencia conforme al art. 132 fracción XXXIV de la LFT']);
-    portada.addRow(['(DOF 1-may-2026, vigente 1-ene-2027).']);
+    portada.addRow(['(DOF 27-dic-2024, vigente 1-ene-2027).']);
 
     // Sheet 2: Detalle
     const det = wb.addWorksheet('Detalle');

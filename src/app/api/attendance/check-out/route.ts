@@ -15,7 +15,7 @@ import {
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { getMexicoTodayDate } from '@/lib/timezone';
-import { calculateOvertime, findScheduleForDate, computeWeeklyAccumulatedOvertime, getWeeklyOvertimeCapMinutes } from '@/lib/overtime-calculator';
+import { calculateOvertime, findScheduleForDate, findRestScheduleForDate, computeWeeklyAccumulatedOvertime, getWeeklyOvertimeCapMinutes } from '@/lib/overtime-calculator';
 import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
 
 export async function POST(req: NextRequest) {
@@ -113,7 +113,16 @@ export async function POST(req: NextRequest) {
 
     const now = new Date();
     const sucursal = record.employee.sucursal;
-    const schedule = findScheduleForDate(record.employee.workSchedules, record.date);
+    const workSchedule = findScheduleForDate(record.employee.workSchedules, record.date);
+    const restSchedule = findRestScheduleForDate(record.employee.workSchedules, record.date);
+    // RT-P0.3 (auditoría 14-ago-2026): pasar isRestDayWorkedExplicit explícitamente
+    // para evitar el bug donde `schedule === null` (día no programado, no descanso)
+    // activaba incorrectamente la prima del 100% del art. 73 LFT.
+    // Solo se aplica la prima si EXISTE un WorkSchedule con isWeeklyRest=true para
+    // este día (es decir, el empleado sí tenía configurado este día como descanso).
+    const isRestDayWorkedExplicit = restSchedule !== null;
+    // Si hay schedule de descanso, lo usamos para el cálculo; si no, el laboral.
+    const schedule = restSchedule || workSchedule;
 
     // Reforma LFT 2027 — calcular acumulado semanal previo (lun..ayer) para
     // distribuir correctamente horas extra dobles vs triples.
@@ -139,6 +148,7 @@ export async function POST(req: NextRequest) {
       schedule,
       sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes, mealDurationMinutes: sucursal.mealDurationMinutes },
       weeklyAccumulatedMinutes: weeklyAcc,
+      isRestDayWorkedExplicit,
     });
 
     const { ip, ua } = getIpAndUA(req);
@@ -250,7 +260,7 @@ export async function POST(req: NextRequest) {
 
     // --- NOM-035 — Alerta automática al cruzar el tope semanal de horas extra ---
     // Si este checkout hizo que el acumulado semanal del empleado supere el tope
-    // (9h en 2027, escalando a 12h en 2030 per Transitorio Cuarto DOF 1-may-2026),
+    // (9h fijo per art. 66 LFT, NO escala con la reducción de jornada DOF 27-dic-2024),
     // registramos una alerta NOM-035 en el audit log para evidencia y para que
     // aparezca en el badge de notificaciones del admin.
     const weeklyCap = getWeeklyOvertimeCapMinutes(now.getFullYear());
@@ -274,7 +284,7 @@ export async function POST(req: NextRequest) {
           tripleMinutes: calc.overtimeTripleMinutes,
           doubleMinutes: calc.overtimeDoubleMinutes,
           alertLevel: excessMinutes > 180 ? 'HIGH' : 'MEDIUM', // >3h exceso = HIGH
-          legalReference: 'LFT art. 66/68 + Transitorio Cuarto DOF 1-may-2026; NOM-035-STPS-2018 A.5',
+          legalReference: 'LFT art. 66/68 (tope semanal fijo 9h); NOM-035-STPS-2018 A.5',
           triggeredBy: 'CHECK_OUT',
         },
       }).catch(() => {}); // no bloquear el checkout si falla el log

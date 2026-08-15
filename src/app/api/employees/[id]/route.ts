@@ -162,7 +162,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     // (también exige que no estén vacíos y que los días laborales
     // tengan horas válidas).
     if (schedules !== undefined) {
-      const schedError = validateWorkSchedules(schedules);
+      const schedError = await validateWorkSchedules(schedules);
       if (schedError) {
         return NextResponse.json({ error: schedError }, { status: 400 });
       }
