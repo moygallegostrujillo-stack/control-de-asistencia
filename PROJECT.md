@@ -1,7 +1,7 @@
 # Documento del Proyecto — Control de Asistencia NOM-037
 
-> **Versión del documento**: 1.3 (15 de agosto 2026)
-> **Versión del producto**: 2.4.1
+> **Versión del documento**: 1.4 (15 de agosto 2026 — sesión deploy a producción)
+> **Versión del producto**: 2.4.2
 > **Propósito**: Brindar contexto completo al iniciar futuras sesiones de desarrollo. Al leer este documento, un agente nuevo entiende el dominio, la arquitectura, las reglas de negocio críticas y los convenios del proyecto sin tener que re-descubrirlos.
 
 ---
@@ -403,11 +403,32 @@ Servicio independiente (bun project propio) para notificaciones real-time:
 
 ## 11. Deploy y CI/CD
 
-- **Vercel** auto-deploya desde `main` de GitHub al recibir push.
+- **Vercel** auto-deploya desde `main` de GitHub al recibir push (~60s desde push hasta que el nuevo código responde en producción).
 - `vercel.json` copia `schema.postgres.prisma` a `schema.prisma` antes de build (prod usa PostgreSQL).
 - Variables de entorno en Vercel: `DATABASE_URL` (Supabase), `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_VERSION=2.2.0`, `UPSTASH_REDIS_REST_URL/TOKEN`.
 - **No usar** `bun run build` localmente (OOM en sandbox de 4GB). Build solo en Vercel.
 - Scripts: `./scripts/deploy-vercel.sh` para deploy manual.
+
+### Flujo de deploy con GitHub PAT efímero (patrón establecido con el cliente)
+
+El cliente no mantiene credenciales de GitHub guardadas en el sandbox. El flujo autorizado es:
+
+1. **Cliente** genera un GitHub Personal Access Token fine-grained efímero:
+   - https://github.com/settings/tokens?type=beta → "Generate new token"
+   - Expiración: 1 hora (o lo mínimo permitido)
+   - Repository access: "Only select repositories" → `control-de-asistencia`
+   - Permissions → Repository permissions → Contents: Read and write (Metadata se auto-activa)
+2. **Cliente** pasa el token por chat al agente.
+3. **Agente** configura el remote temporalmente: `git remote set-url origin https://x-access-token:<TOKEN>@github.com/moygallegostrujillo-stack/control-de-asistencia.git`
+4. **Agente** hace `git fetch origin` para verificar estado del remoto (fast-forward limpio, sin commits remotos que falten localmente).
+5. **Agente** hace `git push -u origin main`. Vercel detecta el push y deploya automáticamente.
+6. **Agente** restaura el remote a su URL original sin token: `git remote set-url origin https://github.com/moygallegostrujillo-stack/control-de-asistencia.git`
+7. **Agente** verifica que el token NO quedó en `git config --get-regexp 'remote\.'`.
+8. **Cliente** revoca el PAT en GitHub (Settings → Tokens → delete).
+
+**Verificación de deploy completo**: polling al endpoint afectado cada 30s. Cuando el código nuevo responde 200 (antes daba 401 o 404 con código viejo), el deploy terminó. Típicamente ~60s.
+
+**BD de producción**: Supabase Postgres en `https://supabase.com/dashboard/project/xvimpyvwncsxfsumgosv`. El cliente ejecuta Querys SQL directamente en el SQL Editor de Supabase. Backups manuales desde Database → Backups. **No se debe tocar la BD de producción sin autorización explícita del cliente y preferentemente vía endpoints HTTP ya deployados** (no scripts locales con credenciales directas).
 
 ---
 
@@ -492,12 +513,13 @@ Servicio independiente (bun project propio) para notificaciones real-time:
 2. Migración `archivedAt` en Supabase: `prisma/migrations/auditoria_p0_archived_at/migration.postgres.sql` (ya ejecutada la sesión pasada — confirmar).
 3. Verificar los 4 flujos críticos en prod: onboarding acuerdo → check-in → hash verify → retention.
 
-### Fix vacaciones — días laborables (15 de agosto 2026, commit `9769537`)
+### ✅ Fix vacaciones — días laborables — DEPLOY COMPLETADO EN PRODUCCIÓN (15 de agosto 2026, sesión noche)
+
 **Bug reportado por cliente**: Sandra Gonzalez Perez tenía vacaciones 17-29 ago 2026 y el sistema marcaba **13 días** (días naturales, contando el domingo 23), pero el cliente autorizó **12 días** (días laborables, sin domingo).
 
 **Causa raíz**: 5 sitios usaban la fórmula `Math.ceil((end - start) / 86400000) + 1` que cuenta días naturales sin excluir domingos ni festivos.
 
-**Solución implementada**:
+**Solución implementada** (commits `9769537` código + `5793bfc` docs):
 - **Nuevo helper** `src/lib/vacation-calculator.ts` con `computeVacationDays(start, end, dbHolidays?)` que excluye:
   - Domingos (art. 71 LFT — descanso semanal)
   - Festivos oficiales (art. 74 LFT, calculados algorítmicamente: 1 ene, primer lun feb, 3er lun mar, 1 may, 16 sep, 3er lun nov, 1 dic cada 6 años, 25 dic)
@@ -506,12 +528,24 @@ Servicio independiente (bun project propio) para notificaciones real-time:
 - **Endpoint retroactivo** `POST /api/admin/recalc-vacations-holidays` — recalcula `days` de todos los Vacation type=VACACIONES, ajusta `vacationBalanceDays` con la diferencia. Auth dual: sesión GENERAL_ADMIN o `?token=RECALC_HOLIDAYS_2026`. Soporta `dryRun=true`. Añadido a `PUBLIC_PATHS` en middleware.
 - **Política (decisión del usuario)**: Opción C (sin toggle, siempre días laborables), fix retroactivo a todos los vacaciones históricos con domingos, excluir domingos + festivos oficiales art. 74 LFT.
 
-**Verificación end-to-end (dev)**:
-- Caso Sandra 17-29 ago 2026: 13 → 12 días ✅
-- Saldo ajustado: 11 → 12 (+1 día devuelto) ✅
-- Idempotencia: segundo recalc detecta 0 cambios ✅
+**Deploy a producción (15-ago-2026 noche)**:
+1. Backup manual en Supabase (cliente).
+2. Cliente generó GitHub PAT efímero (fine-grained, 1h, Contents:Write, repo-only) — usado y **revocado después**.
+3. `git reset --soft HEAD~1` para excluir commit diagnóstico `2b4e2d0` (script `scripts/recalc-vacations-dryrun.ts` quedó untracked en disco, no en repo).
+4. `git push -u origin main`: `5d8e3da..5793bfc` (fast-forward limpio, 3 commits: `0d41c5f` + `9769537` + `5793bfc`).
+5. Vercel auto-deploy completó en ~60s (detectado por polling al endpoint público: 401 → 200).
+6. **Dry-run contra producción**: detectó 1 vacación afectada (Sandra 17-29/08/2026, oldDays=13 → newDays=12, diff=+1, saldo 11→12).
+7. **Recálculo real ejecutado** (sin dryRun): `success=true`, 1 vacación actualizada, 1 día devuelto. Audit log creado con `action=RECALC_VACATIONS_HOLIDAYS`.
+8. **Verificación idempotencia**: segundo dry-run reportó 0 cambios → BD consistente.
 
-**Pendiente en producción**: ejecutar `POST /api/admin/recalc-vacations-holidays?token=RECALC_HOLIDAYS_2026` (dryRun=true primero, luego sin dryRun). Esto corregirá todos los Vacation históricos y devolverá días a los saldos.
+**Cambios aplicados en BD de producción (Supabase Postgres)**:
+- `Vacation` id `cmsulkdrv0001jp04z96ftjbl` (SANDRA ISABEL GONZALEZ PEREZ, #EMP#002): `days` 13 → 12.
+- `Employee` id `cmrz7cgxk000ijm04uar5bne1` (Sandra): `vacationBalanceDays` 11 → 12 (+1 día devuelto).
+- Cualquier vacación NUEVA creada a partir de ahora usa automáticamente la fórmula correcta (días laborables).
+
+**No hubo migración de schema** (el fix es puramente de código).
+
+**Pendiente de higiene (no urgente)**: el endpoint `/api/admin/recalc-vacations-holidays` sigue siendo público con `?token=RECALC_HOLIDAYS_2026`. Ya cumplió su función (fix retroactivo aplicado, es idempotente). En un próximo deploy conviene quitarlo de `PUBLIC_PATHS` en `src/middleware.ts` para reducir superficie de ataque.
 
 ### Fixes recientes previos (todos en producción)
 1. **fix #3 (overtime)** — commit `28e5345`. Caso Alicia resuelto: 55→95 min de overtime.
@@ -625,6 +659,8 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 - Los 8 empleados que solo aparecen en 2027 mantienen saldo activo en 12 (default).
 - Abreviaturas del PDF resueltas: GTZ→GUTIERREZ, FCO→FRANCISCO, GPE→GUADALUPE.
 
+**Actualización post-fix vacaciones (15-ago-2026 noche)**: el saldo activo de SANDRA ISABEL GONZALEZ PEREZ en la tabla de arriba (24) refleja la carga inicial del 14-ago. Después se le otorgaron vacaciones 17-29/08/2026 que bajaron su saldo activo a 11 (con la fórmula vieja de 13 días naturales). Con el fix retroactivo de días laborables aplicado en producción, su vacación pasó a 12 días y su saldo activo subió a **12** (11 + 1 devuelto). Los campos `vacationBalanceDays2026` y `vacationBalanceDays2027` (24/24) no fueron tocados — son de referencia anual. Solo `vacationBalanceDays` (saldo activo) se ajusta al otorgar/devolver vacaciones.
+
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 15 de agosto 2026 (cierre de 13 requisitos P0 auditoría jurídico-laboral + verificación end-to-end + fix NEXTAUTH_SECRET). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+*Documento generado el 12 de agosto 2026. Última actualización: 15 de agosto 2026 (sesión noche — deploy a producción del fix de vacaciones días laborables + recálculo retroactivo aplicado en Supabase Postgres). Mantener actualizado al finalizar cada sesión de cambios significativos.*
