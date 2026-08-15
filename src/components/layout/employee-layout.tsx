@@ -63,6 +63,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { QrScanner } from '@/components/qr/qr-scanner';
@@ -100,6 +102,8 @@ import {
   Keyboard,
   CalendarOff,
   XCircle,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
 
 // ============================================================
@@ -2368,6 +2372,310 @@ function EmployeeHeader() {
 }
 
 // ============================================================
+// ElectronicRecordAgreementGate — RT-P0.5 onboarding
+// (art. 132 fracción XXXIV LFT, reformado DOF 27-dic-2024)
+//
+// Al montar el EmployeeLayout, verifica si el empleado autenticado
+// tiene un ElectronicRecordAgreement activo con la versión vigente.
+// Si NO lo tiene, muestra:
+//   1) Un banner ámbar fijo en la parte superior del dashboard con
+//      un botón "Leer y aceptar acuerdo".
+//   2) Un modal NO cerrable (sin botón X, sin Escape, sin click fuera)
+//      con el texto íntegro del acuerdo, una casilla de confirmación
+//      y un botón "Aceptar" (deshabilitado hasta marcar la casilla).
+//
+// El empleado DEBE aceptar para poder usar el sistema — el endpoint
+// /api/attendance/check-in bloquea con HTTP 403 RECORD_AGREEMENT_REQUIRED
+// si no existe acuerdo activo (auto-check-in only; admin actions no
+// se bloquean).
+//
+// El hash SHA-256 del texto aceptado se calcula en el navegador con
+// la Web Crypto API y se envía al backend, que lo valida contra el
+// texto vigente (con los datos actuales de la empresa) para evitar
+// manipulaciones.
+// ============================================================
+
+interface AgreementStatusResponse {
+  hasActiveAgreement: boolean;
+  needsAcceptance: boolean;
+  currentVersion?: string;
+  agreedAt?: string | null;
+  reason?: string;
+}
+
+interface AgreementDetailResponse {
+  hasActiveAgreement: boolean;
+  agreement: { agreedAt: string; agreementVersion: string; documentHash: string } | null;
+  currentVersion: string;
+  needsAcceptance: boolean;
+  agreementText: string | null;
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  // Web Crypto API — disponible en navegadores modernos y en workers.
+  // Equivalente a Node's crypto.createHash('sha256') usado en el backend.
+  const buf = new TextEncoder().encode(text);
+  const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function ElectronicRecordAgreementGate() {
+  const { user } = useAuthStore();
+  // Solo aplica a empleados. Si el usuario no es EMPLOYEE, no renderiza nada.
+  const isEmployee = user?.role === 'EMPLOYEE';
+
+  const [needsAcceptance, setNeedsAcceptance] = useState<boolean>(false);
+  const [checking, setChecking] = useState<boolean>(true);
+  const [modalOpen, setModalOpen] = useState<boolean>(false);
+  const [agreementText, setAgreementText] = useState<string | null>(null);
+  const [agreementVersion, setAgreementVersion] = useState<string>('1.0');
+  const [hasRead, setHasRead] = useState<boolean>(false);
+  const [accepting, setAccepting] = useState<boolean>(false);
+  const [loadingText, setLoadingText] = useState<boolean>(false);
+
+  // ----- check on mount -----
+  useEffect(() => {
+    if (!isEmployee) {
+      setChecking(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch('/api/employee/agreement/status', { method: 'GET' });
+        if (!res.ok) return;
+        const data = (await res.json()) as AgreementStatusResponse;
+        if (cancelled) return;
+        setNeedsAcceptance(!!data.needsAcceptance);
+        if (data.currentVersion) setAgreementVersion(data.currentVersion);
+      } catch {
+        // no-op — no bloqueamos al usuario si la API falla; el check-in lo
+        // bloqueará con HTTP 403 si realmente no tiene acuerdo.
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEmployee]);
+
+  // ----- load full agreement text on demand (when modal opens) -----
+  useEffect(() => {
+    if (!modalOpen || agreementText) return;
+    let cancelled = false;
+    setLoadingText(true);
+    (async () => {
+      try {
+        const res = await authFetch('/api/employee/agreement', { method: 'GET' });
+        if (!res.ok) {
+          toast.error('No se pudo cargar el acuerdo. Intenta nuevamente.');
+          return;
+        }
+        const data = (await res.json()) as AgreementDetailResponse;
+        if (cancelled) return;
+        if (data.agreementText) {
+          setAgreementText(data.agreementText);
+          if (data.currentVersion) setAgreementVersion(data.currentVersion);
+        } else if (!data.needsAcceptance) {
+          // edge case: el usuario aceptó entre el status check y ahora.
+          setNeedsAcceptance(false);
+          setModalOpen(false);
+        }
+      } catch {
+        if (!cancelled) toast.error('Error de red al cargar el acuerdo.');
+      } finally {
+        if (!cancelled) setLoadingText(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [modalOpen, agreementText]);
+
+  // ----- accept handler -----
+  const handleAccept = async () => {
+    if (!agreementText || !hasRead || accepting) return;
+    setAccepting(true);
+    try {
+      const hash = await sha256Hex(agreementText);
+      const res = await authFetch('/api/employee/agreement', {
+        method: 'POST',
+        body: JSON.stringify({ agreementHash: hash }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok) {
+        if (data.error === 'HASH_MISMATCH') {
+          toast.error(
+            'El acuerdo fue actualizado. Recargaremos la página para mostrar la versión vigente.'
+          );
+          // Limpiar cache del texto para forzar recarga
+          setAgreementText(null);
+          setTimeout(() => {
+            if (typeof window !== 'undefined') window.location.reload();
+          }, 1500);
+          return;
+        }
+        toast.error(data.message || data.error || 'No se pudo registrar la aceptación.');
+        return;
+      }
+      setNeedsAcceptance(false);
+      setModalOpen(false);
+      setHasRead(false);
+      toast.success('Acuerdo aceptado. Ya puedes registrar tu asistencia.');
+    } catch {
+      toast.error('Error de red al aceptar el acuerdo.');
+    } finally {
+      setAccepting(false);
+    }
+  };
+
+  if (checking || !isEmployee || !needsAcceptance) return null;
+
+  return (
+    <>
+      {/* ----- banner fijo en la parte superior del dashboard ----- */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:p-4 dark:border-amber-900/40 dark:bg-amber-950/30"
+        role="alert"
+        aria-live="polite"
+      >
+        <div className="flex items-start gap-3">
+          <div className="rounded-full bg-amber-100 p-2 shrink-0 dark:bg-amber-900/50">
+            <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+              Acción requerida
+            </p>
+            <p className="text-xs text-amber-800 mt-0.5 dark:text-amber-200/80">
+              Debes aceptar el <strong>Acuerdo de Registro Electrónico de Jornada</strong>{' '}
+              (LFT art. 132 XXXIV) para poder registrar tu asistencia.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2 h-8 bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={() => setModalOpen(true)}
+            >
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              Leer y aceptar acuerdo
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ----- modal NO cerrable ----- */}
+      <Dialog
+        open={modalOpen}
+        onOpenChange={(open) => {
+          // Prevenir cierre por click fuera o Escape: solo el botón Aceptar
+          // puede cerrar el modal.
+          if (!open) return;
+          setModalOpen(open);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="sm:max-w-2xl max-h-[90vh] flex flex-col"
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          aria-describedby="agreement-description"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              Acuerdo de Registro Electrónico de Jornada
+            </DialogTitle>
+            <DialogDescription id="agreement-description" className="text-xs">
+              Fundamento: LFT art. 132 fracción XXXIV (reformado DOF 27-dic-2024). El
+              registro electrónico hará prueba plena si fue acordado entre trabajador y
+              empleador. Versión vigente: <strong>{agreementVersion}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 min-h-0">
+            {loadingText ? (
+              <div className="flex flex-col items-center justify-center h-48">
+                <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
+                <p className="text-xs text-muted-foreground mt-2">
+                  Cargando el texto del acuerdo…
+                </p>
+              </div>
+            ) : agreementText ? (
+              <ScrollArea className="h-[40vh] sm:h-[48vh] rounded-md border bg-muted/30 p-4">
+                <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-foreground">
+                  {agreementText}
+                </pre>
+              </ScrollArea>
+            ) : (
+              <div className="flex items-center justify-center h-24 text-xs text-muted-foreground">
+                No se pudo cargar el texto.
+              </div>
+            )}
+          </div>
+
+          <div className="mt-2 space-y-3">
+            <label
+              htmlFor="agreement-read-check"
+              className="flex items-start gap-2.5 cursor-pointer select-none rounded-md border bg-muted/30 p-3 hover:bg-muted/50 transition-colors"
+            >
+              <Checkbox
+                id="agreement-read-check"
+                checked={hasRead}
+                onCheckedChange={(v) => setHasRead(v === true)}
+                className="mt-0.5"
+                disabled={!agreementText || accepting}
+              />
+              <span className="text-xs sm:text-sm text-foreground leading-snug">
+                He leído el acuerdo completo, entiendo que el registro electrónico hará
+                prueba plena conforme al art. 132 XXXIV de la LFT, y estoy de acuerdo en
+                utilizar el sistema de registro electrónico de jornada.
+              </span>
+            </label>
+
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <Lock className="w-3 h-3" />
+              <span>
+                Tu aceptación se registrará con la fecha, hora, dirección IP y
+                User-Agent como evidencia probatoria.
+              </span>
+            </div>
+
+            <DialogFooter>
+              <Button
+                onClick={handleAccept}
+                disabled={!hasRead || !agreementText || accepting}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {accepting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Procesando…
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    Aceptar acuerdo
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// ============================================================
 // Main layout shell
 // ============================================================
 
@@ -2395,6 +2703,10 @@ function EmployeeLayoutInner() {
       <EmployeeHeader />
       <main className="flex-1 overflow-y-auto px-4 py-4 sm:py-6">
         <div className="mx-auto max-w-2xl">
+          {/* RT-P0.5 — banner + modal de onboarding del acuerdo de registro
+              electrónico (LFT art. 132 XXXIV). Renderiza null si el empleado
+              ya tiene acuerdo activo o si el usuario no es EMPLOYEE. */}
+          <ElectronicRecordAgreementGate />
           <AnimatePresence mode="wait">
             <motion.div
               key={employeeView}

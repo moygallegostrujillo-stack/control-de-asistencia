@@ -22,6 +22,7 @@ import {
 } from '@/lib/timezone';
 import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
 import { isWithinGeofence, type GeoPoint } from '@/lib/geo';
+import { ELECTRONIC_RECORD_AGREEMENT_VERSION } from '@/lib/electronic-record-agreement-text';
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
 
     // Resolver employeeId
     let employeeId: string | undefined;
+    let isSelfCheckIn = false;
     if (bodyEmployeeId) {
       // Admin registrando para un empleado
       if (!isAdmin(user)) {
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
       employeeId = bodyEmployeeId;
     } else if (user.role === 'EMPLOYEE' && user.employeeId) {
       employeeId = user.employeeId;
+      isSelfCheckIn = true;
     }
 
     if (!employeeId) {
@@ -54,6 +57,49 @@ export async function POST(req: NextRequest) {
         { error: 'ID de empleado es requerido' },
         { status: 400 }
       );
+    }
+
+    // ----------------------------------------------------------
+    // RT-P0.5 — Bloqueo de check-in sin acuerdo de registro electrónico
+    // LFT art. 132 fracción XXXIV (reformado DOF 27-dic-2024):
+    //   el registro electrónico "hará prueba plena si se acredita que
+    //   fue acordado entre la persona trabajadora y empleadora".
+    //
+    // Si el empleado está haciendo auto-check-in (no admin actuando
+    // por él) y NO tiene un ElectronicRecordAgreement activo con la
+    // versión vigente, se bloquea el registro con HTTP 403. El
+    // frontend debe presentarle el acuerdo para que lo acepte antes
+    // de reintentar el check-in.
+    //
+    // No bloqueamos cuando un admin/supervisor registra la asistencia
+    // por el empleado (p.ej.terminal de QR del puesto, o registro
+    // manual por incidencia) — en ese caso el registro se permite
+    // pero el acuerdo del empleado queda pendiente para la próxima
+    // vez que él mismo intente registrarse.
+    // ----------------------------------------------------------
+    if (isSelfCheckIn) {
+      const agreement = await db.electronicRecordAgreement.findUnique({
+        where: { employeeId },
+        select: { isActive: true, agreementVersion: true },
+      });
+      const hasActiveAgreement =
+        !!agreement &&
+        agreement.isActive &&
+        agreement.agreementVersion === ELECTRONIC_RECORD_AGREEMENT_VERSION;
+
+      if (!hasActiveAgreement) {
+        return NextResponse.json(
+          {
+            error: 'RECORD_AGREEMENT_REQUIRED',
+            message:
+              'Debes aceptar el acuerdo de registro electrónico antes de registrar asistencia.',
+            agreementUrl: '/api/employee/agreement',
+            legalReference:
+              'LFT art. 132 fracción XXXIV (reformado DOF 27-dic-2024)',
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Validar método

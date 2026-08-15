@@ -352,6 +352,11 @@ model AttendanceRecord {
   correctionReason          String? // motivo de la corrección (si isLocked=false)
   correctedById             String? // quién corrigió
   correctedAt               DateTime? // cuándo corrigió
+  // --- RT-P0.8: Retención 12 meses (LFT art. 804) ---
+  // Fecha en que el registro fue archivado por la política de retención.
+  // NULL = registro activo. Si tiene valor, el registro fue anonimizado
+  // (IPs/UA nulificados) y se conserva solo para valor probatorio.
+  archivedAt                DateTime?
   // --- Prueba plena (art. 132 XXXIV: "hará prueba plena si fue acordado") ---
   employeeSignedAt          DateTime? // fecha en que el empleado aceptó el registro
   employeeSignatureHash     String? // hash del contenido firmado (HMAC)
@@ -368,6 +373,7 @@ model AttendanceRecord {
   @@index([sucursalId, date])
   @@index([date])
   @@index([status])
+  @@index([archivedAt])
 }
 
 // ============================================================

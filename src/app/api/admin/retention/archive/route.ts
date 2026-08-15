@@ -82,18 +82,19 @@ export async function POST(req: NextRequest) {
     // Criterios:
     //   - date < cutoffDate (mayores a 12 meses)
     //   - employee.isActive = false (empleado dado de baja)
-    //   - archivedAt IS NULL (no archivados previamente)
+    //   - archivedAt IS NULL (no archivados previamente — RT-P0.8)
     //
-    // Nota: el campo `archivedAt` no existe en el schema actual. Lo
-    // simulamos marcando los registros en el AuditLog y anonimizando
-    // IPs/UA. Si en el futuro se añade el campo, la consulta puede
-    // filtrar por él.
+    // El filtro por archivedAt IS NULL garantiza idempotencia: una vez
+    // archivado un registro (archivedAt != NULL), no se vuelve a tocar.
+    // El OR adicional por IPs/UA es una doble verificación defensiva por
+    // si quedaron registros archivados antes de existir el campo archivedAt.
     const eligibleRecords = await db.attendanceRecord.findMany({
       where: {
         date: { lt: cutoffDate },
         employee: { isActive: false },
-        // Solo registros que aún tengan IPs/UA sin anonimizar (idempotencia).
-        // Si ya fueron anonimizados, no hay nada que archivar.
+        archivedAt: null,
+        // Solo registros que aún tengan IPs/UA sin anonimizar (idempotencia
+        // defensiva: registros ya anonimizados pero sin archivedAt seteado).
         OR: [
           { checkInIp: { not: null } },
           { checkOutIp: { not: null } },
@@ -141,13 +142,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // --- Archivar: anonimizar IPs/UA en los registros elegibles ---
+    // --- Archivar: marcar archivedAt + anonimizar IPs/UA en los registros elegibles ---
+    // RT-P0.8: el campo archivedAt indica formalmente que el registro fue
+    // archivado por la política de retención (LFT art. 804). La
+    // anonimización de IPs/UA cumple LFPDPPP art. 31 (supresión efectiva
+    // de PII de red) sin destruir el valor probatorio (LFT art. 804).
     // Usamos updateMany con where por IDs para eficiencia.
     const recordIds = eligibleRecords.map((r) => r.id);
+    const archivedAtDate = new Date();
 
     const updateResult = await db.attendanceRecord.updateMany({
       where: { id: { in: recordIds } },
       data: {
+        archivedAt: archivedAtDate,
         checkInIp: null,
         checkInUserAgent: null,
         checkOutIp: null,
@@ -170,13 +177,15 @@ export async function POST(req: NextRequest) {
       details: {
         legalReference: 'LFT art. 804 (conservación 12 meses); LFPDPPP art. 31 (supresión efectiva)',
         cutoffDate: cutoffDate.toISOString(),
+        archivedAt: archivedAtDate.toISOString(),
         archivedCount: updateResult.count,
         employeesAffected: employeesAffected.size,
         retentionMonths: RETENTION_MONTHS,
         triggeredBy: adminUserId ? 'MANUAL_ADMIN' : 'CRON_TOKEN',
         note:
-          'Anonimización de IPs/User-Agents en registros >12 meses de empleados inactivos. ' +
-          'Los registros se conservan (LFT art. 804) pero sin PII de red (LFPDPPP art. 31).',
+          'Se marcó archivedAt y se anonimizaron IPs/User-Agents en registros >12 meses de ' +
+          'empleados inactivos. Los registros se conservan (LFT art. 804) pero sin PII de ' +
+          'red (LFPDPPP art. 31). El campo archivedAt permite filtrar registros ya archivados.',
         timestamp: new Date().toISOString(),
       },
     });
@@ -220,6 +229,7 @@ export async function GET(req: NextRequest) {
       where: {
         date: { lt: cutoffDate },
         employee: { isActive: false },
+        archivedAt: null,
         OR: [
           { checkInIp: { not: null } },
           { checkOutIp: { not: null } },
