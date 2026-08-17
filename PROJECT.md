@@ -603,6 +603,11 @@ El cliente no mantiene credenciales de GitHub guardadas en el sandbox. El flujo 
 - **WebSocket errors en consola**: `wss://...vercel.app/socket.io/...` son ruido del servicio real-time. No afectan funcionalidad core.
 - **34 errores TypeScript pre-existentes**: en `stps-format`, `stps-pdf`, `stps-report`, `arco`, `auth.config`, `rate-limit`, `scripts/`. No bloquean build (Vercel usa `next build` que tolera). No introducir errores nuevos.
 - **Chrome "Don't paste code"**: la consola del navegador bloquea pegar código por seguridad. Escribir `allow pasting` primero, o usar botones en la UI.
+- **"Empleado no puede entrar / no puede registrar asistencia" → 99% es consentimiento pendiente, NO es bug**. El sistema tiene DOS compuertas legales que bloquean el flujo hasta que el empleado acepte:
+  1. **Aviso de Privacidad (LFPDPPP art. 16-17)** — `PrivacyConsentModal` montado en `src/app/page.tsx` (líneas 132 y 140). Llama a `GET /api/user/privacy/status`. Si `hasAccepted=false` (es decir, `privacyAcceptedAt IS NULL` O `privacyAcceptedVersion !== '1.0'`), abre un `Dialog` con `showCloseButton={false}`, `onEscapeKeyDown` prevenido y `onPointerDownOutside` prevenido — **no se puede cerrar sin aceptar**; rechazar = logout. El middleware (`src/middleware.ts:140`) además bloquea toda API no pública si `session.privacyAccepted !== true`. Versión vigente: `CURRENT_PRIVACY_VERSION = '1.0'` en `src/lib/privacy.ts`.
+  2. **Acuerdo de Registro Electrónico (art. 132 fracción XXXIV LFT, reforma DOF 27-dic-2024)** — banner en `src/components/layout/employee-layout.tsx` (líneas ~2399-2539). Llama a `GET /api/employee/agreement/status`. Si `needsAcceptance=true`, muestra banner que debe aceptarse antes de poder hacer check-in. Solo aplica a empleados (admin/supervisor lo saltea con `USER_IS_NOT_EMPLOYEE`). Versión vigente: `ELECTRONIC_RECORD_AGREEMENT_VERSION = '1.0'` en `src/lib/electronic-record-agreement-text.ts`.
+
+  **Incidente 16-ago-2026 (RESUELTO, no-bug)**: Clara Idalia Gómez Santizo y Jose Candelario Gómez Hernández reportaron "no poder entrar a registrar". Causa raíz: **no habían aceptado el Aviso de Privacidad v1.0 ni el Acuerdo de Registro Electrónico v1.0**. Una vez que aceptaron ambos (modal + banner), el JWT se re-emite con `privacyAccepted=true` (`POST /api/user/privacy/accept` re-emite token) y el registro de asistencia funciona normal. **No se requirió ningún cambio de código ni acceso a BD**. Diagnóstico para futuros reportes similares: pedirle al empleado que intente entrar de nuevo y acepte TODO lo que aparezca (modal de privacidad + banner de acuerdo electrónico); si tras aceptar sigue fallando, entonces sí investigar `User.isActive`, `archivedAt`, MFA bloqueado, etc.
 
 ---
 
@@ -681,4 +686,4 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 15 de agosto 2026 (sesión noche — deploy a producción del fix de vacaciones días laborables + recálculo retroactivo aplicado en Supabase Postgres). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+*Documento generado el 12 de agosto 2026. Última actualización: 16 de agosto 2026 (incidente Clara Idalia + Jose Candelario — confirmado no-bug: faltaba aceptar Aviso de Privacidad v1.0 + Acuerdo de Registro Electrónico v1.0; resuelto por acción del usuario, sin cambios de código ni acceso a BD). Mantener actualizado al finalizar cada sesión de cambios significativos.*
