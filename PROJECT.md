@@ -752,7 +752,7 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 
 ### 17.2 5 empleados con ~1h 30min de overtime el 18/08/2026 en ambas sucursales (reportado 19-ago-2026)
 
-**Estado**: ⏸️ EN ESPERA DE AUTORIZACIÓN DEL CLIENTE — se identificaron DOS problemas (datos + código), sin modificar nada.
+**Estado**: ✅ CÓDIGO CAMBIADO — pendiente deploy a producción + ejecutar endpoints de migración en producción.
 
 **Caso reportado**: el cliente marcó en amarillo a 5 empleados que «tienen 2hras extras del día de ayer en ambas sucursales». Captura: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`.
 
@@ -867,8 +867,15 @@ El cliente confirmó: «8 horas de trabajo – 30 minutos de comida o descanso, 
 
 **Artefactos de referencia**:
 - Captura del caso: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`
-- Archivos clave del código: `src/lib/overtime-calculator.ts:315` (fórmula overtime), `src/lib/overtime-calculator.ts:175-184` (cálculo netWorkedMinutes), `src/lib/overtime-calculator.ts:259-265` (descuento de comida del schedule), `prisma/seed.ts:200-201` (schedule por defecto 09:00-18:00), `prisma/schema.prisma:143` (mealDurationMinutes default 30 en Sucursal)
+- Archivos clave del código: `src/lib/overtime-calculator.ts:320` (fórmula overtime fix #4), `src/lib/overtime-calculator.ts:257-269` (scheduledMinutes sin descuento comida), `src/lib/overtime-calculator.ts:175-185` (cálculo netWorkedMinutes para display), `src/app/api/admin/fix-schedule-endtime/route.ts` (endpoint migración), `src/app/api/admin/recalc-overtime/route.ts` (endpoint recálculo)
+
+**Pasos de ejecución en producción (por orden)**:
+1. Deploy del código (push a main → Vercel)
+2. `POST /api/admin/fix-schedule-endtime` con `{ dryRun: true }` para verificar qué schedules se cambiarán
+3. `POST /api/admin/fix-schedule-endtime` con `{ confirm: true, dryRun: false }` para ejecutar el cambio de horarios
+4. `POST /api/admin/recalc-overtime` con `{ dryRun: true }` para ver el impacto en registros
+5. `POST /api/admin/recalc-overtime` con `{ dryRun: false }` para recalcular todos los registros históricos
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 20 de agosto 2026 (§17.2 reescrita: confirmado legalmente que la jornada de 8h INCLUYE el descanso de 30min per LFT arts. 58/60/63 + jurisprudencia SCJN; identificados DOS problemas: (1) schedule en BD es 09:00-18:00 en vez de 09:00-17:00, (2) código resta comida registrada del overtime cuando no debería porque ya está incluida en el schedule; pendiente autorización para corregir datos + código + recalcular). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+*Documento generado el 12 de agosto 2026. Última actualización: 20 de agosto 2026 (fix #4 implementado en código: overtime-calculator.ts usa workedMinutes(bruto) y scheduledMinutes=sin descuento comida; endpoint fix-schedule-endtime creado; pendiente deploy + ejecutar endpoints de migración en producción). Mantener actualizado al finalizar cada sesión de cambios significativos.*

@@ -2,14 +2,15 @@
 // POST /api/admin/recalc-overtime
 // Recalcula horas extra (overtimeMinutes, dobles, triples, prima descanso,
 // jornada nocturna) de los AttendanceRecords usando la lógica CORREGIDA
-// de overtime-calculator.ts (fix #3).
+// de overtime-calculator.ts (fix #3 + fix #4).
 //
-// Bugs corregidos por fix #3:
-//   Bug 1 (tolerancia): antes se restaba checkoutToleranceMinutes del
+// Bugs corregidos:
+//   Fix #3 (tolerancia): antes se restaba checkoutToleranceMinutes del
 //     overtime, subreportando ~10 min/día. Ahora NO se resta.
-//   Bug 2 (comida): scheduledMinutes no descontaba mealDurationMinutes
-//     cuando el schedule incluía comida (9-18 = 540min). Ahora sí, usando
-//     guard (raw > 480min) para no romper schedules "puros" como 9-17.
+//   Fix #4 (jornada incluye comida, 20-ago-2026): la jornada de 8h
+//     INCLUYE el descanso de 30min (LFT arts. 58/60/63). Por lo tanto:
+//     - scheduledMinutes = rawScheduledMinutes (sin descontar comida).
+//     - overtimeMinutes = workedMinutes(bruto) - scheduledMinutes.
 //
 // Este endpoint:
 //   1. Requiere GENERAL_ADMIN.
