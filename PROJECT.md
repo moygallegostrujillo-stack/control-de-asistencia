@@ -750,6 +750,81 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 - Análisis VLM completo: `/tmp/vlm-result.json` (transitorio, no versionado)
 - Archivos clave del código: `src/lib/overtime-calculator.ts` (líneas 311-315, fix #3), `src/app/api/attendance/check-out/route.ts` (líneas 146-152, invocación), `prisma/schema.prisma` (líneas 145 y 287, definición de tolerancias)
 
+### 17.2 5 empleados con ~1h 30min de overtime el 18/08/2026 en ambas sucursales (reportado 19-ago-2026)
+
+**Estado**: ⏸️ EN ESPERA DE INFORMACIÓN DEL CLIENTE — no se ha modificado nada.
+
+**Caso reportado**: el cliente marcó en amarillo a 5 empleados que «tienen 2hras extras del día de ayer en ambas sucursales». Captura: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`.
+
+**Empleados marcados en amarillo (todos con overtime)**:
+
+| # | Empleado | Sucursal | Entrada | Salida | Trabajado | Extra | Doble |
+|---|---|---|---|---|---|---|---|
+| 1 | JONATHAN FRANCISCO SÁNCHEZ GONZÁLEZ | Local 367 | 09:01 | 19:05 | 9h 51min | 1h 31min | (valor reportado) |
+| 2 | CRISTIAN JAVIN VELAZQUEZ MONTOYA | Local 367 | 09:10 | 19:01 | 9h 18min | 1h 18min | (valor reportado) |
+| 3 | CLARA IDALIA GOMEZ SANTIZO | Local 367 | 08:56 | 18:08 | 9h 4min | 1h 40min | (valor reportado) |
+| 4 | JOSE CANDELARIO GOMEZ HERNANDEZ | Local 261 | 09:06 | 19:00 | 9h 25min | 1h 25min | (valor reportado) |
+| 5 | ALICIA GUADALUPE HERNANDEZ GONZALEZ | Local 367 | 08:54 | 19:01 | 9h 26min | 1h 26min | (valor reportado) |
+
+**Empleados SIN overtime (mismo día, para comparar)**:
+
+| Empleado | Sucursal | Entrada | Salida | Trabajado |
+|---|---|---|---|---|
+| CLARIVEL ARREOLA CLEMENTE | Local 261 | 09:09 | 17:15 | 7h 15min (Salida anticipada) |
+| XIMENA VELASCO MARROQUIN | Local 367 | 11:00 | 19:06 | 8h 44min |
+| JUANA MARTINEZ MENDOZA | Local 261 | 11:02 | 19:00 | 7h 59min |
+| CAROLINA ELIZABETH ROBLERO GUTIERREZ | Local 261 | 09:37 | 17:00 | 7h 23min |
+| LUCIA MARIA GALDAMEZ VILLAREAL | Local 367 | 11:35 | 19:04 | 7h 29min |
+
+**Patrón detectado**:
+- Los 5 con overtime: entraron ~09:00 y salieron ~19:00 (jornada en sitio de 9h 4min a 9h 51min).
+- Los 5 sin overtime: o entraron tarde (~11:00) y salieron 19:00, o salieron temprano (~17:00).
+- El fenómeno ocurre en ambas sucursales (Local 261 y Local 367).
+
+**Análisis técnico — cálculo esperado con schedule por defecto del seed**:
+
+El seed (`prisma/seed.ts:200-201`) configura por defecto:
+```typescript
+startTime: '09:00', endTime: '18:00', toleranceMinutes: 10
+```
+
+El calculator (`src/lib/overtime-calculator.ts:259-265`) interpreta ese schedule así:
+- `rawScheduledMinutes` = 540 min (9h)
+- Como 540 > 480 (jornada legal diurna), descuenta `mealDurationMinutes` (default 30)
+- `scheduledMinutes` = 540 − 30 = **510 min (8h 30min)**
+
+Para un empleado con entrada 09:00 y salida 19:00 (600 min en sitio):
+- Si **NO** registró comida: `netWorkedMinutes` = 600 → `overtime` = 600 − 510 = **90 min = 1h 30min** ← coincide con lo reportado.
+- Si **SÍ** registró 30min de comida: `netWorkedMinutes` = 570 → `overtime` = 570 − 510 = **60 min = 1h**.
+
+**Tres hipótesis del problema (sin confirmar en BD)**:
+
+| # | Hipótesis | Cómo se confirma | Cómo se resuelve |
+|---|---|---|---|
+| **H1** | El schedule real contratado es **09:00-19:00** (10h en sitio, 9h trabajo + 1h comida), pero el sistema lo tiene como **09:00-18:00** del seed. Al salir a las 19:00, se genera overtime que no debería existir. | Consultar `WorkSchedule` en Supabase para estos 5 empleados. | Editar `endTime` a `19:00` en los schedules afectados. **Sin cambios de código.** |
+| **H2** | El schedule 09:00-18:00 es correcto, pero los empleados **no registran comida** (mealStart/mealEnd), por lo que no se descuentan los 30min y el sistema cuenta toda la jornada en sitio como trabajo. | Consultar `AttendanceRecord.mealStart/mealEnd` del 18/08/2026 de estos 5 empleados. | Política: obligar registro de comida, o comida automática, o ajustar schedule. |
+| **H3** | El schedule es correcto, los empleados sí trabajaron hasta 19:00, y el overtime de ~1h 30min **es real y exigible** (art. 66 LFT). El cliente no esperaba ver tanto overtime. | Confirmar con el cliente cuál es la jornada contratada real. | Documentar y explicar al cliente (como §17.1). |
+
+**Distinción con §17.1 (Carolina Roblero)**: NO es el mismo problema.
+- §17.1: 1 min de overtime por exceder 1 minuto el schedule (caso de "tolerancia para pago").
+- §17.2: ~1h 30min de overtime por trabajar ~1h más que el schedule (caso de "configuración de schedule y/o registro de comida").
+
+**Información que se necesita del cliente para confirmar**:
+1. ¿Cuál es la jornada contratada real de estos 5 empleados? ¿09:00-18:00 (8h trabajo + 1h comida) o 09:00-19:00 (9h trabajo + 1h comida)?
+2. ¿Los empleados tienen hora de comida registrada en el sistema ese día? (campo `mealStart`/`mealEnd` del AttendanceRecord del 18/08/2026).
+3. Autorización para consultar la BD de Supabase (tabla `WorkSchedule` y `AttendanceRecord`) para confirmar H1, H2 o H3.
+
+**Próximo paso cuando el cliente responda**:
+- Si confirma H1 → editar `WorkSchedule.endTime` de `18:00` a `19:00` para los 5 empleados (vía SQL en Supabase o vía endpoint admin si existe). **Sin cambios de código.**
+- Si confirma H2 → decidir política de comida (obligatoria, automática, o ajustar schedule para que `scheduledMinutes` refleje la jornada sin asumir comida).
+- Si confirma H3 → explicar al cliente que el overtime es legal y exigible, agregar nota en manual (como §17.1).
+- Opcional: recalcular retroactivamente los 5 registros del 18/08/2026 una vez corregido el schedule, vía endpoint `/api/admin/recalc-overtime` (verificar si existe y soporta scope por fecha).
+
+**Artefactos de referencia**:
+- Captura del caso: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`
+- Análisis VLM completo: `/tmp/vlm-result2.json` (transitorio, no versionado)
+- Archivos clave del código: `prisma/seed.ts:200-201` (schedule por defecto), `src/lib/overtime-calculator.ts:259-265` (descuento de comida del schedule), `prisma/schema.prisma:141-145` (mealDurationMinutes y checkoutToleranceMinutes en Sucursal)
+
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 19 de agosto 2026 (análisis de tolerancia de salida vs. contabilización de horas extra — caso Carolina Roblero 15/08/2026; documentado en §17.1 como decisión pendiente del cliente, sin cambios de código). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+*Documento generado el 12 de agosto 2026. Última actualización: 19 de agosto 2026 (análisis de 5 empleados con ~1h 30min overtime el 18/08/2026 en ambas sucursales — caso §17.2; documentado como decisión pendiente del cliente, sin cambios de código ni acceso a BD). Mantener actualizado al finalizar cada sesión de cambios significativos.*
