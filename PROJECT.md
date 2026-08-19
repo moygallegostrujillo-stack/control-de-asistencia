@@ -686,4 +686,70 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 16 de agosto 2026 (incidente Clara Idalia + Jose Candelario — confirmado no-bug: faltaba aceptar Aviso de Privacidad v1.0 + Acuerdo de Registro Electrónico v1.0; resuelto por acción del usuario, sin cambios de código ni acceso a BD). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+## 17. Decisiones pendientes del cliente
+
+> Sección para registrar temas técnicos analizados que requieren autorización explícita del cliente antes de aplicar cualquier cambio. **No tocar código ni BD mientras estén en esta sección** — solo documentar el análisis y las opciones, y esperar la decisión del cliente.
+
+### 17.1 Tolerancia de salida y contabilización de horas extra (reportado 19-ago-2026)
+
+**Estado**: ⏸️ EN ESPERA DE DECISIÓN DEL CLIENTE — no se ha modificado nada.
+
+**Caso concreto reportado**:
+- Empleado: **Carolina Elizabeth Roblero Gutiérrez** (visible en `upload/WhatsApp Image 2026-08-19 at 10.46.31.jpeg`).
+- Fecha: 15/08/2026 (viernes).
+- Resultado del cálculo: **6h 1min trabajados (361 min)**, **1 min de hora extra doble**, estado **PRESENT**.
+- Es decir: el horario programado era de 360 min, ella trabajó 361 min, el sistema contó **1 min de overtime**.
+
+**Pregunta del cliente**: «si existe tolerancia para la entrada y tolerancia para la salida, ¿por qué no está respetando esa tolerancia para contabilizar las horas extras?»
+
+**Análisis técnico — qué hace el sistema hoy**:
+
+1. La fórmula de overtime en `src/lib/overtime-calculator.ts:315` es:
+   ```typescript
+   overtimeMinutes = Math.max(0, netWorkedMinutes - scheduledMinutes)
+   ```
+   **No resta ninguna tolerancia.** Es deliberado (ver comentario líneas 311-314: «fix #3 — bug tolerancia: la tolerancia de salida solo determina isEarlyLeave, NO se resta del overtime»).
+
+2. Las DOS tolerancias que existen:
+   | Tolerancia | Campo | Uso actual |
+   |---|---|---|
+   | Tolerancia de horario | `WorkSchedule.toleranceMinutes` (default 10, `schema.prisma:287`) | Solo para marcar estado **LATE** (entrada) o **EARLY_LEAVE** (salida) — NO el pago |
+   | Tolerancia de salida | `Sucursal.checkoutToleranceMinutes` (default 10, `schema.prisma:145`) | **HOY NO SE USA** en el cálculo de overtime (fue retirada en fix #3) |
+
+3. La tolerancia SÍ se respeta para decidir el estado (PRESENT/LATE/EARLY_LEAVE). **NO se aplica** para contabilizar minutos extra. Eso es deliberado.
+
+**Historial de la decisión técnica**:
+| Versión | Comportamiento | Problema |
+|---|---|---|
+| Original | `overtime = worked - scheduled - tol` (restaba tolerancia) | Sub-pagaba al empleado ❌ violación LFT art. 66 |
+| Fix #2 (intermedio) | Igual que el original | Reportado por "Alicia" como bug: descontaba ~10 min/día de overtime |
+| **Fix #3 (actual, en producción)** | `overtime = worked - scheduled` (NO resta tolerancia) | Causa el "1 min" que reporta el cliente hoy ✅ cumple LFT |
+
+**Análisis legal — qué dice la LFT**:
+1. **Art. 66 LFT** — horas extra son las que exceden de la jornada máxima legal (8h diurnas / 7h nocturnas / 7.5h mixtas, art. 61). Se pagan al doble las primeras 9h semanales y al triple el excedente. **No menciona ninguna "tolerancia" obligatoria.**
+2. **Jurisprudencia y tribunales laborales mexicanos**: las horas extra se causan **desde el minuto 1** de exceso sobre la jornada. La "tolerancia de 10 minutos" es una **costumbre patronal**, no una figura legal.
+3. **Riesgo de restar tolerancia del overtime**: si el sistema resta tolerancia del pago, el patrón está **sub-pagando** horas extra → violación al art. 66 LFT → en demanda laboral, el patrón paga doble/triple **más** prima vacacional, aguinaldo, intereses y, según el caso, indemnización.
+
+**Conclusión del análisis**: legalmente, el sistema hace lo correcto hoy. El "1 min de overtime" que reportó Carolina es una hora extra **causada y exigible**. La confusión del cliente es entre "tolerancia para estado" (que sí existe y se respeta) y "tolerancia para pago" (que no existe legalmente).
+
+**Opciones propuestas al cliente (sin aplicar ninguna)**:
+
+| Opción | Qué hacer | Pros | Contras | Recomendación |
+|---|---|---|---|---|
+| **A — Mantener + documentar** | Nada en código. Explicar al cliente que cumple LFT art. 66. Agregar nota en manual/UI: *"Las horas extra se contabilizan desde el minuto 1 de exceso sobre la jornada programada, conforme al art. 66 LFT. La tolerancia solo afecta el estado, no el pago."* | Cumplimiento legal blindado, cero riesgo de demanda. | El cliente seguirá viendo "1 min" en casos así. | 🟢 **RECOMENDADA** |
+| **B — Ajustar horario programado** | Editar el `WorkSchedule` del empleado (ej. Carolina 09:00-15:01 → 09:00-15:11) para que el margen quede dentro del schedule. | No se toca la lógica de cálculo, sigue cumpliendo LFT (la jornada contratada la define el patrón en el schedule). | Hay que editar horario de cada empleado manualmente; `toleranceMinutes` queda solo para estado. | 🟡 Viable |
+| **C — Umbral mínimo configurable** | Agregar `overtimeThresholdMinutes` (ej. 5) a la Sucursal; si overtime < threshold, redondear a 0. | Resuelve la expectativa de "no contar minutos sueltos". | Es política interna graciosa, NO legal. Si un empleado demanda, el patrón paga los minutos redondeados a 0. Hay que documentar muy claro que no es derecho legal. | 🔴 NO recomendado |
+
+**Próximo paso cuando el cliente decida**:
+- Si elige **A**: redactar texto explicativo para el cliente + nota en manual de usuario. Sin deploy.
+- Si elige **B**: identificar empleados afectados y editar sus `WorkSchedule.startTime/endTime` vía SQL en Supabase o vía endpoint admin (si existe) o creando uno. Sin cambios de código en el calculator.
+- Si elige **C**: implementar `overtimeThresholdMinutes` en `Sucursal` (schema.prisma) + aplicar en `calculateOvertime` + migración + deploy. **Implica push a producción.**
+
+**Artefactos de referencia**:
+- Captura del caso: `upload/WhatsApp Image 2026-08-19 at 10.46.31.jpeg`
+- Análisis VLM completo: `/tmp/vlm-result.json` (transitorio, no versionado)
+- Archivos clave del código: `src/lib/overtime-calculator.ts` (líneas 311-315, fix #3), `src/app/api/attendance/check-out/route.ts` (líneas 146-152, invocación), `prisma/schema.prisma` (líneas 145 y 287, definición de tolerancias)
+
+---
+
+*Documento generado el 12 de agosto 2026. Última actualización: 19 de agosto 2026 (análisis de tolerancia de salida vs. contabilización de horas extra — caso Carolina Roblero 15/08/2026; documentado en §17.1 como decisión pendiente del cliente, sin cambios de código). Mantener actualizado al finalizar cada sesión de cambios significativos.*
