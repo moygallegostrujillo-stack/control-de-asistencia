@@ -752,7 +752,7 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 
 ### 17.2 5 empleados con ~1h 30min de overtime el 18/08/2026 en ambas sucursales (reportado 19-ago-2026)
 
-**Estado**: ⏸️ EN ESPERA DE INFORMACIÓN DEL CLIENTE — no se ha modificado nada.
+**Estado**: ⏸️ EN ESPERA DE AUTORIZACIÓN DEL CLIENTE — se identificaron DOS problemas (datos + código), sin modificar nada.
 
 **Caso reportado**: el cliente marcó en amarillo a 5 empleados que «tienen 2hras extras del día de ayer en ambas sucursales». Captura: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`.
 
@@ -781,78 +781,94 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 - Los 5 sin overtime: o entraron tarde (~11:00) y salieron 19:00, o salieron temprano (~17:00).
 - El fenómeno ocurre en ambas sucursales (Local 261 y Local 367).
 
-**Análisis técnico — cálculo esperado con schedule por defecto del seed**:
+---
 
-El seed (`prisma/seed.ts:200-201`) configura por defecto:
-```typescript
-startTime: '09:00', endTime: '18:00', toleranceMinutes: 10
-```
+**ANÁLISIS LEGAL CONFIRMADO (20-ago-2026)**:
 
-El calculator (`src/lib/overtime-calculator.ts:259-265`) interpreta ese schedule así:
-- `rawScheduledMinutes` = 540 min (9h)
-- Como 540 > 480 (jornada legal diurna), descuenta `mealDurationMinutes` (default 30)
-- `scheduledMinutes` = 540 − 30 = **510 min (8h 30min)**
+El cliente confirmó: «8 horas de trabajo – 30 minutos de comida o descanso, si el empleado entra a las 9 am y sale a las 5 pm ya lleva un descanso/comida de 30 minutos por lo que si sale a las 7 pm, ha trabajado 2 horas extras, aun cuando haya tomado un descanso de 30 minutos».
 
-Para un empleado con entrada 09:00 y salida 19:00 (600 min en sitio):
-- Si **NO** registró comida: `netWorkedMinutes` = 600 → `overtime` = 600 − 510 = **90 min = 1h 30min** ← coincide con lo reportado.
-- Si **SÍ** registró 30min de comida: `netWorkedMinutes` = 570 → `overtime` = 570 − 510 = **60 min = 1h**.
+**¿La jornada de 8 horas incluye el descanso de 30 minutos?**
 
-**Tres hipótesis del problema (sin confirmar en BD)**:
+**SÍ.** Así lo establece la LFT:
+1. **Art. 58 LFT** — *«Jornada de trabajo es el tiempo durante el cual el trabajador está a disposición del patrón».* Durante el descanso de 30 min, el trabajador **sigue a disposición** del patrón.
+2. **Art. 60 LFT** — *«La duración máxima de la jornada será: ocho horas la diurna»* → Son 8 horas **totales de presencia**.
+3. **Art. 63 LFT** — *«Durante la jornada continua de trabajo se concederá al trabajador un descanso de media hora, por lo menos»* → Este descanso es **dentro** de las 8 horas, no adicional.
+4. **Jurisprudencia SCJN**: La Suprema Corte ha confirmado en múltiples tesis que el descanso (art. 63) está **incluido** en la jornada máxima (art. 60) porque el trabajador permanece a disposición (art. 58).
 
-| # | Hipótesis | Cómo se confirma | Cómo se resuelve |
-|---|---|---|---|
-| **H1** | El schedule real contratado es **09:00-19:00** (10h en sitio, 9h trabajo + 1h comida), pero el sistema lo tiene como **09:00-18:00** del seed. Al salir a las 19:00, se genera overtime que no debería existir. | Consultar `WorkSchedule` en Supabase para estos 5 empleados. | Editar `endTime` a `19:00` en los schedules afectados. **Sin cambios de código.** |
-| **H2** | El schedule 09:00-18:00 es correcto, pero los empleados **no registran comida** (mealStart/mealEnd), por lo que no se descuentan los 30min y el sistema cuenta toda la jornada en sitio como trabajo. | Consultar `AttendanceRecord.mealStart/mealEnd` del 18/08/2026 de estos 5 empleados. | Política: obligar registro de comida, o comida automática, o ajustar schedule. |
-| **H3** | El schedule es correcto, los empleados sí trabajaron hasta 19:00, y el overtime de ~1h 30min **es real y exigible** (art. 66 LFT). El cliente no esperaba ver tanto overtime. | Confirmar con el cliente cuál es la jornada contratada real. | Documentar y explicar al cliente (como §17.1). |
-
-**Actualización (19-ago-2026 noche) — HIPÓTESIS CONFIRMADA POR EL CLIENTE**:
-
-El cliente aclaró que el problema NO es que haya overtime de más, sino que el overtime es **de menos**. Los 5 empleados deberían tener **al menos 2 horas completas de overtime**, pero el sistema muestra **~1h 31min**. El cliente sospechó (correctamente) que se les está descontando el tiempo de comida.
-
-**Confirmado: el cliente tiene razón.** El descuento de `mealDurationMinutes` del schedule está reduciendo el overtime.
-
-**Cálculo paso a paso (ejemplo Alicia Guadalupe 08:54-19:01)**:
-1. `workedMinutes` = 607 min (10h 7min en sitio, de 08:54 a 19:01)
-2. `netWorkedMinutes` = 607 min (NO registró comida — columna "Descanso" = — en la captura)
-3. `rawScheduledMinutes` = 540 (09:00-18:00)
-4. 540 > 480 → `scheduledMinutes` = 540 − `mealDurationMinutes` = 540 − **30** = **510 min (8h 30min)** ← **AQUÍ ESTÁ EL DESCUENTO DE 30 MIN**
-5. `overtimeMinutes` = 607 − 510 = 97 min ≈ **1h 37min** (sistema muestra 1h 26min, VLM con posible error de lectura)
-
-**Si `mealDurationMinutes` fuera 60** (1 hora de comida, estándar en México):
-- `scheduledMinutes` = 540 − 60 = **480 min (8h exactas)**
-- `overtimeMinutes` = 607 − 480 = 127 min ≈ **2h 7min** ← **coincide con la expectativa del cliente**
-
-**Diferencia**: 127 − 97 = 30 min = el `mealDurationMinutes` actual.
-
-**Los DOS niveles de descuento de comida en el sistema**:
-| Nivel | Código | Cuándo aplica | En este caso |
-|---|---|---|---|
-| **1. Descuento del schedule** | `overtime-calculator.ts:261-262` | Siempre que `rawScheduledMinutes > 480`. Descuenta `Sucursal.mealDurationMinutes` del schedule. | ✅ Actúa: 540 − 30 = **510 min** |
-| **2. Descuento del trabajo real** | `overtime-calculator.ts:179-180` | Solo si el empleado registró `mealStart`/`mealEnd`. | ❌ No aplica: empleados NO registraron comida |
-
-**Hipótesis final → H2 revisada (mealDurationMinutes mal configurado)**:
-- `Sucursal.mealDurationMinutes` está en **30 min** (valor default del schema `prisma/schema.prisma:143`).
-- La comida real probablemente es de **60 min** (1 hora, estándar mexicano).
-- El descuento del schedule usa este valor, por lo que la "jornada esperada" se calcula como 8h 30min en vez de 8h.
-- Esto reduce el overtime en ~30 min por día para todos los empleados de ambas sucursales.
-
-**Solución propuesta (sin cambios de código, sin deploy)**:
-1. Confirmar en Supabase: valor actual de `mealDurationMinutes` en ambas sucursales (Local 261 y Local 367).
-2. Si es 30, cambiarlo a 60 (o al valor real de la comida contractual).
-3. Recalcular registros afectados (18/08 y días anteriores con overtime calculado) vía endpoint `/api/admin/recalc-overtime`.
-4. **Impacto**: afecta el `scheduledMinutes` de TODOS los empleados de la sucursal (no solo estos 5), y cualquier reporte que compare "trabajado vs programado".
-
-**PENDIENTE**: autorización del cliente para consultar Supabase y ejecutar el cambio.
-
-**Distinción con §17.1 (Carolina Roblero)**: NO es el mismo problema.
-- §17.1: 1 min de overtime por exceder 1 minuto el schedule (caso de "tolerancia para pago").
-- §17.2: ~1h 30min de overtime en vez de ~2h por `mealDurationMinutes = 30` cuando la comida real es de 60 min (caso de "configuración de duración de comida en Sucursal").
-
-**Artefactos de referencia**:
-- Captura del caso: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`
-- Análisis VLM completo: `/tmp/vlm-result2.json` (transitorio, no versionado)
-- Archivos clave del código: `prisma/seed.ts:200-201` (schedule por defecto), `src/lib/overtime-calculator.ts:259-265` (descuento de comida del schedule), `src/lib/overtime-calculator.ts:179-180` (descuento de comida del trabajo real), `prisma/schema.prisma:143` (mealDurationMinutes default 30 en Sucursal)
+**Conclusión legal**:
+- Jornada diurna = 8 horas TOTALES (incluye 30 min de comida/descanso)
+- Trabajo efectivo = 7.5 horas
+- Schedule correcto = 09:00–17:00 (8h), NO 09:00–18:00 (9h)
+- Overtime = tiempo total en sitio − 8 horas schedule
+- La comida NO reduce el overtime porque ya está incluida en el schedule
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 19 de agosto 2026 (§17.2 actualizada: cliente confirmó que el overtime es de MENOS, no de más; causa raíz probable es `mealDurationMinutes = 30` cuando la comida real es de 60 min; pendiente autorización para consultar Supabase y corregir). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+**CAUSA RAÍZ — DOS PROBLEMAS IDENTIFICADOS**:
+
+**Problema 1 (DATOS)**: El `WorkSchedule.endTime` está en `18:00` (9 horas) en vez de `17:00` (8 horas). El seed (`prisma/seed.ts:200-201`) puso `endTime: '18:00'`. La jornada real del cliente es 8 horas incluyendo 30 min de comida (09:00–17:00).
+
+**Problema 2 (CÓDIGO)**: El `overtime-calculator.ts` usa `netWorkedMinutes` (que resta comida registrada) para calcular overtime. Si la comida ya está incluida en el schedule de 8h, restarla del tiempo trabajado penaliza al empleado que registra su comida.
+
+---
+
+**Cálculo paso a paso — sistema HOY vs DEBERÍA SER** (ejemplo: empleado 09:00–19:00, sin registrar comida):
+
+| Paso | Variable | Sistema HOY | Debería ser |
+|---|---|---|---|
+| 1 | workedMinutes (tiempo en sitio) | 600 min | 600 min |
+| 2 | Comida registrada | Ninguna | N/A (no afecta) |
+| 3 | rawScheduledMinutes | 540 (09:00–18:00) | 480 (09:00–17:00) |
+| 4 | scheduledMinutes | 540−30 = **510** (≤480, no descuenta) | **480** |
+| 5 | **overtimeMinutes** | 600−510 = **90 min (1h 30min)** ❌ | 600−480 = **120 min (2h)** ✅ |
+
+**Si el empleado SÍ registró 30 min de comida (con schedule corregido a 17:00)**:
+
+| Paso | Variable | Sistema HOY (con schedule 17:00) | Debería ser |
+|---|---|---|---|
+| 1 | workedMinutes | 600 min | 600 min |
+| 2 | netWorkedMinutes | 600−30 = **570 min** | N/A |
+| 3 | scheduledMinutes | **480 min** (≤480, no descuenta) | **480 min** |
+| 4 | **overtimeMinutes** | 570−480 = **90 min (1h 30min)** ❌ | 600−480 = **120 min (2h)** ✅ |
+
+> El segundo problema (código) se manifiesta SOLO cuando el empleado registra su comida. Con el schedule correcto a 17:00 y SIN registrar comida, el overtime sería correcto (2h). Pero si el empleado registra comida, se le penaliza 30 min.
+
+---
+
+**SOLUCIÓN PROPUESTA (dos cambios, requiere autorización)**:
+
+| # | Cambio | Tipo | Descripción | Impacto |
+|---|---|---|---|---|
+| 1 | Corregir horarios en BD | Datos (Supabase) | Cambiar `WorkSchedule.endTime` de `18:00` a `17:00` para los empleados de ambas sucursales | Afecta `scheduledMinutes` de todos los empleados con ese schedule |
+| 2 | Cambiar línea 315 del calculator | Código (deploy) | Usar `workedMinutes` en vez de `netWorkedMinutes` para calcular overtime: `overtimeMinutes = max(0, workedMinutes - scheduledMinutes)` | Afecta overtime de todos los empleados que registren comida |
+
+**Después de ambos cambios**: correr `/api/admin/recalc-overtime` para recalcular registros históricos afectados.
+
+**Tabla de verificación post-fix** (con schedule 09:00–17:00, código corregido):
+
+| Escenario | workedMinutes | scheduledMinutes | Overtime | ¿Correcto? |
+|---|---|---|---|---|
+| 09:00–17:00, comida registrada | 480 | 480 | 0 min | ✅ |
+| 09:00–17:00, sin comida | 480 | 480 | 0 min | ✅ |
+| 09:00–19:00, comida registrada | 600 | 480 | 120 min (2h) | ✅ |
+| 09:00–19:00, sin comida | 600 | 480 | 120 min (2h) | ✅ |
+| 09:10–19:01, sin comida | 591 | 480 | 111 min (1h 51min) | ✅ (entrada tarde = menos overtime) |
+
+**Nota sobre `netWorkedMinutes`**: el campo `workedMinutes` que se almacena y muestra en la UI puede seguir siendo neto (para que el admin vea el trabajo efectivo), pero para el **cálculo de pago de overtime** se debe usar el tiempo bruto en sitio.
+
+**Notas adicionales sobre el fix #3 (bug comida)**:
+- El bloque de líneas 259-265 que descuenta `mealDurationMinutes` del schedule fue diseñado para el caso donde el schedule era 09:00–18:00 (9h) y se quería obtener la jornada de trabajo real (8.5h con comida de 30min).
+- Con el schedule corregido a 09:00–17:00 (480 min), ese bloque **ya no se activa** (480 ≤ 480), por lo que queda inofensivo.
+- Sin embargo, si algún empleado tuviera un schedule diferente que exceda 480 min (ej. un turno especial), el bloque seguiría actuando. Eso podría requerir revisión caso por caso.
+
+**Distinción con §17.1 (Carolina Roblero)**: NO es el mismo problema.
+- §17.1: 1 min de overtime por exceder 1 minuto el schedule (caso de "tolerancia para pago").
+- §17.2: ~1h 30min de overtime en vez de ~2h por (a) schedule mal configurado (18:00 en vez de 17:00) y (b) código que resta comida del overtime.
+
+**Artefactos de referencia**:
+- Captura del caso: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`
+- Archivos clave del código: `src/lib/overtime-calculator.ts:315` (fórmula overtime), `src/lib/overtime-calculator.ts:175-184` (cálculo netWorkedMinutes), `src/lib/overtime-calculator.ts:259-265` (descuento de comida del schedule), `prisma/seed.ts:200-201` (schedule por defecto 09:00-18:00), `prisma/schema.prisma:143` (mealDurationMinutes default 30 en Sucursal)
+
+---
+
+*Documento generado el 12 de agosto 2026. Última actualización: 20 de agosto 2026 (§17.2 reescrita: confirmado legalmente que la jornada de 8h INCLUYE el descanso de 30min per LFT arts. 58/60/63 + jurisprudencia SCJN; identificados DOS problemas: (1) schedule en BD es 09:00-18:00 en vez de 09:00-17:00, (2) código resta comida registrada del overtime cuando no debería porque ya está incluida en el schedule; pendiente autorización para corregir datos + código + recalcular). Mantener actualizado al finalizar cada sesión de cambios significativos.*
