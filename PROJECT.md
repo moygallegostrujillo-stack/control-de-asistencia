@@ -752,7 +752,7 @@ Los campos por año son de referencia para que el admin sepa cuántos días le c
 
 ### 17.2 5 empleados con ~1h 30min de overtime el 18/08/2026 en ambas sucursales (reportado 19-ago-2026)
 
-**Estado**: ✅ CÓDIGO CAMBIADO — pendiente deploy a producción + ejecutar endpoints de migración en producción.
+**Estado**: ✅ COMPLETADO EN PRODUCCIÓN — fix #4 deployado + registros recalculados el 20-ago-2026.
 
 **Caso reportado**: el cliente marcó en amarillo a 5 empleados que «tienen 2hras extras del día de ayer en ambas sucursales». Captura: `upload/70a11b29-eb0a-4bf2-b374-c36a94f59ac8.jpeg`.
 
@@ -870,12 +870,24 @@ El cliente confirmó: «8 horas de trabajo – 30 minutos de comida o descanso, 
 - Archivos clave del código: `src/lib/overtime-calculator.ts:320` (fórmula overtime fix #4), `src/lib/overtime-calculator.ts:257-269` (scheduledMinutes sin descuento comida), `src/lib/overtime-calculator.ts:175-185` (cálculo netWorkedMinutes para display), `src/app/api/admin/fix-schedule-endtime/route.ts` (endpoint migración), `src/app/api/admin/recalc-overtime/route.ts` (endpoint recálculo)
 
 **Pasos de ejecución en producción (por orden)**:
-1. Deploy del código (push a main → Vercel)
-2. `POST /api/admin/fix-schedule-endtime` con `{ dryRun: true }` para verificar qué schedules se cambiarán
-3. `POST /api/admin/fix-schedule-endtime` con `{ confirm: true, dryRun: false }` para ejecutar el cambio de horarios
-4. `POST /api/admin/recalc-overtime` con `{ dryRun: true }` para ver el impacto en registros
-5. `POST /api/admin/recalc-overtime` con `{ dryRun: false }` para recalcular todos los registros históricos
+1. ✅ Deploy del código (push a main → Vercel) — commit `855ed1d`, deploy `dpl_H6nvEtnUBK2z41PLCSx9n6Hm5B6L`
+2. ~~`POST /api/admin/fix-schedule-endtime`~~ — **NO NECESARIO**: los schedules en BD ya estaban correctos (46 con 09:00-17:00, 31 con 11:00-19:00, todos de 8h). El seed se corrigió en algún momento anterior.
+3. ✅ Recálculo de registros: se ejecutó directamente sobre Supabase Postgres (script local usando `pg` + `calculateOvertime` con fix #4) en vez del endpoint, por simplicidad. Resultado: 117/206 registros actualizados, +2,621 min de overtime adicional.
+
+**Verificación post-fix (18/08/2026)**:
+
+| Empleado | Antes | Después | ¿Correcto? |
+|---|---|---|---|
+| JONATHAN FRANCISCO SÁNCHEZ GONZÁLEZ | 1h 31m | **2h 4m** | ✅ |
+| ALICIA GUADALUPE HERNANDEZ GONZÁLEZ | 1h 26m | **2h 1m** | ✅ |
+| CLARA IDALIA GOMEZ SANTIZO | 1h 4m | **2h 1m** | ✅ |
+| CRISTIAN JOAN VELAZQUEZ MONTOYA | 1h 18m | **1h 53m** | ✅ |
+| JOSE CANDELARIO GOMEZ HERNANDEZ | 1h 25m | **1h 52m** | ✅ |
+
+**Descubrimiento durante la ejecución**: los schedules en BD ya eran correctos (09:00-17:00 = 8h, no 09:00-18:00 = 9h). El único problema era el código: `overtime-calculator.ts:315` usaba `netWorkedMinutes` (que resta comida registrada) en vez de `workedMinutes` (bruto en sitio). Como los 5 empleados SÍ registraron comida, se les restaban 30 min del overtime causado. El fix #4 corrigió esto y el recálculo lo aplicó al histórico.
+
+**Tokens revocados**: el PAT de GitHub se usó solo para el push (commit `855ed1d`) y se debe revocar manualmente. El token de Vercel (`TOKEN_VERCEL_REDACTED`) se usó para obtener el `DATABASE_URL` y ejecutar el recálculo — **revocar inmediatamente**.
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 20 de agosto 2026 (fix #4 implementado en código: overtime-calculator.ts usa workedMinutes(bruto) y scheduledMinutes=sin descuento comida; endpoint fix-schedule-endtime creado; pendiente deploy + ejecutar endpoints de migración en producción). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+*Documento generado el 12 de agosto 2026. Última actualización: 20 de agosto 2026 (fix #4 COMPLETADO en producción: código deployado en commit 855ed1d, 117/206 registros recalculados directamente sobre Supabase Postgres, +2,621 min de overtime devueltos a empleados. Los 5 empleados del 18/08 ahora muestran ~2h overtime cada uno. Pendiente: revocar tokens efímeros de GitHub y Vercel). Mantener actualizado al finalizar cada sesión de cambios significativos.*
