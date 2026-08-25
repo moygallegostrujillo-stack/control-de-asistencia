@@ -609,6 +609,8 @@ El cliente no mantiene credenciales de GitHub guardadas en el sandbox. El flujo 
 
   **Incidente 16-ago-2026 (RESUELTO, no-bug)**: Clara Idalia Gómez Santizo y Jose Candelario Gómez Hernández reportaron "no poder entrar a registrar". Causa raíz: **no habían aceptado el Aviso de Privacidad v1.0 ni el Acuerdo de Registro Electrónico v1.0**. Una vez que aceptaron ambos (modal + banner), el JWT se re-emite con `privacyAccepted=true` (`POST /api/user/privacy/accept` re-emite token) y el registro de asistencia funciona normal. **No se requirió ningún cambio de código ni acceso a BD**. Diagnóstico para futuros reportes similares: pedirle al empleado que intente entrar de nuevo y acepte TODO lo que aparezca (modal de privacidad + banner de acuerdo electrónico); si tras aceptar sigue fallando, entonces sí investigar `User.isActive`, `archivedAt`, MFA bloqueado, etc.
 
+  **Incidente 25-ago-2026 (RESUELTO con fix de código, commit `790fe4b`)**: empleado reportó "Error de cámara / No se pudo acceder a la cámara" al intentar escanear QR para iniciar descanso. Causa raíz: el header HTTP `Permissions-Policy: camera=()` en `next.config.ts:75` bloquea la cámara en TODAS las páginas sin importar permisos del navegador. El comentario de la auditoría TAREA 5 decía "el sistema usa geolocation" pero olvidó mencionar que TAMBIÉN usa cámara para escanear QR. Fix: `camera=()` → `camera=(self)` (permite mismo origen, bloquea iframes de terceros). Post-deploy: el usuario debe cerrar sesión, volver a entrar, y presionar "Iniciar cámara" — el navegador le pedirá permiso la primera vez.
+
 ---
 
 ## 14. Cómo arrancar en una nueva sesión

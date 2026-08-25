@@ -68,11 +68,16 @@ const securityHeaders = [
   // Referrer-Policy: solo enviar origin (no full URL) a otros dominios.
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   // Permissions-Policy: deshabilitar APIs sensibles que no usamos.
-  // - camera, microphone, geolocation: el sistema usa geolocation para
-  //   check-in, así que lo permitimos solo a self.
+  // - camera: el sistema usa la cámara para escanear QR (check-in, check-out,
+  //   iniciar/terminar descanso, registrar comida). Se permite solo a self
+  //   (mismo origen) para mantener protección anti-clickjacking en iframes
+  //   de terceros. Antes era camera=() y bloqueaba todo — bug causó
+  //   "No se pudo acceder a la cámara" reportado el 25-ago-2026.
+  // - microphone: bloqueado (no se usa).
+  // - geolocation: el sistema usa geolocation para check-in GPS, permitido self.
   // - payment, usb, bluetooth, magnetometer, gyroscope, accelerometer:
   //   bloqueados por completo.
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self), payment=(), usb=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=()' },
+  { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=(self), payment=(), usb=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=()' },
   // HSTS: 1 año, incluye subdominios, habilitado para preload list.
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
   // CSP: política estricta (ver comentario arriba).
