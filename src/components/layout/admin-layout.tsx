@@ -450,6 +450,7 @@ const ACTION_LABELS: Record<string, string> = {
   QR_DYNAMIC_GENERATE: 'Generar QR dinámico',
   JUSTIFY_SUBMIT: 'Enviar justificación',
   NOM035_ALERT_WEEKLY_OVERTIME: 'Alerta NOM-035 horas extra',
+  NOM035_ALERT_REST_DAY_WORKED: 'Alerta NOM-035 día de descanso trabajado',
 };
 
 function actionLabel(a: string): string {
@@ -5819,6 +5820,7 @@ function NOM035View({ role }: { role: Role }) {
   const [error, setError] = useState<string | null>(null);
   const [week, setWeek] = useState<'current' | 'last'>('current');
   const [exporting, setExporting] = useState(false);
+  const [exportingXlsx, setExportingXlsx] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -5900,6 +5902,42 @@ function NOM035View({ role }: { role: Role }) {
     }
   }, [alerts, summary, week]);
 
+  // Export XLSX server-side (formato profesional con 3 hojas: Resumen, Alertas, Desglose).
+  // Llama a /api/reports/nom-035?format=xlsx&week=...
+  const exportXlsx = useCallback(async () => {
+    setExportingXlsx(true);
+    try {
+      const res = await fetch(`/api/reports/nom-035?format=xlsx&week=${week}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Error desconocido' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      // Tomar filename del header Content-Disposition si viene, si no usar default
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="([^"]+)"/);
+      const filename = m ? m[1] : `reporte_nom035_${week}.xlsx`;
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      const alertCount = res.headers.get('X-Report-Alerts') || '?';
+      toast.success('XLSX NOM-035 exportado', {
+        description: `${alertCount} alerta(s) · reporte server-side con 3 hojas (Resumen, Alertas, Desglose).`,
+      });
+    } catch (e) {
+      toast.error('Error al exportar XLSX', { description: (e as Error).message });
+    } finally {
+      setExportingXlsx(false);
+    }
+  }, [week]);
+
   const total = summary?.total || 0;
   const high = summary?.high || 0;
   const medium = summary?.medium || 0;
@@ -5965,13 +6003,27 @@ function NOM035View({ role }: { role: Role }) {
                 className="gap-1.5"
                 onClick={exportCsv}
                 disabled={exporting || loading}
-                title="Exportar evidencia NOM-035 para inspección STPS"
-                aria-label="Exportar evidencia NOM-035 para inspección STPS"
+                title="Exportar evidencia NOM-035 en CSV (client-side)"
+                aria-label="Exportar evidencia NOM-035 en CSV"
               >
                 {exporting
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <FileDown className="h-4 w-4" />}
-                <span className="hidden sm:inline">Descargar CSV</span>
+                <span className="hidden sm:inline">CSV</span>
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-1.5"
+                onClick={exportXlsx}
+                disabled={exportingXlsx || loading}
+                title="Exportar reporte NOM-035 en XLSX (server-side, 3 hojas con formato)"
+                aria-label="Exportar reporte NOM-035 en XLSX"
+              >
+                {exportingXlsx
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <FileSpreadsheet className="h-4 w-4" />}
+                <span className="hidden sm:inline">Descargar XLSX</span>
               </Button>
               <Button variant="outline" size="icon" onClick={load} disabled={loading} aria-label="Actualizar">
                 <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />

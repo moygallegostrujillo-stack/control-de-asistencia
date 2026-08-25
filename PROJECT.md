@@ -888,7 +888,7 @@ El cliente confirmó: «8 horas de trabajo – 30 minutos de comida o descanso, 
 
 **Descubrimiento durante la ejecución**: los schedules en BD ya eran correctos (09:00-17:00 = 8h, no 09:00-18:00 = 9h). El único problema era el código: `overtime-calculator.ts:315` usaba `netWorkedMinutes` (que resta comida registrada) en vez de `workedMinutes` (bruto en sitio). Como los 5 empleados SÍ registraron comida, se les restaban 30 min del overtime causado. El fix #4 corrigió esto y el recálculo lo aplicó al histórico.
 
-**Tokens revocados**: el PAT de GitHub se usó solo para el push (commit `855ed1d`) y se debe revocar manualmente. El token de Vercel (`TOKEN_VERCEL_REDACTED`) se usó para obtener el `DATABASE_URL` y ejecutar el recálculo — **revocar inmediatamente**.
+**Tokens revocados**: el PAT de GitHub se usó solo para el push (commit `855ed1d`) y se debe revocar manualmente. El token de Vercel (redactado por seguridad) se usó para obtener el `DATABASE_URL` y ejecutar el recálculo — **revocar inmediatamente**.
 
 ---
 

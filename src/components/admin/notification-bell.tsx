@@ -25,7 +25,8 @@ type AlertType =
   | 'WEEKLY_OVERTIME_EXCEEDED'
   | 'DAILY_OVERTIME_EXCEEDED'
   | 'CONSECUTIVE_LONG_DAYS'
-  | 'NO_WEEKLY_REST';
+  | 'NO_WEEKLY_REST'
+  | 'REST_DAY_WORKED';
 
 type AlertLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
@@ -59,6 +60,7 @@ const TYPE_LABEL: Record<AlertType, string> = {
   DAILY_OVERTIME_EXCEEDED: 'Jornada diaria excesiva',
   CONSECUTIVE_LONG_DAYS: 'Sobrecarga sostenida',
   NO_WEEKLY_REST: 'Sin descanso semanal',
+  REST_DAY_WORKED: 'Día de descanso trabajado',
 };
 
 interface Props {
