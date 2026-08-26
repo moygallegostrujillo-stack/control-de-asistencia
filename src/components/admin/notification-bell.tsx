@@ -115,7 +115,7 @@ export function NotificationBell({ onViewAll }: Props) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="relative p-2 rounded-md hover:bg-zinc-100 transition-colors text-zinc-600 hover:text-zinc-900"
-        aria-label={`Alertas NOM-035 (${count} activas)`}
+        aria-label={`Alertas de jornada excesiva (${count} activas)`}
         aria-expanded={open}
       >
         <Bell className="h-5 w-5" />
@@ -135,13 +135,13 @@ export function NotificationBell({ onViewAll }: Props) {
         <div
           className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-zinc-200 z-50 overflow-hidden"
           role="dialog"
-          aria-label="Lista de alertas NOM-035"
+          aria-label="Lista de alertas de jornada excesiva"
         >
           <div className="px-4 py-3 border-b border-zinc-100 bg-zinc-50">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-sm text-zinc-900 flex items-center gap-1.5">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
-                Alertas NOM-035
+                Alertas de jornada excesiva
               </span>
               <span className="text-xs text-zinc-500">
                 Semana {summary?.weekStart ?? '—'} → {summary?.weekEnd ?? '—'}

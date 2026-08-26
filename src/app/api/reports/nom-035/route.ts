@@ -181,7 +181,7 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
         description: `${(weeklyOvertimeMinutes / 60).toFixed(1)}h extra esta semana (tope ${(weeklyCap / 60).toFixed(0)}h). Excedente: ${(excess / 60).toFixed(1)}h.`,
         metric,
         recommendation: 'Redistribuir carga, contratar personal, o autorizar expresamente las horas triple. Documentar la causa.',
-        legalReference: 'LFT art. 66/68; NOM-035-STPS-2018 A.5',
+        legalReference: 'LFT art. 66/68 (tope semanal 9h, triple)',
       });
     }
 
@@ -194,7 +194,7 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
         description: `Un día con ${(maxDailyOvertimeMinutes / 60).toFixed(1)}h extra (tope diario 4h, art. 66 LFT).`,
         metric,
         recommendation: 'Evitar asignar >4h extra en un solo día. Si fue emergencia, documentarla.',
-        legalReference: 'LFT art. 66; NOM-035-STPS-2018 A.5',
+        legalReference: 'LFT art. 66 (tope diario 4h)',
       });
     }
 
@@ -207,7 +207,7 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
         description: `${consecutiveLongDays} días consecutivos con horas extra esta semana.`,
         metric,
         recommendation: 'Revisar carga laboral y organizar turnos. Aplicar NOM-035 identificación de riesgos.',
-        legalReference: 'NOM-035-STPS-2018 categorías A.5 y C.1',
+        legalReference: 'LFT arts. 66/68; identificación de sobrecarga sostenida',
       });
     }
 
@@ -220,7 +220,7 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
         description: 'El empleado no tiene ningún día marcado como descanso semanal en su horario.',
         metric,
         recommendation: 'Editar el empleado y marcar al menos 1 día como "Descanso" en su horario.',
-        legalReference: 'LFT art. 71; NOM-035-STPS-2018 A.5',
+        legalReference: 'LFT art. 71 (descanso semanal obligatorio)',
       });
     }
 
@@ -296,7 +296,7 @@ async function generateXLSX(
 
   ws1.getCell('A13').value = 'Marco legal';
   ws1.getCell('A13').font = { bold: true, size: 12 };
-  ws1.getCell('A14').value = 'NOM-035-STPS-2018, categoría A.5 "Jornadas de trabajo excesivas"';
+  ws1.getCell('A14').value = 'LFT arts. 66, 68, 71, 73 — control de jornada y horas extra';
   ws1.getCell('A15').value = 'LFT art. 66 (tope semanal 9h y diario 4h)';
   ws1.getCell('A16').value = 'LFT art. 68 (horas triple)';
   ws1.getCell('A17').value = 'LFT art. 71 (descanso semanal)';

@@ -188,7 +188,7 @@ export async function GET(req: NextRequest) {
             consecutiveLongDays,
           },
           recommendation: 'Redistribuir carga, contratar personal, o autorizar expresamente las horas triple. Documentar la causa.',
-          legalReference: 'LFT art. 66/68 (tope semanal fijo 9h); NOM-035-STPS-2018 A.5',
+          legalReference: 'LFT art. 66/68 (tope semanal fijo 9h)',
         });
       }
 
@@ -207,7 +207,7 @@ export async function GET(req: NextRequest) {
             consecutiveLongDays,
           },
           recommendation: 'Evitar asignar >4h extra en un solo día. Si fue emergencia, documentarla.',
-          legalReference: 'LFT art. 66; NOM-035-STPS-2018 A.5',
+          legalReference: 'LFT art. 66 (tope diario 4h)',
         });
       }
 
@@ -226,7 +226,7 @@ export async function GET(req: NextRequest) {
             consecutiveLongDays,
           },
           recommendation: 'Revisar carga laboral y organizar turnos. Aplicar NOM-035 referencia identificación de riesgos.',
-          legalReference: 'NOM-035-STPS-2018 categorías A.5 y C.1',
+          legalReference: 'LFT arts. 66/68; identificación de sobrecarga sostenida',
         });
       }
 
@@ -245,7 +245,7 @@ export async function GET(req: NextRequest) {
             consecutiveLongDays,
           },
           recommendation: 'Editar el empleado y marcar al menos 1 día como "Descanso" en su horario.',
-          legalReference: 'LFT art. 71; NOM-035-STPS-2018 A.5',
+          legalReference: 'LFT art. 71 (descanso semanal obligatorio)',
         });
       }
 

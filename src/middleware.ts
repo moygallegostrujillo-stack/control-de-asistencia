@@ -88,14 +88,11 @@ const PUBLIC_PATHS = [
   // Carga masiva de vacaciones: requiere ?token=BULK_VACATIONS_2026 (ver handler).
   // Es público a nivel middleware para poder ejecutarlo sin sesión de admin
   // (el handler valida el token internamente y también acepta sesión admin).
-  '/api/vacations/bulk-load',
+  // Eliminado '/api/vacations/bulk-load' de PUBLIC_PATHS en commit de cleanup
+  // (migración completada 14-ago-2026). Si se necesita de nuevo, agregar aquí.
   // RT-P0.8: Retención 12 meses (LFT art. 804). Cron de Vercel ejecuta el día 1
   // de cada mes. Requiere ?token=RETENTION_2027 o sesión GENERAL_ADMIN.
   '/api/admin/retention/archive',
-  // Fix retroactivo vacaciones (15-ago-2026): recálculo de días excluyendo
-  // domingos (art. 71 LFT) y festivos oficiales (art. 74 LFT). Requiere
-  // ?token=RECALC_HOLIDAYS_2026 o sesión GENERAL_ADMIN.
-  '/api/admin/recalc-vacations-holidays',
   // ⚠️ Tarea 1 (audit seguridad): /api/download-env y /api/seed REMOVIDOS de
   // rutas públicas. /api/download-env fue eliminado por completo (exponía .env).
   // /api/seed ahora requiere sesión + rol GENERAL_ADMIN (ver handler).

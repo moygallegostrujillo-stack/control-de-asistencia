@@ -449,8 +449,8 @@ const ACTION_LABELS: Record<string, string> = {
   HOLIDAY_DELETE: 'Eliminar feriado',
   QR_DYNAMIC_GENERATE: 'Generar QR dinámico',
   JUSTIFY_SUBMIT: 'Enviar justificación',
-  NOM035_ALERT_WEEKLY_OVERTIME: 'Alerta NOM-035 horas extra',
-  NOM035_ALERT_REST_DAY_WORKED: 'Alerta NOM-035 día de descanso trabajado',
+  NOM035_ALERT_WEEKLY_OVERTIME: 'Alerta de jornada excesiva (horas extra)',
+  NOM035_ALERT_REST_DAY_WORKED: 'Alerta de jornada excesiva (día de descanso trabajado)',
 };
 
 function actionLabel(a: string): string {
@@ -546,7 +546,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'calendar', label: 'Calendario', icon: CalendarDays, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'reports', label: 'Reportes', icon: FileBarChart, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'corrections', label: 'Correcciones', icon: ClipboardPen, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
-  { id: 'nom-035', label: 'Alertas NOM-035', icon: ShieldAlert, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
+  { id: 'nom-035', label: 'Alertas de jornada', icon: ShieldAlert, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'audit', label: 'Auditoría', icon: ScrollText, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN', 'SUPERVISOR'] },
   { id: 'qr-terminal', label: 'Terminal QR', icon: QrCode, roles: ['GENERAL_ADMIN', 'SUCURSAL_ADMIN'] },
   { id: 'company', label: 'Empresa y Feriados', icon: Building, roles: ['GENERAL_ADMIN'] },
@@ -573,7 +573,7 @@ const VIEW_TITLES: Record<AdminView, string> = {
   company: 'Empresa y Feriados',
   documentation: 'Documentación',
   settings: 'Configuración',
-  'nom-035': 'Alertas NOM-035',
+  'nom-035': 'Alertas de jornada excesiva',
 };
 
 
@@ -5892,8 +5892,8 @@ function NOM035View({ role }: { role: Role }) {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      toast.success('CSV NOM-035 exportado', {
-        description: `${alerts.length} alerta(s) · evidencia para inspección STPS.`,
+      toast.success('CSV exportado', {
+        description: `${alerts.length} alerta(s) de jornada excesiva.`,
       });
     } catch (e) {
       toast.error('Error al exportar CSV', { description: (e as Error).message });
@@ -5928,8 +5928,8 @@ function NOM035View({ role }: { role: Role }) {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       const alertCount = res.headers.get('X-Report-Alerts') || '?';
-      toast.success('XLSX NOM-035 exportado', {
-        description: `${alertCount} alerta(s) · reporte server-side con 3 hojas (Resumen, Alertas, Desglose).`,
+      toast.success('XLSX exportado', {
+        description: `${alertCount} alerta(s) · reporte con 3 hojas (Resumen, Alertas, Desglose).`,
       });
     } catch (e) {
       toast.error('Error al exportar XLSX', { description: (e as Error).message });
@@ -5979,7 +5979,7 @@ function NOM035View({ role }: { role: Role }) {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <ShieldAlert className="h-5 w-5 text-amber-500" />
-                Factores de riesgo psicosocial (NOM-035-STPS-2018)
+                Alertas de jornada excesiva (LFT arts. 66/68/71/73)
               </CardTitle>
               <CardDescription className="mt-1">
                 {summary?.weekStart && summary?.weekEnd
@@ -6003,8 +6003,8 @@ function NOM035View({ role }: { role: Role }) {
                 className="gap-1.5"
                 onClick={exportCsv}
                 disabled={exporting || loading}
-                title="Exportar evidencia NOM-035 en CSV (client-side)"
-                aria-label="Exportar evidencia NOM-035 en CSV"
+                title="Exportar alertas en CSV (client-side)"
+                aria-label="Exportar alertas en CSV"
               >
                 {exporting
                   ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -6017,8 +6017,8 @@ function NOM035View({ role }: { role: Role }) {
                 className="gap-1.5"
                 onClick={exportXlsx}
                 disabled={exportingXlsx || loading}
-                title="Exportar reporte NOM-035 en XLSX (server-side, 3 hojas con formato)"
-                aria-label="Exportar reporte NOM-035 en XLSX"
+                title="Exportar reporte en XLSX (server-side, 3 hojas con formato)"
+                aria-label="Exportar reporte en XLSX"
               >
                 {exportingXlsx
                   ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -6039,7 +6039,7 @@ function NOM035View({ role }: { role: Role }) {
           ) : alerts.length === 0 ? (
             <EmptyState
               icon={CheckCircle2}
-              title="Sin alertas NOM-035 en esta semana"
+              title="Sin alertas de jornada excesiva en esta semana"
               subtitle="Ningún empleado supera los topes de horas extra, presenta sobrecarga o trabajó en su día de descanso."
             />
           ) : (

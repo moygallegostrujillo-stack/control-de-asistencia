@@ -12,9 +12,12 @@
 //   - Además, este handler re-valida explícitamente rol GENERAL_ADMIN.
 //   - Si no hay sesión o el rol no es GENERAL_ADMIN → 401/403.
 //
-//   Ejecuta `bun run prisma/seed.ts` vía child_process y devuelve
-//   stdout/stderr y el código de salida. Si bun no está disponible
-//   o el script falla, devuelve instrucciones manuales con código 500.
+//   ⚠️  CLEANUP (26-ago-2026): bloqueo adicional con env var ALLOW_SEED.
+//   En producción, ALLOW_SEED no está definida (o es 'false'), por lo que
+//   el endpoint rechaza la ejecución aunque el admin esté autenticado.
+//   Para habilitar en dev/staging: setear ALLOW_SEED=true en .env.
+//   Esto evita que un error humano o token filtrado reseedee la BD
+//   de producción.
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -42,6 +45,32 @@ export async function POST(req: NextRequest) {
       details: { role: user.role },
     }).catch(() => undefined);
     return forbiddenResponse();
+  }
+
+  // --- Cleanup (26-ago-2026): bloqueo en producción vía env var ---
+  // ALLOW_SEED debe ser 'true' para permitir la ejecución. En producción
+  // (Vercel) NO se setea, así que el endpoint siempre rechaza.
+  if (process.env.ALLOW_SEED !== 'true') {
+    const { ip, ua } = getIpAndUA(req);
+    await auditLog({
+      userId: user.id,
+      action: 'SEED_BLOCKED',
+      entityType: 'System',
+      entityId: 'seed',
+      sucursalId: user.sucursalId || undefined,
+      ipAddress: ip,
+      userAgent: ua,
+      details: {
+        reason: 'ALLOW_SEED env var no es "true" — endpoint bloqueado en producción',
+      },
+    }).catch(() => undefined);
+    return NextResponse.json(
+      {
+        error: 'Seed bloqueado en este entorno',
+        hint: 'Para habilitar, setea ALLOW_SEED=true en las variables de entorno (solo dev/staging).',
+      },
+      { status: 403 }
+    );
   }
 
   // Auditoría: registrar ejecución autorizada.
