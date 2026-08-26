@@ -193,6 +193,10 @@ model Employee {
   // IMSS (/api/reports/imss-format) para reconciliar incapacidades con SUA/IDSE.
   // Formato esperado: 11 dígitos (sin letras ni guiones).
   nss                     String?  @unique
+  // --- RT-R2 (auditoría constitucional 26-ago-2026): fecha de nacimiento ---
+  // Necesaria para validar edad del empleado y bloquear horas extra a menores
+  // de 18 años (arts. 22, 23, 175 LFT + Art. 123 Constitucional A fr. II).
+  birthDate               DateTime?
   isActive                Boolean  @default(true)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt

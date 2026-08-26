@@ -37,12 +37,101 @@ import {
 } from './timezone';
 import { classifyShift, getLegalMaxMinutes, type ShiftType } from './shift-classifier';
 
+// ============================================================
+// RT-R2 (auditoría constitucional 26-ago-2026): Helpers de edad
+// ============================================================
+// Arts. 22, 23, 175 LFT + Art. 123 Constitucional A fr. II:
+// - Menores de 15 años: NO pueden trabajar (excepciones muy limitadas).
+// - Menores de 16 años: jornada máxima 6h/día, prohibido nocturno y extra.
+// - Menores de 18 años: prohibido trabajo insalubre/peligroso, nocturno
+//   industrial, y horas extra (excepto 16-17 con autorización específica).
+//
+// El sistema BLOQUEA el overtime para menores de 18 años.
+// ============================================================
+
+/**
+ * Calcula la edad del empleado en una fecha dada.
+ * @param birthDate - Fecha de nacimiento del empleado.
+ * @param asOf - Fecha de referencia (default: hoy).
+ * @returns Edad en años, o null si birthDate es null/undefined.
+ */
+export function calculateAge(birthDate: Date | null | undefined, asOf: Date = new Date()): number | null {
+  if (!birthDate) return null;
+  const ageMs = asOf.getTime() - birthDate.getTime();
+  if (ageMs < 0) return null; // fecha futura, dato inválido
+  const ageDate = new Date(ageMs);
+  const age = Math.abs(ageDate.getUTCFullYear() - 1970);
+  return age;
+}
+
+/**
+ * Determina si el empleado es menor de 18 años en la fecha dada.
+ * @param birthDate - Fecha de nacimiento del empleado (puede ser null).
+ * @param asOf - Fecha de referencia.
+ * @returns true si es menor de 18, false si es mayor o si birthDate es null.
+ */
+export function isMinor(birthDate: Date | null | undefined, asOf: Date = new Date()): boolean {
+  const age = calculateAge(birthDate, asOf);
+  return age !== null && age < 18;
+}
+
+// ============================================================
+// RT-R1: Helper local para tope legal semanal (sin consulta a BD).
+// ============================================================
+// getLegalWeeklyHoursLocal(year) devuelve el tope de jornada semanal
+// máxima según la reforma DOF 27-dic-2024 (Transitorio Cuarto):
+//   2026 → 48h
+//   2027 → 46h
+//   2028 → 44h
+//   2029 → 42h
+//   2030+ → 40h
+//
+// Este helper es síncrono (no consulta BD) y se usa en calculateOvertime
+// que también es síncrona. Para valores de año fuera del rango conocido,
+// usa 40h (tope más restrictivo post-2030) como fallback conservador.
+// La función async getMaxWeeklyHoursForYear (en work-schedule.ts) sigue
+// siendo la fuente de verdad para validación de schedules; este helper
+// es un mirror local para uso en cálculo de overtime.
+// ============================================================
+function getLegalWeeklyHoursLocal(year: number): number {
+  if (year <= 2026) return 48;
+  if (year === 2027) return 46;
+  if (year === 2028) return 44;
+  if (year === 2029) return 42;
+  return 40; // 2030+
+}
+
 export interface OvertimeInput {
   record: AttendanceRecord;
   schedule: WorkSchedule | null;
   sucursal: Pick<Sucursal, 'checkoutToleranceMinutes' | 'mealDurationMinutes'>;
   /** Minutos extra ya acumulados en la semana (excluyendo el día actual). */
   weeklyAccumulatedMinutes?: number;
+  /**
+   * RT-R1 (auditoría constitucional 26-ago-2026): Minutos trabajados totales
+   * previos en la semana (excluyendo el día actual). Incluye jornada ordinaria
+   * Y overtime de días previos. Se usa para calcular el overtime contra el
+   * tope LEGAL semanal del año (art. 61 LFT: 46h en 2027, 44h en 2028, etc.).
+   *
+   * Si no se proporciona, el sistema solo usará el overtime basado en schedule
+   * (comportamiento legacy, menos protector).
+   */
+  weeklyWorkedMinutesPrev?: number;
+  /**
+   * RT-R2 (auditoría constitucional 26-ago-2026): Fecha de nacimiento del
+   * empleado. Si indica < 18 años al momento del registro, se bloquea el
+   * overtime (arts. 22, 23, 175 LFT).
+   */
+  employeeBirthDate?: Date | null;
+  /**
+   * RT-P0.3: Indica explícitamente si la fecha del registro es día de descanso
+   * semanal del empleado (WorkSchedule.isWeeklyRest=true para ese día).
+   * Si es `true`, se aplica la prima del 100% del art. 73 LFT.
+   * Si es `false` o `undefined`, se cae al comportamiento legacy (inferir de
+   * `schedule === null`), que se mantiene por compatibilidad con callers
+   * que no hayan sido actualizados aún.
+   */
+  isRestDayWorkedExplicit?: boolean;
 }
 
 export interface OvertimeResult {
@@ -67,6 +156,8 @@ export interface OvertimeResult {
   nightMinutes: number; // minutos trabajados en horario nocturno (20:00-06:00)
   legalMaxMinutes: number; // jornada máxima legal según shiftType (art. 61 LFT): 480/420/450
   legalOvertimeMinutes: number; // excedente sobre la jornada máxima legal (para nómina/prima nocturna)
+  // --- RT-R2 (auditoría constitucional 26-ago-2026) ---
+  minorOvertimeBlocked: boolean; // true si el empleado es menor de 18 años y se bloqueó el overtime
 }
 
 /**
@@ -182,6 +273,7 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
       nightMinutes: 0,
       legalMaxMinutes: getLegalMaxMinutes('DIURNA'),
       legalOvertimeMinutes: 0,
+      minorOvertimeBlocked: false,
     };
   }
 
@@ -242,6 +334,7 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
       // En descanso trabajado, el excedente sobre la jornada legal se reporta
       // pero no se paga como overtime art. 66/68 (se paga con prima del 100% art. 73).
       legalOvertimeMinutes: Math.max(0, netWorkedMinutes - getLegalMaxMinutes(shiftType)),
+      minorOvertimeBlocked: false, // el descanso trabajado no es overtime, no aplica el bloqueo
     };
   }
 
@@ -317,7 +410,68 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
   // sitio, sin descontar comida) porque el schedule YA incluye la comida.
   // Antes se usaba netWorkedMinutes, que penalizaba al empleado que registraba
   // su comida al restarle esos minutos del overtime causado.
-  const overtimeMinutes = Math.max(0, workedMinutes - scheduledMinutes);
+  const dailyScheduleOvertime = Math.max(0, workedMinutes - scheduledMinutes);
+
+  // ----------------------------------------------------------
+  // RT-R1 (auditoría constitucional 26-ago-2026): Overtime contra tope
+  // LEGAL semanal del año (art. 61 LFT, reforma DOF 27-dic-2024).
+  // ----------------------------------------------------------
+  // La reforma laboral 2027 establece que las horas extra se causan a
+  // partir del minuto 1 de exceso sobre la jornada máxima SEMANAL del año
+  // (46h en 2027, 44h en 2028, 42h en 2029, 40h en 2030), NO sobre el
+  // schedule individual del empleado.
+  //
+  // Ejemplo 2027 (tope legal 46h):
+  //   - Empleado con schedule L-V 9-17 (40h) que trabajó 47h →
+  //     overtime por schedule = 47-40 = 7h
+  //     overtime por tope legal = 47-46 = 1h
+  //     El sistema toma el MAYOR (7h) para proteger al empleado.
+  //   - Empleado con schedule L-S 9-17 (48h, EXCEDE tope legal) que trabajó 49h →
+  //     overtime por schedule = 49-48 = 1h
+  //     overtime por tope legal = 49-46 = 3h
+  //     El sistema toma el MAYOR (3h) — esto es lo que la ley EXIGE pagar.
+  //
+  // Si el caller no pasa `weeklyWorkedMinutesPrev`, se cae al comportamiento
+  // legacy (solo schedule-based, menos protector pero no rompe compat).
+  // ----------------------------------------------------------
+  let weeklyLegalOvertime = 0;
+  if (input.weeklyWorkedMinutesPrev !== undefined) {
+    const year = new Date(record.date).getFullYear();
+    // getMaxWeeklyHoursForYear es async (consulta BD), pero calculateOvertime
+    // es sync. Usamos el valor del año conocido del cache de JornadaConfig.
+    // Como fallback, si no podemos consultarlo, usamos el tope de 2026 (48h)
+    // que es el más permisivo — el caller debe pasar weeklyWorkedMinutesPrev
+    // solo cuando ya tiene el tope del año cargado.
+    // NOTA: la función async getMaxWeeklyHoursForYear se invoca desde el caller
+    // (check-out/route.ts) y se pasa como parte del input en una versión futura.
+    // Por ahora, usamos un cálculo local con el tope conocido del año.
+    const legalWeeklyHours = getLegalWeeklyHoursLocal(year);
+    const legalWeeklyCapMinutes = legalWeeklyHours * 60;
+    const weeklyWorkedTotal = input.weeklyWorkedMinutesPrev + workedMinutes;
+    weeklyLegalOvertime = Math.max(0, weeklyWorkedTotal - legalWeeklyCapMinutes);
+  }
+
+  // Tomar el MAYOR de los dos (protege al empleado).
+  // - dailyScheduleOvertime: overtime causado HOY contra el schedule del día.
+  // - weeklyLegalOvertime: overtime causado en la SEMANA contra el tope legal.
+  // El mayor es el que más protege al empleado (más overtime a pagar).
+  let overtimeMinutes = Math.max(dailyScheduleOvertime, weeklyLegalOvertime);
+
+  // ----------------------------------------------------------
+  // RT-R2 (auditoría constitucional 26-ago-2026): Bloqueo de overtime
+  // para menores de 18 años (arts. 22, 23, 175 LFT).
+  // ----------------------------------------------------------
+  // Si el empleado es menor de 18 años al momento del registro, las horas
+  // extra están PROHIBIDAS por ley. El sistema NO las cuenta como extra
+  // (se reportan como jornada ordinaria para fines de registro, pero NO
+  // se pagan como extra). Se emite la bandera `minorOvertimeBlocked: true`
+  // para que el caller (check-out) registre alerta en AuditLog.
+  // ----------------------------------------------------------
+  let minorOvertimeBlocked = false;
+  if (isMinor(input.employeeBirthDate, new Date(record.date))) {
+    overtimeMinutes = 0;
+    minorOvertimeBlocked = true;
+  }
 
   // --- Reforma LFT 2027 — Doble vs Triple ---
   // Tope diario: 4h (art. 66). El excedente diario no cuenta como extra autorizada.
@@ -326,7 +480,7 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
   // Tope semanal gradual (Transitorio Cuarto)
   const weeklyCap = getWeeklyOvertimeCapMinutes(new Date(record.date).getFullYear());
   const cabeEnDoble = Math.max(0, weeklyCap - weeklyAccumulatedMinutes);
-  const overtimeDoubleMinutes = Math.min(overtimeDaily, cabeEnDoble);
+  const overtimeDoubleMinutes = minorOvertimeBlocked ? 0 : Math.min(overtimeDaily, cabeEnDoble);
   const overtimeTripleMinutes = Math.max(0, overtimeDaily - overtimeDoubleMinutes);
   const overtimeWeeklyTotal = weeklyAccumulatedMinutes + overtimeDaily;
 
@@ -371,6 +525,8 @@ export function calculateOvertime(input: OvertimeInput): OvertimeResult {
     nightMinutes,
     legalMaxMinutes,
     legalOvertimeMinutes,
+    // RT-R2: bandera para que el caller (check-out) registre alerta en AuditLog
+    minorOvertimeBlocked,
   };
 }
 
@@ -437,6 +593,41 @@ export async function computeWeeklyAccumulatedOvertime(
 
   const prevRecords = await fetchRecords(employeeId, monday, endYesterday);
   return prevRecords.reduce((sum, r) => sum + (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0), 0);
+}
+
+/**
+ * RT-R1 (auditoría constitucional 26-ago-2026): Calcula los minutos trabajados
+ * TOTALES previos en la semana (lunes..ayer), incluyendo jornada ordinaria Y
+ * overtime. Se usa para el cálculo de overtime contra el tope LEGAL semanal
+ * del año (art. 61 LFT: 46h en 2027, etc.).
+ *
+ * A diferencia de `computeWeeklyAccumulatedOvertime` (que solo suma overtime),
+ * esta función suma TODOS los minutos trabajados (workedMinutes) para saber
+ * si el empleado ya superó el tope legal semanal.
+ *
+ * @param employeeId - ID del empleado
+ * @param recordDate - fecha del registro actual
+ * @param fetchRecords - función que retorna los AttendanceRecords en un rango
+ */
+export async function computeWeeklyWorkedMinutesPrev(
+  employeeId: string,
+  recordDate: Date,
+  fetchRecords: (employeeId: string, from: Date, to: Date) => Promise<AttendanceRecord[]>
+): Promise<number> {
+  const dow = getDayOfWeek(recordDate); // 0=domingo..6=sábado
+  const monday = new Date(recordDate);
+  monday.setHours(0, 0, 0, 0);
+  const daysFromMonday = (dow + 6) % 7;
+  monday.setDate(monday.getDate() - daysFromMonday);
+
+  const endYesterday = new Date(recordDate);
+  endYesterday.setHours(0, 0, 0, 0);
+  endYesterday.setMilliseconds(-1);
+
+  const prevRecords = await fetchRecords(employeeId, monday, endYesterday);
+  // Sumar workedMinutes (minutos netos trabajados, ya con comida descontada).
+  // Solo registros con check-out (sin check-out no hay workedMinutes confiable).
+  return prevRecords.reduce((sum, r) => sum + (r.workedMinutes || 0), 0);
 }
 
 // toISODate re-exportado para compatibilidad con código existente

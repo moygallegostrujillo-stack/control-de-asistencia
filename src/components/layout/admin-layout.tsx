@@ -6125,6 +6125,41 @@ function AuditView({ role }: { role: Role }) {
   const [sucursalId, setSucursalId] = useState('all');
   const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // RT-R3 (auditoría constitucional 26-ago-2026): verificación de cadena hash.
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<{
+    ok: boolean;
+    verified: number;
+    tampered: number;
+  } | null>(null);
+
+  // RT-R3: invoca /api/audit/verify para validar la cadena de hashes SHA-256.
+  // Demuestra "prueba plena" ante inspección STPS (art. 132 XXXIV LFT).
+  const verifyIntegrity = useCallback(async () => {
+    setVerifying(true);
+    try {
+      const res = await authFetch('/api/audit/verify?limit=50000');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Error al verificar' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setVerifyResult(data);
+      if (data.ok) {
+        toast.success('Bitácora íntegra', {
+          description: `${data.verified} registros verificados. Sin alteraciones detectadas.`,
+        });
+      } else {
+        toast.error('Alteración detectada', {
+          description: `${data.tampered} registro(s) manipulado(s) de ${data.verified} verificados.`,
+        });
+      }
+    } catch (e) {
+      toast.error('Error de verificación', { description: (e as Error).message });
+    } finally {
+      setVerifying(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (isGA) {
@@ -6205,7 +6240,55 @@ function AuditView({ role }: { role: Role }) {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">{total} evento(s)</CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-base">{total} evento(s)</CardTitle>
+            {/* RT-R3 (auditoría constitucional 26-ago-2026): botón para verificar
+                la cadena de hashes SHA-256 del AuditLog. Demuestra "prueba plena"
+                ante inspección STPS (art. 132 XXXIV LFT). */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={verifyIntegrity}
+              disabled={verifying}
+              title="Verificar integridad de la cadena de hashes (prueba plena art. 132 XXXIV LFT)"
+              aria-label="Verificar integridad de la bitácora"
+            >
+              {verifying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">Verificar Integridad</span>
+            </Button>
+          </div>
+          {/* Alerta de alteración detectada */}
+          {verifyResult && !verifyResult.ok && (
+            <div className="mt-2 p-3 border border-red-200 bg-red-50 rounded text-sm">
+              <p className="font-medium text-red-900 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                ⚠️ {verifyResult.tampered} registro(s) con alteración detectada
+              </p>
+              <p className="text-red-700 mt-1">
+                Se detectaron registros cuyo hash no coincide con la cadena. Esto puede indicar
+                manipulación directa de la base de datos. Revise con asesor legal antes de
+                una inspección STPS.
+              </p>
+            </div>
+          )}
+          {/* Confirmación de integridad */}
+          {verifyResult && verifyResult.ok && (
+            <div className="mt-2 p-3 border border-green-200 bg-green-50 rounded text-sm">
+              <p className="font-medium text-green-900 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4" />
+                ✓ Bitácora íntegra — {verifyResult.verified} registros verificados sin alteraciones
+              </p>
+              <p className="text-green-700 mt-1">
+                La cadena de hashes SHA-256 está intacta. Evidencia válida para inspección STPS
+                (art. 132 XXXIV LFT — prueba plena).
+              </p>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {loading ? <div className="p-4"><LoadingState rows={6} /></div>

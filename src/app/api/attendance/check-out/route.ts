@@ -15,7 +15,7 @@ import {
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { getMexicoTodayDate } from '@/lib/timezone';
-import { calculateOvertime, findScheduleForDate, findRestScheduleForDate, computeWeeklyAccumulatedOvertime, getWeeklyOvertimeCapMinutes } from '@/lib/overtime-calculator';
+import { calculateOvertime, findScheduleForDate, findRestScheduleForDate, computeWeeklyAccumulatedOvertime, computeWeeklyWorkedMinutesPrev, getWeeklyOvertimeCapMinutes } from '@/lib/overtime-calculator';
 import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
 
 export async function POST(req: NextRequest) {
@@ -136,6 +136,19 @@ export async function POST(req: NextRequest) {
       }
     );
 
+    // RT-R1 (auditoría constitucional 26-ago-2026): calcular minutos trabajados
+    // totales previos en la semana (lun..ayer) para el cálculo de overtime
+    // contra el tope LEGAL semanal del año (art. 61 LFT: 46h en 2027).
+    const weeklyWorkedPrev = await computeWeeklyWorkedMinutesPrev(
+      employeeId,
+      todayDate,
+      async (empId, from, to) => {
+        return db.attendanceRecord.findMany({
+          where: { employeeId: empId, date: { gte: from, lte: to } },
+        });
+      }
+    );
+
     // fix #2 + reforma LFT 2027 — calcular workedMinutes, overtimeMinutes,
     // dobles/triples y status con tolerancia de salida.
     const updatedForCalc = {
@@ -148,6 +161,10 @@ export async function POST(req: NextRequest) {
       schedule,
       sucursal: { checkoutToleranceMinutes: sucursal.checkoutToleranceMinutes, mealDurationMinutes: sucursal.mealDurationMinutes },
       weeklyAccumulatedMinutes: weeklyAcc,
+      // RT-R1: minutos trabajados previos en la semana (para tope legal art. 61)
+      weeklyWorkedMinutesPrev: weeklyWorkedPrev,
+      // RT-R2: fecha de nacimiento del empleado (para bloqueo de overtime a menores)
+      employeeBirthDate: (record.employee as any)?.birthDate ?? null,
       isRestDayWorkedExplicit,
     });
 
@@ -286,6 +303,34 @@ export async function POST(req: NextRequest) {
           alertLevel: excessMinutes > 180 ? 'HIGH' : 'MEDIUM', // >3h exceso = HIGH
           legalReference: 'LFT art. 66/68 (tope semanal fijo 9h); NOM-035-STPS-2018 A.5',
           triggeredBy: 'CHECK_OUT',
+        },
+      }).catch(() => {}); // no bloquear el checkout si falla el log
+    }
+
+    // --- RT-R2 (auditoría constitucional 26-ago-2026): Alerta de menor de edad ---
+    // Si el empleado es menor de 18 años, las horas extra están PROHIBIDAS
+    // (arts. 22, 23, 175 LFT + Art. 123 Constitucional A fr. II).
+    // El calculator ya forzó overtimeMinutes=0; aquí registramos la alerta
+    // para evidencia y para que RH corrija el schedule del empleado.
+    if (calc.minorOvertimeBlocked) {
+      await auditLog({
+        userId: user.id,
+        action: 'MINOR_OVERTIME_BLOCKED',
+        entityType: 'ATTENDANCE_RECORD',
+        entityId: updated.id,
+        sucursalId: record.employee.sucursalId,
+        ipAddress: ip,
+        userAgent: ua,
+        details: {
+          employeeId,
+          employeeName: record.employee.user.name,
+          employeeNumber: record.employee.employeeNumber,
+          reason: 'Empleado menor de 18 años — horas extra prohibidas por ley',
+          workedMinutes: calc.workedMinutes,
+          legalReference: 'LFT arts. 22, 23, 175; Art. 123 Constitucional A fr. II',
+          triggeredBy: 'CHECK_OUT',
+          alertLevel: 'HIGH',
+          recommendation: 'Revisar schedule del empleado. Menores de 18 años no pueden laborar horas extra. Ajustar horario para no exceder jornada ordinaria.',
         },
       }).catch(() => {}); // no bloquear el checkout si falla el log
     }
