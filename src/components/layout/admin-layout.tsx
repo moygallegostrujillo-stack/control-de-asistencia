@@ -1889,6 +1889,12 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
   // NSS (Número de Seguro Social) — LSS art. 15. Opcional, 11 dígitos.
   // Se usa en el reporte IMSS para reconciliar incapacidades con SUA/IDSE.
   const [nss, setNss] = useState(employee?.nss || '');
+  // RT-R2 (auditoría constitucional 26-ago-2026): fecha de nacimiento.
+  // Necesaria para bloquear horas extra a menores de 18 años (arts. 22, 23, 175 LFT).
+  // Se guarda como YYYY-MM-DD. Si está vacía, el sistema asume mayoría de edad.
+  const [birthDate, setBirthDate] = useState(
+    employee?.birthDate ? new Date(employee.birthDate).toISOString().slice(0, 10) : ''
+  );
   const [sucursalId, setSucursalId] = useState(employee?.sucursalId || userSucursalId || '');
   const [dayConfigs, setDayConfigs] = useState<DayConfig[]>(
     isEdit && employee?.workSchedules
@@ -1963,12 +1969,14 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
         body.rfc = rfc;
         body.curp = curp;
         body.nss = nss;
+        // RT-R2: fecha de nacimiento (para bloqueo de overtime a menores)
+        body.birthDate = birthDate || null;
         // --- Cambio 1: incluir contraseña solo si el admin escribió una nueva ---
         if (password) body.password = password;
         await apiSend(`/api/employees/${employee.id}`, 'PUT', body);
         toast.success('Empleado actualizado');
       } else {
-        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId, rfc, curp, nss, schedules });
+        await apiSend('/api/employees', 'POST', { name, email, password, employeeNumber, position, department, sucursalId, rfc, curp, nss, birthDate: birthDate || null, schedules });
         toast.success('Empleado creado');
       }
       onSaved();
@@ -2028,6 +2036,21 @@ function EmployeeFormDialog({ mode, isGA, userSucursalId, sucursales, employee, 
             <Label htmlFor="f-nss">NSS (IMSS)</Label>
             <Input id="f-nss" value={nss} onChange={(e) => setNss(e.target.value.replace(/\D/g, ''))} maxLength={11} inputMode="numeric" placeholder="Opcional · 11 dígitos" title="Número de Seguro Social — Ley del Seguro Social art. 15" />
             <p className="text-xs text-muted-foreground">Opcional. Se usa en el reporte IMSS (art. 15 LSS).</p>
+          </div>
+          {/* RT-R2 (auditoría constitucional 26-ago-2026): fecha de nacimiento */}
+          <div className="space-y-1.5">
+            <Label htmlFor="f-birth">Fecha de nacimiento</Label>
+            <Input
+              id="f-birth"
+              type="date"
+              value={birthDate}
+              onChange={(e) => setBirthDate(e.target.value)}
+              placeholder="Opcional"
+              title="Fecha de nacimiento — bloquea horas extra a menores de 18 años (arts. 22, 23, 175 LFT)"
+            />
+            <p className="text-xs text-muted-foreground">
+              Opcional pero recomendado. Bloquea horas extra a menores de 18 años (arts. 22, 23, 175 LFT).
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="f-suc">Sucursal *</Label>

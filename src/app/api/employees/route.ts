@@ -114,6 +114,7 @@ export async function POST(req: NextRequest) {
       rfc,
       curp,
       nss,
+      birthDate,
       schedules,
     } = body as {
       name?: string;
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
       rfc?: string;
       curp?: string;
       nss?: string;
+      birthDate?: string | null;
       schedules?: Array<{
         dayOfWeek: number;
         startTime: string;
@@ -312,6 +314,8 @@ export async function POST(req: NextRequest) {
           rfc: rfc && rfc.trim() !== '' ? rfc : null,
           curp: curp && curp.trim() !== '' ? curp : null,
           nss: nss && nss.trim() !== '' ? nss.trim() : null,
+          // RT-R2: fecha de nacimiento (para bloqueo de overtime a menores)
+          birthDate: birthDate ? new Date(birthDate) : null,
           isActive: true,
         },
         select: { id: true, employeeNumber: true },

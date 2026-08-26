@@ -89,6 +89,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       rfc,
       curp,
       nss,
+      birthDate,
       isActive,
       schedules,
       password,
@@ -106,6 +107,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       rfc?: string | null;
       curp?: string | null;
       nss?: string | null;
+      birthDate?: string | null;
       isActive?: boolean;
       schedules?: Array<{
         dayOfWeek: number;
@@ -280,6 +282,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       if (rfc !== undefined) empData.rfc = rfc && rfc.trim() !== '' ? rfc : null;
       if (curp !== undefined) empData.curp = curp && curp.trim() !== '' ? curp : null;
       if (nss !== undefined) empData.nss = nss && nss.trim() !== '' ? nss.trim() : null;
+      // RT-R2: fecha de nacimiento (para bloqueo de overtime a menores)
+      if (birthDate !== undefined) empData.birthDate = birthDate ? new Date(birthDate) : null;
       if (isActive !== undefined) empData.isActive = isActive;
       if (Object.keys(empData).length > 0) {
         await tx.employee.update({
