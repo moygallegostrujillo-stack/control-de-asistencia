@@ -6149,11 +6149,16 @@ function AuditView({ role }: { role: Role }) {
   const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // RT-R3 (auditoría constitucional 26-ago-2026): verificación de cadena hash.
+  // Los campos coinciden con la respuesta real de /api/audit/verify.
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{
-    ok: boolean;
-    verified: number;
-    tampered: number;
+    chainIntact: boolean;
+    totalRecords: number;
+    verifiedRecords: number;
+    preChainRecords: number;
+    tamperedRecords: number;
+    firstBrokenAt: string | null;
+    verifiedAt: string;
   } | null>(null);
 
   // RT-R3: invoca /api/audit/verify para validar la cadena de hashes SHA-256.
@@ -6168,13 +6173,14 @@ function AuditView({ role }: { role: Role }) {
       }
       const data = await res.json();
       setVerifyResult(data);
-      if (data.ok) {
+      // Usar chainIntact (campo real del backend) en vez de ok (que no existe).
+      if (data.chainIntact) {
         toast.success('Bitácora íntegra', {
-          description: `${data.verified} registros verificados. Sin alteraciones detectadas.`,
+          description: `${data.verifiedRecords} registros verificados. Sin alteraciones detectadas.`,
         });
       } else {
         toast.error('Alteración detectada', {
-          description: `${data.tampered} registro(s) manipulado(s) de ${data.verified} verificados.`,
+          description: `${data.tamperedRecords} registro(s) manipulado(s) de ${data.verifiedRecords} verificados.`,
         });
       }
     } catch (e) {
@@ -6286,30 +6292,41 @@ function AuditView({ role }: { role: Role }) {
             </Button>
           </div>
           {/* Alerta de alteración detectada */}
-          {verifyResult && !verifyResult.ok && (
+          {verifyResult && !verifyResult.chainIntact && (
             <div className="mt-2 p-3 border border-red-200 bg-red-50 rounded text-sm">
               <p className="font-medium text-red-900 flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4" />
-                ⚠️ {verifyResult.tampered} registro(s) con alteración detectada
+                ⚠️ {verifyResult.tamperedRecords} registro(s) con alteración detectada
               </p>
               <p className="text-red-700 mt-1">
                 Se detectaron registros cuyo hash no coincide con la cadena. Esto puede indicar
                 manipulación directa de la base de datos. Revise con asesor legal antes de
                 una inspección STPS.
               </p>
+              {verifyResult.firstBrokenAt && (
+                <p className="text-red-600 text-xs mt-1">
+                  Primera alteración detectada: {formatDateTimeInMexico(verifyResult.firstBrokenAt)}
+                </p>
+              )}
             </div>
           )}
           {/* Confirmación de integridad */}
-          {verifyResult && verifyResult.ok && (
+          {verifyResult && verifyResult.chainIntact && (
             <div className="mt-2 p-3 border border-green-200 bg-green-50 rounded text-sm">
               <p className="font-medium text-green-900 flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4" />
-                ✓ Bitácora íntegra — {verifyResult.verified} registros verificados sin alteraciones
+                ✓ Bitácora íntegra — {verifyResult.verifiedRecords} registros verificados sin alteraciones
               </p>
               <p className="text-green-700 mt-1">
                 La cadena de hashes SHA-256 está intacta. Evidencia válida para inspección STPS
                 (art. 132 XXXIV LFT — prueba plena).
               </p>
+              {verifyResult.preChainRecords > 0 && (
+                <p className="text-green-600 text-xs mt-1">
+                  Nota: {verifyResult.preChainRecords} registro(s) previos a la implementación del hash chain
+                  (no se verifican, se consideran válidos por definición).
+                </p>
+              )}
             </div>
           )}
         </CardHeader>
