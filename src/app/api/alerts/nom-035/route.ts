@@ -21,6 +21,9 @@
 //   Query params:
 //     ?week=current (default) — semana actual (lun..dom)
 //     ?week=last               — semana anterior
+//     ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD — rango arbitrario
+//       (26-ago-2026): permite ver meses anteriores. El rango se divide
+//       en semanas ISO (lun..dom) y se computan alertas por semana.
 //
 //   Acceso: ADMIN (cualquier rol). SUCURSAL_ADMIN ve solo su sucursal.
 // ============================================================
@@ -41,6 +44,7 @@ import {
 import { getWeeklyOvertimeCapMinutes } from '@/lib/overtime-calculator';
 
 type AlertLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+type AlertType = 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST' | 'REST_DAY_WORKED';
 
 interface NOM035Alert {
   employeeId: string;
@@ -49,7 +53,7 @@ interface NOM035Alert {
   sucursalId: string;
   sucursalName: string;
   sucursalCodigoLocal: string | null;
-  type: 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST' | 'REST_DAY_WORKED';
+  type: AlertType;
   level: AlertLevel;
   title: string;
   description: string;
@@ -61,6 +65,183 @@ interface NOM035Alert {
   };
   recommendation: string;
   legalReference: string;
+  /** ISO date (YYYY-MM-DD) del lunes de la semana en que se detectó la alerta. */
+  weekStart?: string;
+  /** ISO date (YYYY-MM-DD) del domingo de la semana en que se detectó la alerta. */
+  weekEnd?: string;
+}
+
+/** Devuelve la fecha del lunes (00:00) de la semana ISO que contiene `date`. */
+function getMondayOfWeek(date: Date): Date {
+  const dow = getDayOfWeek(date); // 0=domingo..6=sábado
+  const daysFromMonday = (dow + 6) % 7; // lun=0, ..., dom=6
+  const monday = new Date(date);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - daysFromMonday);
+  return monday;
+}
+
+/** Divide un rango [start, end] en semanas ISO (lun..dom) y devuelve cada una. */
+function splitIntoWeeks(start: Date, end: Date): { monday: Date; sunday: Date }[] {
+  const weeks: { monday: Date; sunday: Date }[] = [];
+  const cursor = getMondayOfWeek(start);
+  const endLimit = new Date(end);
+  endLimit.setHours(23, 59, 59, 999);
+
+  while (cursor <= endLimit) {
+    const sunday = new Date(cursor);
+    sunday.setDate(sunday.getDate() + 7);
+    sunday.setMilliseconds(-1); // fin del domingo
+    weeks.push({ monday: new Date(cursor), sunday });
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return weeks;
+}
+
+/** Computa las alertas de UNA semana para todos los empleados dados. */
+async function computeAlertsForWeek(
+  monday: Date,
+  sunday: Date,
+  employees: any[],
+  weeklyCap: number
+): Promise<NOM035Alert[]> {
+  const records = await db.attendanceRecord.findMany({
+    where: {
+      employeeId: { in: employees.map((e) => e.id) },
+      date: { gte: monday, lte: sunday },
+    },
+    orderBy: { date: 'asc' },
+  });
+
+  const recordsByEmployee = new Map<string, typeof records>();
+  for (const r of records) {
+    const list = recordsByEmployee.get(r.employeeId) || [];
+    list.push(r);
+    recordsByEmployee.set(r.employeeId, list);
+  }
+
+  const alerts: NOM035Alert[] = [];
+  const weekStartISO = toISODate(monday);
+  const weekEndISO = toISODate(sunday);
+
+  for (const emp of employees) {
+    const empRecords = recordsByEmployee.get(emp.id) || [];
+
+    const weeklyOvertimeMinutes = empRecords.reduce(
+      (sum, r) => sum + (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0),
+      0
+    );
+
+    const maxDailyOvertimeMinutes = empRecords.reduce(
+      (max, r) => Math.max(max, (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0)),
+      0
+    );
+
+    let consecutiveLongDays = 0;
+    let maxStreak = 0;
+    for (const r of empRecords) {
+      const ot = (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0);
+      if (ot > 0) {
+        consecutiveLongDays++;
+        maxStreak = Math.max(maxStreak, consecutiveLongDays);
+      } else {
+        consecutiveLongDays = 0;
+      }
+    }
+    consecutiveLongDays = maxStreak;
+
+    const hasWeeklyRest = emp.workSchedules.some((s: any) => s.isWeeklyRest);
+
+    const baseInfo = {
+      employeeId: emp.id,
+      employeeName: emp.user.name,
+      employeeNumber: emp.employeeNumber,
+      sucursalId: emp.sucursalId,
+      sucursalName: emp.sucursal.name,
+      sucursalCodigoLocal: emp.sucursal.codigoLocal,
+      weekStart: weekStartISO,
+      weekEnd: weekEndISO,
+    };
+
+    const metric = {
+      weeklyOvertimeMinutes,
+      weeklyOvertimeCapMinutes: weeklyCap,
+      maxDailyOvertimeMinutes,
+      consecutiveLongDays,
+    };
+
+    if (weeklyOvertimeMinutes > weeklyCap) {
+      const excess = weeklyOvertimeMinutes - weeklyCap;
+      alerts.push({
+        ...baseInfo,
+        type: 'WEEKLY_OVERTIME_EXCEEDED',
+        level: excess > 180 ? 'HIGH' : 'MEDIUM',
+        title: `Exceso de horas extra semanales (${emp.user.name})`,
+        description: `${(weeklyOvertimeMinutes / 60).toFixed(1)}h extra esta semana (tope ${(weeklyCap / 60).toFixed(0)}h). Excedente: ${(excess / 60).toFixed(1)}h. Las horas que exceden el tope deben pagarse al TRIPLE (art. 68 LFT).`,
+        metric,
+        recommendation: 'Redistribuir carga, contratar personal, o autorizar expresamente las horas triple. Documentar la causa.',
+        legalReference: 'LFT art. 66/68 (tope semanal fijo 9h)',
+      });
+    }
+
+    if (maxDailyOvertimeMinutes > 240) {
+      alerts.push({
+        ...baseInfo,
+        type: 'DAILY_OVERTIME_EXCEEDED',
+        level: 'HIGH',
+        title: `Jornada diaria excesiva (${emp.user.name})`,
+        description: `Un día con ${(maxDailyOvertimeMinutes / 60).toFixed(1)}h extra (tope diario 4h, art. 66 LFT). El excedente no se paga como extra autorizada y constituye jornada no permitida.`,
+        metric,
+        recommendation: 'Evitar asignar >4h extra en un solo día. Si fue emergencia, documentarla.',
+        legalReference: 'LFT art. 66 (tope diario 4h)',
+      });
+    }
+
+    if (consecutiveLongDays >= 3) {
+      alerts.push({
+        ...baseInfo,
+        type: 'CONSECUTIVE_LONG_DAYS',
+        level: consecutiveLongDays >= 5 ? 'HIGH' : 'MEDIUM',
+        title: `Sobrecarga sostenida (${emp.user.name})`,
+        description: `${consecutiveLongDays} días consecutivos con horas extra esta semana. Patrón de sobrecarga que puede constituir factor de riesgo psicosocial.`,
+        metric,
+        recommendation: 'Revisar carga laboral y organizar turnos. Aplicar NOM-035 referencia identificación de riesgos.',
+        legalReference: 'LFT arts. 66/68; identificación de sobrecarga sostenida',
+      });
+    }
+
+    if (!hasWeeklyRest) {
+      alerts.push({
+        ...baseInfo,
+        type: 'NO_WEEKLY_REST',
+        level: 'HIGH',
+        title: `Sin día de descanso configurado (${emp.user.name})`,
+        description: 'El empleado no tiene ningún día marcado como descanso semanal en su horario. Incumplimiento del art. 71 LFT.',
+        metric,
+        recommendation: 'Editar el empleado y marcar al menos 1 día como "Descanso" en su horario.',
+        legalReference: 'LFT art. 71 (descanso semanal obligatorio)',
+      });
+    }
+
+    for (const r of empRecords) {
+      if (!r.isRestDayWorked) continue;
+      const workedMin = r.restDayWorkedMinutes ?? 0;
+      const level: AlertLevel = r.isSunday ? 'HIGH' : 'MEDIUM';
+      const dayLabel = r.isSunday ? 'domingo' : 'día de descanso';
+      alerts.push({
+        ...baseInfo,
+        type: 'REST_DAY_WORKED',
+        level,
+        title: `Día de descanso trabajado (${emp.user.name})`,
+        description: `El empleado trabajó en su ${dayLabel} el ${toISODate(r.date)}. Minutos trabajados: ${workedMin} (${(workedMin / 60).toFixed(1)}h). Aplica prima del 100% adicional sobre la jornada completa (art. 73 LFT).${r.isSunday ? ' Al ser domingo, también aplica prima dominical (art. 71 LFT).' : ''}`,
+        metric,
+        recommendation: 'Pagar jornada completa con prima del 100% adicional. Si fue domingo, también aplica prima dominical (art. 71 LFT).',
+        legalReference: 'LFT art. 73 (prima del 100% por descanso trabajado); art. 71 (prima dominical)',
+      });
+    }
+  }
+
+  return alerts;
 }
 
 export async function GET(req: NextRequest) {
@@ -71,28 +252,35 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const weekParam = searchParams.get('week') || 'current';
+    const startDateParam = searchParams.get('startDate');
+    const endDateParam = searchParams.get('endDate');
 
-    // Calcular rango de la semana (lun..dom, México)
-    const today = new Date();
-    const todayDow = getDayOfWeek(today); // 0=domingo..6=sábado
-    const daysFromMonday = (todayDow + 6) % 7; // lun=0, ..., dom=6
+    // Determinar el rango a consultar
+    let rangeStart: Date;
+    let rangeEnd: Date;
+    let isRangeMode = false;
 
-    let monday = new Date(today);
-    monday.setHours(0, 0, 0, 0);
-    monday.setDate(monday.getDate() - daysFromMonday);
-
-    if (weekParam === 'last') {
-      monday.setDate(monday.getDate() - 7);
+    if (startDateParam && endDateParam) {
+      // Modo rango: usar las fechas dadas (YYYY-MM-DD)
+      rangeStart = new Date(startDateParam + 'T00:00:00');
+      rangeEnd = new Date(endDateParam + 'T23:59:59');
+      isRangeMode = true;
+    } else {
+      // Modo semana (backward compat para NotificationBell)
+      const today = new Date();
+      const monday = getMondayOfWeek(today);
+      if (weekParam === 'last') {
+        monday.setDate(monday.getDate() - 7);
+      }
+      const sunday = new Date(monday);
+      sunday.setDate(sunday.getDate() + 7);
+      sunday.setMilliseconds(-1);
+      rangeStart = monday;
+      rangeEnd = sunday;
     }
 
-    const sunday = new Date(monday);
-    sunday.setDate(sunday.getDate() + 7);
-    sunday.setMilliseconds(-1); // fin del domingo
-
-    // Filtro por sucursal para SUCURSAL_ADMIN
     const sucursalFilter = getSucursalFilter(user);
 
-    // Cargar empleados activos de la sucursal
     const employees = await db.employee.findMany({
       where: {
         isActive: true,
@@ -109,187 +297,40 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ alerts: [], summary: { total: 0, high: 0, medium: 0, low: 0 } });
     }
 
-    // Cargar registros de asistencia de la semana
-    const records = await db.attendanceRecord.findMany({
-      where: {
-        employeeId: { in: employees.map((e) => e.id) },
-        date: { gte: monday, lte: sunday },
-      },
-      orderBy: { date: 'asc' },
-    });
+    // Dividir el rango en semanas ISO y computar alertas por semana
+    const weeks = splitIntoWeeks(rangeStart, rangeEnd);
+    const allAlerts: NOM035Alert[] = [];
 
-    // Agrupar registros por empleado
-    const recordsByEmployee = new Map<string, typeof records>();
-    for (const r of records) {
-      const list = recordsByEmployee.get(r.employeeId) || [];
-      list.push(r);
-      recordsByEmployee.set(r.employeeId, list);
-    }
-
-    const alerts: NOM035Alert[] = [];
-    const year = monday.getFullYear();
-    const weeklyCap = getWeeklyOvertimeCapMinutes(year); // 540 en 2027
-
-    for (const emp of employees) {
-      const empRecords = recordsByEmployee.get(emp.id) || [];
-
-      // 1. Acumulado semanal de horas extra (dobles + triples)
-      const weeklyOvertimeMinutes = empRecords.reduce(
-        (sum, r) => sum + (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0),
-        0
-      );
-
-      // 2. Máximo diario de horas extra
-      const maxDailyOvertimeMinutes = empRecords.reduce(
-        (max, r) => Math.max(max, (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0)),
-        0
-      );
-
-      // 3. Días consecutivos con horas extra (> 0)
-      let consecutiveLongDays = 0;
-      let maxStreak = 0;
-      for (const r of empRecords) {
-        const ot = (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0);
-        if (ot > 0) {
-          consecutiveLongDays++;
-          maxStreak = Math.max(maxStreak, consecutiveLongDays);
-        } else {
-          consecutiveLongDays = 0;
-        }
-      }
-      consecutiveLongDays = maxStreak;
-
-      // 4. Validar descanso semanal
-      const hasWeeklyRest = emp.workSchedules.some((s) => s.isWeeklyRest);
-
-      const sucursalCodigoLocal = emp.sucursal.codigoLocal;
-      const baseInfo = {
-        employeeId: emp.id,
-        employeeName: emp.user.name,
-        employeeNumber: emp.employeeNumber,
-        sucursalId: emp.sucursalId,
-        sucursalName: emp.sucursal.name,
-        sucursalCodigoLocal,
-      };
-
-      // Alerta: Tope semanal excedido
-      if (weeklyOvertimeMinutes > weeklyCap) {
-        const excess = weeklyOvertimeMinutes - weeklyCap;
-        alerts.push({
-          ...baseInfo,
-          type: 'WEEKLY_OVERTIME_EXCEEDED',
-          level: excess > 180 ? 'HIGH' : 'MEDIUM', // >3h de exceso = HIGH
-          title: `Exceso de horas extra semanales (${emp.user.name})`,
-          description: `${(weeklyOvertimeMinutes / 60).toFixed(1)}h extra esta semana (tope ${(weeklyCap / 60).toFixed(0)}h). Excedente: ${(excess / 60).toFixed(1)}h. Las horas que exceden el tope deben pagarse al TRIPLE (art. 68 LFT).`,
-          metric: {
-            weeklyOvertimeMinutes,
-            weeklyOvertimeCapMinutes: weeklyCap,
-            maxDailyOvertimeMinutes,
-            consecutiveLongDays,
-          },
-          recommendation: 'Redistribuir carga, contratar personal, o autorizar expresamente las horas triple. Documentar la causa.',
-          legalReference: 'LFT art. 66/68 (tope semanal fijo 9h)',
-        });
-      }
-
-      // Alerta: Tope diario excedido (art. 66 — 4h)
-      if (maxDailyOvertimeMinutes > 240) {
-        alerts.push({
-          ...baseInfo,
-          type: 'DAILY_OVERTIME_EXCEEDED',
-          level: 'HIGH',
-          title: `Jornada diaria excesiva (${emp.user.name})`,
-          description: `Un día con ${(maxDailyOvertimeMinutes / 60).toFixed(1)}h extra (tope diario 4h, art. 66 LFT). El excedente no se paga como extra autorizada y constituye jornada no permitida.`,
-          metric: {
-            weeklyOvertimeMinutes,
-            weeklyOvertimeCapMinutes: weeklyCap,
-            maxDailyOvertimeMinutes,
-            consecutiveLongDays,
-          },
-          recommendation: 'Evitar asignar >4h extra en un solo día. Si fue emergencia, documentarla.',
-          legalReference: 'LFT art. 66 (tope diario 4h)',
-        });
-      }
-
-      // Alerta: ≥3 días consecutivos con extra
-      if (consecutiveLongDays >= 3) {
-        alerts.push({
-          ...baseInfo,
-          type: 'CONSECUTIVE_LONG_DAYS',
-          level: consecutiveLongDays >= 5 ? 'HIGH' : 'MEDIUM',
-          title: `Sobrecarga sostenida (${emp.user.name})`,
-          description: `${consecutiveLongDays} días consecutivos con horas extra esta semana. Patrón de sobrecarga que puede constituir factor de riesgo psicosocial.`,
-          metric: {
-            weeklyOvertimeMinutes,
-            weeklyOvertimeCapMinutes: weeklyCap,
-            maxDailyOvertimeMinutes,
-            consecutiveLongDays,
-          },
-          recommendation: 'Revisar carga laboral y organizar turnos. Aplicar NOM-035 referencia identificación de riesgos.',
-          legalReference: 'LFT arts. 66/68; identificación de sobrecarga sostenida',
-        });
-      }
-
-      // Alerta: Sin descanso semanal
-      if (!hasWeeklyRest) {
-        alerts.push({
-          ...baseInfo,
-          type: 'NO_WEEKLY_REST',
-          level: 'HIGH',
-          title: `Sin día de descanso configurado (${emp.user.name})`,
-          description: 'El empleado no tiene ningún día marcado como descanso semanal en su horario. Incumplimiento del art. 71 LFT.',
-          metric: {
-            weeklyOvertimeMinutes,
-            weeklyOvertimeCapMinutes: weeklyCap,
-            maxDailyOvertimeMinutes,
-            consecutiveLongDays,
-          },
-          recommendation: 'Editar el empleado y marcar al menos 1 día como "Descanso" en su horario.',
-          legalReference: 'LFT art. 71 (descanso semanal obligatorio)',
-        });
-      }
-
-      // Alerta: Día de descanso trabajado (art. 73 LFT — prima del 100%)
-      // Una alerta por cada registro de la semana con isRestDayWorked=true.
-      for (const r of empRecords) {
-        if (!r.isRestDayWorked) continue;
-        const workedMin = r.restDayWorkedMinutes ?? 0;
-        const level: AlertLevel = r.isSunday ? 'HIGH' : 'MEDIUM';
-        const dayLabel = r.isSunday ? 'domingo' : 'día de descanso';
-        alerts.push({
-          ...baseInfo,
-          type: 'REST_DAY_WORKED',
-          level,
-          title: `Día de descanso trabajado (${emp.user.name})`,
-          description: `El empleado trabajó en su ${dayLabel} el ${toISODate(r.date)}. Minutos trabajados: ${workedMin} (${(workedMin / 60).toFixed(1)}h). Aplica prima del 100% adicional sobre la jornada completa (art. 73 LFT).${r.isSunday ? ' Al ser domingo, también aplica prima dominical (art. 71 LFT).' : ''}`,
-          metric: {
-            weeklyOvertimeMinutes,
-            weeklyOvertimeCapMinutes: weeklyCap,
-            maxDailyOvertimeMinutes,
-            consecutiveLongDays,
-          },
-          recommendation: 'Pagar jornada completa con prima del 100% adicional. Si fue domingo, también aplica prima dominical (art. 71 LFT).',
-          legalReference: 'LFT art. 73 (prima del 100% por descanso trabajado); art. 71 (prima dominical)',
-        });
-      }
+    for (const { monday, sunday } of weeks) {
+      const year = monday.getFullYear();
+      const weeklyCap = getWeeklyOvertimeCapMinutes(year);
+      const weekAlerts = await computeAlertsForWeek(monday, sunday, employees, weeklyCap);
+      allAlerts.push(...weekAlerts);
     }
 
     // Ordenar: HIGH primero, luego MEDIUM, luego LOW
     const levelOrder: Record<AlertLevel, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
-    alerts.sort((a, b) => levelOrder[a.level] - levelOrder[b.level]);
+    allAlerts.sort((a, b) => levelOrder[a.level] - levelOrder[b.level]);
 
+    // Para backward compat con NotificationBell: si es modo semana única,
+    // weekStart/weekEnd son los de esa semana. Si es modo rango, son el
+    // inicio/fin del rango completo.
     const summary = {
-      total: alerts.length,
-      high: alerts.filter((a) => a.level === 'HIGH').length,
-      medium: alerts.filter((a) => a.level === 'MEDIUM').length,
-      low: alerts.filter((a) => a.level === 'LOW').length,
-      weekStart: toISODate(monday),
-      weekEnd: toISODate(sunday),
-      weeklyOvertimeCapMinutes: weeklyCap,
+      total: allAlerts.length,
+      high: allAlerts.filter((a) => a.level === 'HIGH').length,
+      medium: allAlerts.filter((a) => a.level === 'MEDIUM').length,
+      low: allAlerts.filter((a) => a.level === 'LOW').length,
+      weekStart: toISODate(rangeStart),
+      weekEnd: toISODate(rangeEnd),
+      rangeStart: toISODate(rangeStart),
+      rangeEnd: toISODate(rangeEnd),
+      weeksCount: weeks.length,
+      isRangeMode,
+      weeklyOvertimeCapMinutes: getWeeklyOvertimeCapMinutes(rangeStart.getFullYear()),
       employeesChecked: employees.length,
     };
 
-    return NextResponse.json({ alerts, summary });
+    return NextResponse.json({ alerts: allAlerts, summary });
   } catch (error) {
     console.error('GET /api/alerts/nom-035 error:', error);
     return NextResponse.json(

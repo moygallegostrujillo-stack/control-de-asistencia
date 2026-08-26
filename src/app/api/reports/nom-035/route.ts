@@ -75,22 +75,38 @@ const LEVEL_LABELS: Record<AlertLevel, string> = {
   LOW: 'BAJA',
 };
 
-async function computeAlerts(weekParam: string, sucursalFilter: any) {
-  const today = new Date();
-  const todayDow = getDayOfWeek(today);
-  const daysFromMonday = (todayDow + 6) % 7;
+async function computeAlerts(
+  weekParam: string,
+  sucursalFilter: any,
+  startDateParam?: string | null,
+  endDateParam?: string | null
+) {
+  // Determinar el rango a consultar
+  let rangeStart: Date;
+  let rangeEnd: Date;
 
-  let monday = new Date(today);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(monday.getDate() - daysFromMonday);
+  if (startDateParam && endDateParam) {
+    // Modo rango: usar las fechas dadas (YYYY-MM-DD)
+    rangeStart = new Date(startDateParam + 'T00:00:00');
+    rangeEnd = new Date(endDateParam + 'T23:59:59');
+  } else {
+    // Modo semana (backward compat)
+    const today = new Date();
+    const todayDow = getDayOfWeek(today);
+    const daysFromMonday = (todayDow + 6) % 7;
 
-  if (weekParam === 'last') {
-    monday.setDate(monday.getDate() - 7);
+    rangeStart = new Date(today);
+    rangeStart.setHours(0, 0, 0, 0);
+    rangeStart.setDate(rangeStart.getDate() - daysFromMonday);
+
+    if (weekParam === 'last') {
+      rangeStart.setDate(rangeStart.getDate() - 7);
+    }
+
+    rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + 7);
+    rangeEnd.setMilliseconds(-1);
   }
-
-  const sunday = new Date(monday);
-  sunday.setDate(sunday.getDate() + 7);
-  sunday.setMilliseconds(-1);
 
   const employees = await db.employee.findMany({
     where: {
@@ -105,9 +121,69 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
   });
 
   if (employees.length === 0) {
-    return { alerts: [] as NOM035Alert[], monday, sunday, employeesCount: 0 };
+    return {
+      alerts: [] as NOM035Alert[],
+      monday: rangeStart,
+      sunday: rangeEnd,
+      employeesCount: 0,
+      weeklyCap: getWeeklyOvertimeCapMinutes(rangeStart.getFullYear()),
+    };
   }
 
+  // Dividir el rango en semanas ISO y computar alertas por semana
+  const weeks = splitIntoWeeks(rangeStart, rangeEnd);
+  const allAlerts: NOM035Alert[] = [];
+
+  for (const { monday, sunday } of weeks) {
+    const year = monday.getFullYear();
+    const weeklyCap = getWeeklyOvertimeCapMinutes(year);
+    const weekAlerts = await computeAlertsForWeek(monday, sunday, employees, weeklyCap);
+    allAlerts.push(...weekAlerts);
+  }
+
+  return {
+    alerts: allAlerts,
+    monday: rangeStart,
+    sunday: rangeEnd,
+    employeesCount: employees.length,
+    weeklyCap: getWeeklyOvertimeCapMinutes(rangeStart.getFullYear()),
+  };
+}
+
+/** Devuelve la fecha del lunes (00:00) de la semana ISO que contiene `date`. */
+function getMondayOfWeek(date: Date): Date {
+  const dow = getDayOfWeek(date);
+  const daysFromMonday = (dow + 6) % 7;
+  const monday = new Date(date);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - daysFromMonday);
+  return monday;
+}
+
+/** Divide un rango [start, end] en semanas ISO (lun..dom). */
+function splitIntoWeeks(start: Date, end: Date): { monday: Date; sunday: Date }[] {
+  const weeks: { monday: Date; sunday: Date }[] = [];
+  const cursor = getMondayOfWeek(start);
+  const endLimit = new Date(end);
+  endLimit.setHours(23, 59, 59, 999);
+
+  while (cursor <= endLimit) {
+    const sunday = new Date(cursor);
+    sunday.setDate(sunday.getDate() + 7);
+    sunday.setMilliseconds(-1);
+    weeks.push({ monday: new Date(cursor), sunday });
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return weeks;
+}
+
+/** Computa alertas de UNA semana para todos los empleados dados. */
+async function computeAlertsForWeek(
+  monday: Date,
+  sunday: Date,
+  employees: any[],
+  weeklyCap: number
+): Promise<NOM035Alert[]> {
   const records = await db.attendanceRecord.findMany({
     where: {
       employeeId: { in: employees.map((e) => e.id) },
@@ -124,8 +200,6 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
   }
 
   const alerts: NOM035Alert[] = [];
-  const year = monday.getFullYear();
-  const weeklyCap = getWeeklyOvertimeCapMinutes(year);
 
   for (const emp of employees) {
     const empRecords = recordsByEmployee.get(emp.id) || [];
@@ -153,7 +227,7 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
     }
     consecutiveLongDays = maxStreak;
 
-    const hasWeeklyRest = emp.workSchedules.some((s) => s.isWeeklyRest);
+    const hasWeeklyRest = emp.workSchedules.some((s: any) => s.isWeeklyRest);
 
     const baseInfo = {
       employeeId: emp.id,
@@ -243,10 +317,7 @@ async function computeAlerts(weekParam: string, sucursalFilter: any) {
     }
   }
 
-  const levelOrder: Record<AlertLevel, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
-  alerts.sort((a, b) => levelOrder[a.level] - levelOrder[b.level]);
-
-  return { alerts, monday, sunday, employeesCount: employees.length, weeklyCap };
+  return alerts;
 }
 
 async function generateXLSX(
@@ -461,6 +532,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const format = searchParams.get('format') || 'xlsx';
     const weekParam = searchParams.get('week') || 'current';
+    const startDateParam = searchParams.get('startDate');
+    const endDateParam = searchParams.get('endDate');
 
     if (!['xlsx', 'pdf'].includes(format)) {
       return NextResponse.json(
@@ -469,16 +542,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (!['current', 'last'].includes(weekParam)) {
-      return NextResponse.json(
-        { error: 'week inválido (current o last)' },
-        { status: 400 }
-      );
+    // Si no hay startDate/endDate, validar weekParam (backward compat).
+    if (!startDateParam || !endDateParam) {
+      if (!['current', 'last'].includes(weekParam)) {
+        return NextResponse.json(
+          { error: 'week inválido (current o last) o falta startDate/endDate' },
+          { status: 400 }
+        );
+      }
     }
 
     const sucursalFilter = getSucursalFilter(user);
 
-    const { alerts, monday, sunday, employeesCount, weeklyCap } = await computeAlerts(weekParam, sucursalFilter);
+    const { alerts, monday, sunday, employeesCount, weeklyCap } = await computeAlerts(
+      weekParam,
+      sucursalFilter,
+      startDateParam,
+      endDateParam
+    );
 
     const { ip, ua } = getIpAndUA(req);
     await auditLog({
@@ -491,10 +572,12 @@ export async function GET(req: NextRequest) {
       userAgent: ua,
       details: {
         performedBy: user.email,
-        reason: `Exportación reporte NOM-035 (${format})`,
+        reason: `Exportación reporte (${format})`,
         week: weekParam,
-        weekStart: toISODate(monday),
-        weekEnd: toISODate(sunday),
+        startDate: startDateParam || null,
+        endDate: endDateParam || null,
+        rangeStart: toISODate(monday),
+        rangeEnd: toISODate(sunday),
         alertsCount: alerts.length,
         highCount: alerts.filter(a => a.level === 'HIGH').length,
         mediumCount: alerts.filter(a => a.level === 'MEDIUM').length,

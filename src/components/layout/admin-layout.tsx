@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { DateTime } from 'luxon';
 import { useAuthStore } from '@/store/auth-store';
 import { useAppStore, type AdminView } from '@/store/app-store';
 import { authFetch } from '@/lib/fetch-helper';
@@ -16,7 +17,7 @@ import { roleLabel, sucursalLabel, can } from '@/lib/rbac';
 import type { AuthUser } from '@/lib/auth';
 import { useRealtime } from '@/hooks/use-realtime';
 import { cn } from '@/lib/utils';
-import { formatTimeInMexico, formatDateInMexico, formatMinutes, minutesToHours, formatDateTimeInMexico, getMexicoTodayISO, toISODate } from '@/lib/timezone';
+import { formatTimeInMexico, formatDateInMexico, formatMinutes, minutesToHours, formatDateTimeInMexico, getMexicoTodayISO, toISODate, MEXICO_TZ } from '@/lib/timezone';
 import { computeVacationDaysFrontend } from '@/lib/vacation-calculator';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -5813,12 +5814,23 @@ function NOM035View({ role }: { role: Role }) {
     low: number;
     weekStart?: string;
     weekEnd?: string;
+    rangeStart?: string;
+    rangeEnd?: string;
+    weeksCount?: number;
+    isRangeMode?: boolean;
     weeklyOvertimeCapMinutes?: number;
     employeesChecked?: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [week, setWeek] = useState<'current' | 'last'>('current');
+  // Rango de fechas seleccionado (default: semana actual, lun-dom).
+  // El usuario puede cambiar a cualquier rango: mes pasado, últimos 3 meses, etc.
+  const [dateRange, setDateRange] = useState<DateRangeValue>(() => {
+    const now = DateTime.now().setZone(MEXICO_TZ);
+    const start = now.startOf('week'); // lunes
+    const end = start.plus({ days: 6 }); // domingo
+    return { start: start.toFormat('yyyy-MM-dd'), end: end.toFormat('yyyy-MM-dd') };
+  });
   const [exporting, setExporting] = useState(false);
   const [exportingXlsx, setExportingXlsx] = useState(false);
 
@@ -5826,7 +5838,7 @@ function NOM035View({ role }: { role: Role }) {
     setLoading(true); setError(null);
     try {
       const data = await apiGet<{ alerts: NOM035AlertRow[]; summary: any }>(
-        `/api/alerts/nom-035?week=${week}`
+        `/api/alerts/nom-035?startDate=${dateRange.start}&endDate=${dateRange.end}`
       );
       setAlerts(data.alerts || []);
       setSummary(data.summary || null);
@@ -5835,7 +5847,7 @@ function NOM035View({ role }: { role: Role }) {
     } finally {
       setLoading(false);
     }
-  }, [week]);
+  }, [dateRange.start, dateRange.end]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -5855,10 +5867,8 @@ function NOM035View({ role }: { role: Role }) {
         'Recomendacion',
         'Referencia legal',
       ];
-      // Las alertas no tienen fecha por-registro; usamos el rango de semana del summary.
-      const fecha = summary?.weekStart && summary?.weekEnd
-        ? `${summary.weekStart} → ${summary.weekEnd}`
-        : (week === 'current' ? 'Semana actual' : 'Semana anterior');
+      // Las alertas no tienen fecha por-registro; usamos el rango seleccionado.
+      const fecha = `${dateRange.start} → ${dateRange.end}`;
       const esc = (v: unknown) => {
         const s = String(v ?? '');
         return s.includes(',') || s.includes('"') || s.includes('\n')
@@ -5885,9 +5895,8 @@ function NOM035View({ role }: { role: Role }) {
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      const weekLabel = summary?.weekStart || week;
       link.href = url;
-      link.download = `alertas_nom035_${weekLabel}.csv`;
+      link.download = `alertas_jornada_${dateRange.start}_a_${dateRange.end}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -5900,14 +5909,14 @@ function NOM035View({ role }: { role: Role }) {
     } finally {
       setExporting(false);
     }
-  }, [alerts, summary, week]);
+  }, [alerts, dateRange.start, dateRange.end]);
 
   // Export XLSX server-side (formato profesional con 3 hojas: Resumen, Alertas, Desglose).
-  // Llama a /api/reports/nom-035?format=xlsx&week=...
+  // Llama a /api/reports/nom-035?format=xlsx&startDate=...&endDate=...
   const exportXlsx = useCallback(async () => {
     setExportingXlsx(true);
     try {
-      const res = await fetch(`/api/reports/nom-035?format=xlsx&week=${week}`, {
+      const res = await fetch(`/api/reports/nom-035?format=xlsx&startDate=${dateRange.start}&endDate=${dateRange.end}`, {
         credentials: 'include',
       });
       if (!res.ok) {
@@ -5920,7 +5929,7 @@ function NOM035View({ role }: { role: Role }) {
       // Tomar filename del header Content-Disposition si viene, si no usar default
       const cd = res.headers.get('Content-Disposition') || '';
       const m = cd.match(/filename="([^"]+)"/);
-      const filename = m ? m[1] : `reporte_nom035_${week}.xlsx`;
+      const filename = m ? m[1] : `reporte_jornada_${dateRange.start}_a_${dateRange.end}.xlsx`;
       link.href = url;
       link.download = filename;
       document.body.appendChild(link);
@@ -5936,7 +5945,7 @@ function NOM035View({ role }: { role: Role }) {
     } finally {
       setExportingXlsx(false);
     }
-  }, [week]);
+  }, [dateRange.start, dateRange.end]);
 
   const total = summary?.total || 0;
   const high = summary?.high || 0;
@@ -5982,21 +5991,21 @@ function NOM035View({ role }: { role: Role }) {
                 Alertas de jornada excesiva (LFT arts. 66/68/71/73)
               </CardTitle>
               <CardDescription className="mt-1">
-                {summary?.weekStart && summary?.weekEnd
-                  ? `Semana ${summary.weekStart} → ${summary.weekEnd} · `
-                  : ''}
+                {summary?.rangeStart && summary?.rangeEnd
+                  ? `Periodo ${summary.rangeStart} → ${summary.rangeEnd}${summary.weeksCount && summary.weeksCount > 1 ? ` · ${summary.weeksCount} semanas` : ''} · `
+                  : summary?.weekStart && summary?.weekEnd
+                    ? `Periodo ${summary.weekStart} → ${summary.weekEnd} · `
+                    : ''}
                 {summary?.employeesChecked != null && `${summary.employeesChecked} empleados revisados · `}
                 Tope semanal: {summary?.weeklyOvertimeCapMinutes ? (summary.weeklyOvertimeCapMinutes / 60).toFixed(0) : 9}h
               </CardDescription>
             </div>
-            <div className="flex gap-2">
-              <Select value={week} onValueChange={(v) => setWeek(v as 'current' | 'last')}>
-                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="current">Semana actual</SelectItem>
-                  <SelectItem value="last">Semana anterior</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex flex-wrap items-end gap-2">
+              <DateRangePicker
+                value={dateRange}
+                onChange={(v) => setDateRange(v)}
+                className="min-w-[280px]"
+              />
               <Button
                 variant="outline"
                 size="sm"
