@@ -39,7 +39,12 @@ import {
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 
-const RETENTION_TOKEN = 'RETENTION_2027';
+// Token de cron: si RETENTION_CRON_TOKEN está seteado en env vars, se usa ese.
+// Si no, fallback a 'RETENTION_2027' para no romper el cron existente de Vercel.
+// 🔒 CLEANUP (26-ago-2026): el cliente debería setear RETENTION_CRON_TOKEN en
+// Vercel con un valor aleatorio seguro y actualizar vercel.json para que no
+// quede hardcoded en el repo. Por ahora mantenemos fallback para no romper nada.
+const RETENTION_TOKEN = process.env.RETENTION_CRON_TOKEN || 'RETENTION_2027';
 const RETENTION_MONTHS = 12;
 
 export async function POST(req: NextRequest) {

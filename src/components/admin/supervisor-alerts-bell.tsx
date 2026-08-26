@@ -88,10 +88,11 @@ export function SupervisorAlertsBell() {
     }
   }
 
-  // Cargar al montar y luego cada 2 minutos
+  // Cargar al montar y luego cada 5 minutos (reducido de 2 min para bajar
+  // tráfico innecesario en equipos de 16-50 empleados).
   useEffect(() => {
     loadAlerts();
-    intervalRef.current = setInterval(loadAlerts, 120_000); // 2 min
+    intervalRef.current = setInterval(loadAlerts, 300_000); // 5 min
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };

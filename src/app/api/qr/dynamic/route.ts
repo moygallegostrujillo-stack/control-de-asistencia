@@ -6,6 +6,15 @@
 //          DynamicQR con createdById = user.id y devuelve
 //          { code, expiresAt }.
 //          Pensado para la vista del terminal QR.
+//
+//   CLEANUP (26-ago-2026): eliminada la llamada auditLog con action
+//   QR_DYNAMIC_GENERATE. Cada generación (cada 60s) escribía una
+//   entrada en AuditLog → ~525,600 entradas/año (88% del volumen
+//   total de la bitácora). La tabla DynamicQR sigue siendo la fuente
+//   funcional de verdad (con expiresAt, used, createdById). El
+//   auditLog era 100% redundante y generaba ruido + costo de
+//   almacenamiento + queries lentas a futuro. LFPDPPP art. 31
+//   (supresión efectiva de datos innecesarios) también aplica.
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -17,7 +26,6 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { generateQRToken } from '@/lib/qr';
-import { auditLog, getIpAndUA } from '@/lib/audit';
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,7 +36,7 @@ export async function GET(req: NextRequest) {
     // Generar token HMAC.
     const { code, expiresAt } = generateQRToken();
 
-    // Persistir en DynamicQR.
+    // Persistir en DynamicQR (fuente de verdad funcional).
     const dynamicQR = await db.dynamicQR.create({
       data: {
         code,
@@ -38,19 +46,6 @@ export async function GET(req: NextRequest) {
       },
       select: { id: true, code: true, expiresAt: true },
     });
-
-    // Auditoría (sin bloquear la respuesta si falla).
-    const { ip, ua } = getIpAndUA(req);
-    await auditLog({
-      userId: user.id,
-      action: 'QR_DYNAMIC_GENERATE',
-      entityType: 'DYNAMIC_QR',
-      entityId: dynamicQR.id,
-      sucursalId: user.sucursalId || null,
-      ipAddress: ip,
-      userAgent: ua,
-      details: { expiresAt: expiresAt.toISOString() },
-    }).catch((e) => console.error('auditLog error:', e));
 
     return NextResponse.json({
       code: dynamicQR.code,

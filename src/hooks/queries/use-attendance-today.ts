@@ -82,9 +82,13 @@ export function useAttendanceToday(sucursalId?: string | null, dateISO?: string)
     },
     // Solo hacer polling cuando es hoy (datos en vivo).
     // Para fechas pasadas los datos son estáticos, no tiene sentido refrescar.
-    refetchInterval: isToday ? 20_000 : false,
+    // 26-ago-2026: subido de 20s a 60s — para 16-50 empleados con bajo
+    // volumen de check-ins, 20s era sobre-ingeniería (~280× excesivo).
+    // El servicio realtime (Socket.IO) si estuviera conectado invalidaría
+    // la query automáticamente; el poll es respaldo.
+    refetchInterval: isToday ? 60_000 : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: isToday,
-    staleTime: isToday ? 10_000 : 5 * 60_000, // históricos: 5 min de cache
+    staleTime: isToday ? 30_000 : 5 * 60_000, // históricos: 5 min de cache
   });
 }

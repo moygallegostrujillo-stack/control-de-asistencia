@@ -90,7 +90,10 @@ export function NotificationBell({ onViewAll }: Props) {
 
   useEffect(() => {
     fetchAlerts();
-    const interval = setInterval(fetchAlerts, 60_000); // 60s
+    // Polling cada 5 min (300s) en lugar de 60s — para 16-50 empleados con
+    // bajo volumen de check-ins, las alertas de jornada excesiva cambian al
+    // cierre de jornada, no minuto a minuto. Reduce tráfico innecesario.
+    const interval = setInterval(fetchAlerts, 300_000); // 5 min
     return () => clearInterval(interval);
   }, [fetchAlerts]);
 

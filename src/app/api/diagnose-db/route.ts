@@ -2,7 +2,15 @@
 // /api/diagnose-db
 //   GET — Diagnóstico de schema de la DB de producción.
 //          Verifica si las columnas críticas existen.
-//          Público (no expone datos sensibles, solo metadatos de schema).
+//          Público pero requiere token (DIAGNOSE_TOKEN env var o
+//          fallback a 'DIAGNOSE_2026' para retrocompatibilidad).
+//
+//   🔒 CLEANUP (26-ago-2026): token movido a env var DIAGNOSE_TOKEN.
+//   Antes estaba hardcoded en el código fuente → cualquier persona con
+//   acceso al repo podía invocar el endpoint y ver PII (email admin,
+//   saldos vacaciones de todos los empleados).
+//   Ahora: si DIAGNOSE_TOKEN está seteado en Vercel, se usa ese.
+//   Si no, se rechazan todas las peticiones (más seguro).
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -11,11 +19,11 @@ import { db } from '@/lib/db';
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const token = url.searchParams.get('token');
-  const DIAGNOSE_TOKEN = 'DIAGNOSE_2026';
+  const DIAGNOSE_TOKEN = process.env.DIAGNOSE_TOKEN;
 
-  if (token !== DIAGNOSE_TOKEN) {
+  if (!DIAGNOSE_TOKEN || token !== DIAGNOSE_TOKEN) {
     return NextResponse.json(
-      { error: 'Token requerido. Usa ?token=DIAGNOSE_2026' },
+      { error: 'Token requerido o inválido. Setea DIAGNOSE_TOKEN en env vars.' },
       { status: 403 }
     );
   }

@@ -78,18 +78,12 @@ const PUBLIC_PATHS = [
   '/api/download',
   '/api/diagrama/download',
   '/api/route',
-  // Migración de emergencia: requiere ?token=MIGRATE_NSS_FOLIO_2026 o
-  // ?token=MIGRATE_VAC_YEARS_2026 (ver handler). Es público a nivel middleware
-  // porque el login puede estar roto por falta de columnas; el handler valida
-  // el token internamente.
-  '/api/migrate',
+  // Eliminados en cleanup 26-ago-2026 (migraciones one-time ya aplicadas):
+  // - /api/migrate (add-nss-folio-imss, add-vacation-year-columns)
+  // - /api/vacations/bulk-load (carga masiva saldos vacaciones)
+  // Si en el futuro se requiere una migración pública, agregar la ruta aquí.
   // Diagnóstico de DB: requiere ?token=DIAGNOSE_2026 (ver handler).
   '/api/diagnose-db',
-  // Carga masiva de vacaciones: requiere ?token=BULK_VACATIONS_2026 (ver handler).
-  // Es público a nivel middleware para poder ejecutarlo sin sesión de admin
-  // (el handler valida el token internamente y también acepta sesión admin).
-  // Eliminado '/api/vacations/bulk-load' de PUBLIC_PATHS en commit de cleanup
-  // (migración completada 14-ago-2026). Si se necesita de nuevo, agregar aquí.
   // RT-P0.8: Retención 12 meses (LFT art. 804). Cron de Vercel ejecuta el día 1
   // de cada mes. Requiere ?token=RETENTION_2027 o sesión GENERAL_ADMIN.
   '/api/admin/retention/archive',

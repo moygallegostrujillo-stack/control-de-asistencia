@@ -25,9 +25,11 @@ export function useMyAttendance() {
       }
       return res.json();
     },
-    refetchInterval: 30_000,
+    // 26-ago-2026: subido de 30s a 120s — reduce tráfico innecesario para
+    // empleados que dejan la app abierta. El dato cambia pocas veces al día.
+    refetchInterval: 120_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
-    staleTime: 10_000,
+    staleTime: 60_000,
   });
 }
