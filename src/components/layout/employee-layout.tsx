@@ -68,6 +68,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { QrScanner } from '@/components/qr/qr-scanner';
+import { QrScannerIOS } from '@/components/qr/qr-scanner-ios';
 import { DateRangePicker } from '@/components/reports/date-range-picker';
 import {
   Clock,
@@ -237,6 +238,12 @@ const STATUS_LABEL: Record<string, string> = {
   ABSENT: 'Ausente',
   EARLY_LEAVE: 'Salida anticipada',
 };
+
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPad|iPod/.test(ua) || (/MacIntel/.test(navigator.platform || '') && navigator.maxTouchPoints > 1);
+}
 
 function statusBadgeClass(status: string): string {
   switch (status) {
@@ -990,14 +997,17 @@ function AttendanceView() {
 
                       {qrInputMode === 'scan' ? (
                         <div className="space-y-2">
-                          <QrScanner
-                            onScan={(code) => {
-                              void handleScan(code);
-                            }}
-                            onError={(err) =>
-                              toast.error('Error de cámara', { description: err })
-                            }
-                          />
+                          {isIOS() ? (
+                            <QrScannerIOS
+                              onScan={(code) => { void handleScan(code); }}
+                              onError={(err) => toast.error('Error de cámara', { description: err })}
+                            />
+                          ) : (
+                            <QrScanner
+                              onScan={(code) => { void handleScan(code); }}
+                              onError={(err) => toast.error('Error de cámara', { description: err })}
+                            />
+                          )}
                           <p className="text-xs text-muted-foreground text-center">
                             Apunta la cámara al QR del terminal. La acción seleccionada se
                             ejecutará automáticamente.
