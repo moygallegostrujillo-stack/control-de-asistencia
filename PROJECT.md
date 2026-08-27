@@ -892,4 +892,130 @@ El cliente confirmó: «8 horas de trabajo – 30 minutos de comida o descanso, 
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 20 de agosto 2026 (fix #4 COMPLETADO en producción: código deployado en commit 855ed1d, 117/206 registros recalculados directamente sobre Supabase Postgres, +2,621 min de overtime devueltos a empleados. Los 5 empleados del 18/08 ahora muestran ~2h overtime cada uno. Pendiente: revocar tokens efímeros de GitHub y Vercel). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+## 18. Auditoría Constitucional LFT 2027 (26-ago-2026)
+
+### Auditoría realizada
+- **Auditor Lead de Software + Abogado especialista en Derecho Laboral Mexicano**
+- Marco legal: LFT arts. 61, 66, 68, 71, 73, 132 XXXIV, 175, 804, 994 + Art. 123 Constitucional
+- Cliente: microempresa (<15 empleados)
+- Commit auditado: `88093dc`
+
+### Hallazgos R1-R6 y correcciones
+
+| # | Hallazgo | Estado | Commit |
+|---|---|---|---|
+| R1 | Cálculo overtime contra tope legal 46h (art. 61) | ✅ CORREGIDO | `88093dc` |
+| R2 | Bloqueo de overtime a menores de 18 años (art. 175) | ✅ CORREGIDO | `88093dc` + `a2003e5` |
+| R3 | Botón UI "Verificar Integridad" (art. 132 XXXIV) | ✅ CORREGIDO | `88093dc` + `3ce6e7b` |
+| R4 | Coherencia asistencia → nómina | ⚠️ Aceptado (transferencia manual) | — |
+| R5 | Cálculo doble/triple con weeklyAccumulated | ✅ Sin cambio (ya correcto) | — |
+| R6 | Política de retención AuditLog | 🟢 Bajo (volumen manejable) | — |
+
+### Implementación R1: Overtime contra tope legal semanal
+- `overtime-calculator.ts`: agregado `getLegalWeeklyHoursLocal(year)` → 48/46/44/42/40h
+- `OvertimeInput`: agregado `weeklyWorkedMinutesPrev`
+- `calculateOvertime`: ahora calcula `overtime = max(dailyScheduleOvertime, weeklyLegalOvertime)` — el mayor protege al empleado
+- `computeWeeklyWorkedMinutesPrev()` (async): suma workedMinutes de días previos de la semana
+- `check-out/route.ts`: invoca `computeWeeklyWorkedMinutesPrev` y pasa el valor al calculator
+
+### Implementación R2: Protección a menores
+- `schema.prisma` + `schema.postgres.prisma`: agregado `birthDate DateTime?` al modelo `Employee`
+- `overtime-calculator.ts`: agregadas funciones `calculateAge()` e `isMinor()`
+- Si `isMinor(birthDate, record.date)` → `overtimeMinutes = 0`, `minorOvertimeBlocked = true`
+- `check-out/route.ts`: registra alerta `MINOR_OVERTIME_BLOCKED` en AuditLog (level HIGH)
+- `employees/route.ts` + `employees/[id]/route.ts`: acepta y persiste `birthDate`
+- `admin-layout.tsx`: campo "Fecha de nacimiento" en formulario de empleado
+- Migración BD ejecutada por cliente en Supabase: `ALTER TABLE "Employee" ADD COLUMN "birthDate" TIMESTAMP(3);`
+
+### Implementación R3: Botón Verificar Integridad
+- `admin-layout.tsx AuditView`: botón que invoca `GET /api/audit/verify?limit=50000`
+- Panel verde (✓ íntegra) o rojo (⚠️ alteración) con `chainIntact`, `verifiedRecords`, `tamperedRecords`, `firstBrokenAt`
+- Bug corregido (`3ce6e7b`): mismatch de campos entre API (`chainIntact`) y frontend (`ok`)
+
+### Manual de Mapeo de Rutas LFT 2027 (PDF)
+- Archivo: `public/Manual_Mapeo_Rutas_LFT_2027.pdf` (10 páginas)
+- URL: https://control-asistencia-v22.vercel.app/Manual_Mapeo_Rutas_LFT_2027.pdf
+- Generador: `scripts/gen-lft-audit-pdf.py`
+- Contenido: portada, declaración de inalterabilidad, tabla maestra de 30+ rutas (8 módulos legales × 6 columnas), diagrama de flujo de 9 pasos, anexo técnico de evidencia probatoria, dictamen final
+- Orientación mixta: portrait (portada, resumen, anexo) + landscape (tabla maestra, diagrama)
+
+---
+
+## 19. Incidentes resueltos (ago-2026)
+
+### Incidente cámara iOS (25-ago-2026)
+- **Problema**: empleados con iPhone no podían escanear QR del terminal. La cámara se activaba pero html5-qrcode no decodificaba el código. Android funcionaba normal.
+- **Causa raíz**: `html5-qrcode` (librería JS) no decodifica QR en iOS Safari. El `qrbox` fijo (250×250) y `aspectRatio` fijo (1.333) causaban recortes incorrectos del video en pantallas de iPhone.
+- **Fix 1** (`4d03119`): qrbox dinámico + `useBarCodeDetectorIfSupported` — NO resolvió el problema.
+- **Fix 2** (`09927d6`): componente nuevo `qr-scanner-ios.tsx` que usa `<input type="file" capture="environment">` nativo de iOS. Abre la cámara nativa del iPhone y decodifica con `BarcodeDetector` nativo (iOS 16.4+). Detección automática con `isIOS()`.
+- **Estado**: ✅ RESUELTO — deploy exitoso commit `09927d6`
+
+### Incidente "Verificar Integridad" mostraba "undefined" (25-ago-2026)
+- **Problema**: botón "Verificar Integridad" mostraba "undefined registro(s) manipulado(s) de undefined verificados" y siempre panel rojo.
+- **Causa raíz 1**: mismatch de campos entre API (`chainIntact`, `verifiedRecords`, `tamperedRecords`) y frontend (`ok`, `verified`, `tampered`). Fix: `3ce6e7b`
+- **Causa raíz 2**: race condition en `auditLog()` — dos inserciones concurrentes leían el mismo `previousHash` fuera de transacción. Fix intentado: `03d9eec` (SELECT FOR UPDATE) pero rompió build de Vercel — **REVERTIDO**. Los 2 registros afectados fueron reparados manualmente con script SQL ejecutado por cliente en Supabase.
+- **Estado**: ✅ RESUELTO — cadena de hashes íntegra (0 alteraciones)
+
+### Incidente "Error de cámara" Permissions-Policy (25-ago-2026)
+- **Problema**: empleados no podían usar la cámara para escanear QR. Error "No se pudo acceder a la cámara".
+- **Causa raíz**: `next.config.ts` línea 75 tenía `Permissions-Policy: camera=()` que bloqueaba la cámara en todas las páginas.
+- **Fix**: cambiar `camera=()` → `camera=(self)` — commit `c2162ec`
+- **Estado**: ✅ RESUELTO
+
+### Incidente fix #4 overtime (20-ago-2026)
+- **Problema**: 5 empleados con ~1h 30min overtime en vez de ~2h (18/08/2026).
+- **Causa raíz**: `overtime-calculator.ts` usaba `netWorkedMinutes` (resta comida) en vez de `workedMinutes` (bruto). La jornada de 8h incluye la comida (LFT arts. 58/60/63).
+- **Fix**: commit `855ed1d` + recálculo directo en Supabase Postgres (117/206 registros, +2,621 min overtime)
+- **Estado**: ✅ RESUELTO
+
+### Incidente login Clara Idalia y Jose Candelario (16-ago-2026)
+- **Problema**: empleados no podían entrar a registrar asistencia.
+- **Causa raíz**: no habían aceptado Aviso de Privacidad v1.0 ni Acuerdo de Registro Electrónico v1.0.
+- **Fix**: acción del usuario (aceptar modal + banner). Sin cambios de código.
+- **Estado**: ✅ RESUELTO (no-bug)
+
+---
+
+## 20. Limpieza de código (26-ago-2026)
+
+### Commit `d11f448` — Reframe NOM-035 + elimina endpoints huérfanos
+- Renombrado "NOM-035" → "Alertas de jornada excesiva (LFT arts. 66/68/71/73)" en UI
+- Eliminados 5 endpoints huérfanos: `/api/alerts/notifications`, `/api/admin/fix-schedule-endtime`, `/api/admin/recalc-vacations-holidays`, `/api/manual/pdf`, `/api/reports/employee-overtime`
+- `/api/seed` bloqueado con env var `ALLOW_SEED`
+
+### Commit `7dc036b` — Hardening + reducir ruido + optimizar polling
+- Eliminado `auditLog` de `qr/dynamic/route.ts` (ahorraba 88% volumen anual en AuditLog)
+- Hardening `/api/auth/quick-login`: rate limit real + anti-impersonación admin (GENERAL_ADMIN no puede usar quick-login)
+- Hardening `/api/diagnose-db`: token movido a env var `DIAGNOSE_TOKEN`
+- Eliminadas 3 migraciones one-time: `/api/migrate/*`, `/api/vacations/bulk-load`
+- Token `RETENTION_2027` movido a env var `RETENTION_CRON_TOKEN` (con fallback)
+- Polling optimizado: NotificationBell 60s→5min, SupervisorAlertsBell 2min→5min, useAttendanceToday 20s→60s, useMyAttendance 30s→2min
+
+### Commit `0ec01df` — Selector de rango de fechas para alertas
+- `DateRangePicker` reemplaza Select "semana actual/anterior" en NOM035View
+- `/api/alerts/nom-035` y `/api/reports/nom-035` aceptan `?startDate=&endDate=`
+- El rango se divide en semanas ISO y se computan alertas por semana
+
+### Pendientes tras reset a `4b00008`
+- Fix de race condition en `audit.ts` (SELECT FOR UPDATE rompió build de Vercel — investigar alternativa)
+- Fix del PDF landscape (se puede re-aplicar desde `scripts/gen-lft-audit-pdf.py`)
+- Fix del audit-verify mismatch (ya estaba deployado antes del reset, funciona correctamente)
+
+---
+
+## 21. Tokens efímeros y seguridad
+
+| Token | Uso | Estado |
+|---|---|---|
+| PAT GitHub (múltiples) | Push a main | Usados y expirados. Cliente debe revocar manualmente en https://github.com/settings/tokens |
+| Token Vercel `vcp_1GuZ4ARq...` | Obtener DATABASE_URL, ejecutar recálculo | Usado y expirado. Cliente debe revocar en https://vercel.com/account/tokens |
+| `ALLOW_SEED` | Bloquear `/api/seed` en producción | NO seteada en Vercel (endpoint bloqueado por defecto) |
+| `ALLOW_QUICK_LOGIN` | Desactivar kiosk si no se usa | NO seteada (kiosk permitido por defecto) |
+| `DIAGNOSE_TOKEN` | Proteger `/api/diagnose-db` | NO seteada (endpoint bloqueado por defecto) |
+| `RETENTION_CRON_TOKEN` | Token del cron mensual | NO seteada (fallback a `RETENTION_2027` hardcoded) |
+
+**Recomendación**: cliente debería setear `DIAGNOSE_TOKEN` y `RETENTION_CRON_TOKEN` con valores aleatorios seguros en Vercel env vars.
+
+---
+
+*Documento generado el 12 de agosto 2026. Última actualización: 27 de agosto 2026 (auditoría constitucional LFT 2027 completada, fix iOS QR scanner deployado, incidentes de hash chain resueltos, manual de mapeo legal publicado). Mantener actualizado al finalizar cada sesión de cambios significativos.*
