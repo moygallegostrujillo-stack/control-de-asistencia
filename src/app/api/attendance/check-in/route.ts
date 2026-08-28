@@ -13,7 +13,6 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
-import { emitCheckIn } from '@/lib/realtime';
 import {
   getMexicoTodayDate,
   getMexicoTodayISO,
@@ -284,16 +283,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Emitir evento tiempo real (Socket.io) — no bloquea la respuesta
-    emitCheckIn({
-      employeeId,
-      employeeName: employee.user.name,
-      employeeNumber: employee.employeeNumber,
-      sucursalId: employee.sucursalId,
-      time: now.toISOString(),
-      method: checkMethod,
-      status,
-    }).catch(() => {});
+    // El servicio realtime (Socket.io) no está desplegado en producción.
+    // Se eliminó emitCheckIn() para evitar fetch a localhost:3003 que causaba
+    // timeout en Vercel serverless y "Load failed" en iOS Safari.
 
     return NextResponse.json({ record }, { status: 201 });
   } catch (error) {

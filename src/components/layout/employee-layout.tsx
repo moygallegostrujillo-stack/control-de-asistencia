@@ -576,8 +576,14 @@ function AttendanceView() {
       setQrCode('');
       invalidate();
     } catch (e) {
+      const errMsg = (e as Error).message;
+      // "Load failed" es un error específico de Safari/iOS que ocurre cuando
+      // la petición fetch falla a nivel de red (timeout, conexión rechazada, etc.)
+      const friendlyMsg = errMsg === 'Load failed' || errMsg.includes('Load failed')
+        ? 'Error de conexión. Verifica tu internet e intenta de nuevo.'
+        : errMsg;
       toast.error('No se pudo registrar la entrada', {
-        description: (e as Error).message,
+        description: friendlyMsg,
       });
     } finally {
       setSubmitting(null);
@@ -617,8 +623,12 @@ function AttendanceView() {
       setQrCode('');
       invalidate();
     } catch (e) {
+      const errMsg = (e as Error).message;
+      const friendlyMsg = errMsg === 'Load failed' || errMsg.includes('Load failed')
+        ? 'Error de conexión. Verifica tu internet e intenta de nuevo.'
+        : errMsg;
       toast.error('No se pudo registrar la salida', {
-        description: (e as Error).message,
+        description: friendlyMsg,
       });
     } finally {
       setSubmitting(null);
