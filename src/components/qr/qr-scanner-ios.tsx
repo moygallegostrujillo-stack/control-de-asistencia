@@ -1,10 +1,11 @@
 'use client';
 
 // Escáner QR para iOS/Safari usando cámara nativa del iPhone.
-// html5-qrcode no decodifica QR en iOS Safari. Este componente usa
-// <input type="file" capture="environment"> que abre la cámara nativa.
+// Toma una foto del QR y la decodifica con BarcodeDetector nativo
+// (iOS 16.4+) o jsQR como fallback.
 
 import { useRef, useState } from 'react';
+import jsQR from 'jsqr';
 import { Button } from '@/components/ui/button';
 import { Camera, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -22,6 +23,7 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
   const handleFile = async (file: File) => {
     setDecoding(true);
     try {
+      // Crear Image element
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.src = url;
@@ -29,10 +31,12 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
         img.onload = () => resolve();
         img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
       });
+
+      // Dibujar en canvas
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('No se pudo crear contexto');
-      const maxDim = 1500;
+      const maxDim = 2000;
       let w = img.width;
       let h = img.height;
       if (w > maxDim || h > maxDim) {
@@ -45,7 +49,7 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
       ctx.drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
 
-      // BarcodeDetector nativo (iOS 16.4+)
+      // Intento 1: BarcodeDetector nativo (iOS 16.4+)
       const BD = (window as any).BarcodeDetector;
       if (BD) {
         try {
@@ -56,11 +60,26 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
             return;
           }
         } catch {
-          // continuar al mensaje
+          // BarcodeDetector falló, continuar a jsQR
         }
       }
 
-      const msg = 'No se pudo leer el QR. Intenta acercarte más o usa modo Manual.';
+      // Intento 2: jsQR (fallback universal, siempre disponible)
+      try {
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: 'attemptBoth',
+        });
+        if (code && code.data) {
+          onScan(code.data);
+          return;
+        }
+      } catch {
+        // jsQR falló
+      }
+
+      // Si llegamos aquí, no se pudo decodificar
+      const msg = 'No se pudo leer el QR. Intenta acercarte más, mejorar la iluminación, o usa el modo Manual.';
       toast.error('QR no detectado', { description: msg });
       onError?.(msg);
     } catch (e) {
