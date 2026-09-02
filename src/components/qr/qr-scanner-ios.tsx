@@ -2,7 +2,7 @@
 
 // Escáner QR para iOS/Safari usando cámara nativa del iPhone.
 // Toma una foto del QR y la decodifica con BarcodeDetector nativo
-// (iOS 16.4+) o jsQR como fallback.
+// (iOS 16.4+) o jsQR como fallback, intentando múltiples tamaños.
 
 import { useRef, useState } from 'react';
 import jsQR from 'jsqr';
@@ -20,10 +20,24 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
   const inputRef = useRef<HTMLInputElement>(null);
   const [decoding, setDecoding] = useState(false);
 
+  const tryDecode = (canvas: HTMLCanvasElement): string | null => {
+    // Intento 1: BarcodeDetector nativo (iOS 16.4+)
+    const BD = (window as any).BarcodeDetector;
+    if (BD) {
+      try {
+        const detector = new BD({ formats: ['qr_code'] });
+        // BarcodeDetector.detect es async, pero no podemos await aquí.
+        // Se maneja separadamente abajo.
+      } catch {
+        // continuar a jsQR
+      }
+    }
+    return null;
+  };
+
   const handleFile = async (file: File) => {
     setDecoding(true);
     try {
-      // Crear Image element
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.src = url;
@@ -32,24 +46,25 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
         img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
       });
 
-      // Dibujar en canvas
+      // Canvas a tamaño original (con tope de 2000px)
+      const maxDim = 2000;
+      let ow = img.width;
+      let oh = img.height;
+      if (ow > maxDim || oh > maxDim) {
+        const scale = maxDim / Math.max(ow, oh);
+        ow = Math.floor(ow * scale);
+        oh = Math.floor(oh * scale);
+      }
+
+      // Intento 1: BarcodeDetector nativo con imagen original
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('No se pudo crear contexto');
-      const maxDim = 2000;
-      let w = img.width;
-      let h = img.height;
-      if (w > maxDim || h > maxDim) {
-        const scale = maxDim / Math.max(w, h);
-        w = Math.floor(w * scale);
-        h = Math.floor(h * scale);
-      }
-      canvas.width = w;
-      canvas.height = h;
-      ctx.drawImage(img, 0, 0, w, h);
+      canvas.width = ow;
+      canvas.height = oh;
+      ctx.drawImage(img, 0, 0, ow, oh);
       URL.revokeObjectURL(url);
 
-      // Intento 1: BarcodeDetector nativo (iOS 16.4+)
       const BD = (window as any).BarcodeDetector;
       if (BD) {
         try {
@@ -60,13 +75,13 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
             return;
           }
         } catch {
-          // BarcodeDetector falló, continuar a jsQR
+          // continuar a jsQR
         }
       }
 
-      // Intento 2: jsQR (fallback universal, siempre disponible)
+      // Intento 2: jsQR con imagen original
       try {
-        const imageData = ctx.getImageData(0, 0, w, h);
+        const imageData = ctx.getImageData(0, 0, ow, oh);
         const code = jsQR(imageData.data, imageData.width, imageData.height, {
           inversionAttempts: 'attemptBoth',
         });
@@ -75,7 +90,33 @@ export function QrScannerIOS({ onScan, onError, className }: QrScannerIOSProps) 
           return;
         }
       } catch {
-        // jsQR falló
+        // continuar
+      }
+
+      // Intento 3: jsQR con escalado a 1000px (mejor para QR densos)
+      for (const targetDim of [1000, 800, 600, 500, 400, 1200, 1500]) {
+        const scale = targetDim / Math.max(ow, oh);
+        if (scale === 1) continue; // ya intentamos tamaño original
+        const sw = Math.floor(ow * scale);
+        const sh = Math.floor(oh * scale);
+        const smallCanvas = document.createElement('canvas');
+        const smallCtx = smallCanvas.getContext('2d');
+        if (!smallCtx) continue;
+        smallCanvas.width = sw;
+        smallCanvas.height = sh;
+        smallCtx.drawImage(img, 0, 0, sw, sh);
+        try {
+          const imageData = smallCtx.getImageData(0, 0, sw, sh);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'attemptBoth',
+          });
+          if (code && code.data) {
+            onScan(code.data);
+            return;
+          }
+        } catch {
+          // continuar
+        }
       }
 
       // Si llegamos aquí, no se pudo decodificar

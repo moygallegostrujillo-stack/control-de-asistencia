@@ -6630,13 +6630,13 @@ function QRTerminalView() {
             <>
               <div className="rounded-xl border-2 border-zinc-200 p-4 bg-white">
                 {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="QR Code" width={300} height={300} />
+                  <img src={qrDataUrl} alt="QR Code" width={500} height={500} className="max-w-full h-auto" />
                 ) : qrError ? (
-                  <div className="w-[300px] h-[300px] flex items-center justify-center text-rose-700 text-sm p-4 text-center">
+                  <div className="w-[500px] h-[500px] max-w-full flex items-center justify-center text-rose-700 text-sm p-4 text-center">
                     {qrError}
                   </div>
                 ) : (
-                  <div className="w-[300px] h-[300px] flex items-center justify-center">
+                  <div className="w-[500px] h-[500px] max-w-full flex items-center justify-center">
                     <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
                   </div>
                 )}
