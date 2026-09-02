@@ -6057,6 +6057,18 @@ function NOM035View({ role }: { role: Role }) {
                   : <FileSpreadsheet className="h-4 w-4" />}
                 <span className="hidden sm:inline">Descargar XLSX</span>
               </Button>
+              <a
+                href="/api/download/manual-notificaciones"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 disabled:pointer-events-none disabled:opacity-50"
+                title="Descargar manual completo del sistema de notificaciones (PDF)"
+                aria-label="Descargar manual de notificaciones en PDF"
+                download
+              >
+                <BookOpen className="h-4 w-4" />
+                <span className="hidden sm:inline">Manual Notificaciones</span>
+              </a>
               <Button variant="outline" size="icon" onClick={load} disabled={loading} aria-label="Actualizar">
                 <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
               </Button>
