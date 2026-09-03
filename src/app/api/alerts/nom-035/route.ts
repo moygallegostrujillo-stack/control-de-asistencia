@@ -10,7 +10,10 @@
 //     - DAILY_OVERTIME_EXCEEDED: empleado con > 4h extra en un solo día
 //       (art. 66 LFT — tope diario).
 //     - CONSECUTIVE_LONG_DAYS: empleado con ≥ 3 días consecutivos con
-//       horas extra en la semana actual.
+//       horas extra en la semana actual. Solo cuentan días con overtime
+//       ≥ 30 min (umbral de materialidad — salidas 5-15 min tarde por
+//       tolerancia/cierre no constituyen sobrecarga psicosocial; esos
+//       minutos igual se pagan como extra).
 //     - NO_WEEKLY_REST: empleado sin día de descanso marcado en su
 //       horario (art. 71 LFT).
 //     - REST_DAY_WORKED: empleado con al menos un AttendanceRecord donde
@@ -29,6 +32,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import { DateTime } from 'luxon';
 import { db } from '@/lib/db';
 import {
   getAuthUser,
@@ -38,13 +42,26 @@ import {
   isAdmin,
 } from '@/lib/auth';
 import {
-  getDayOfWeek,
+  MEXICO_TZ,
   toISODate,
 } from '@/lib/timezone';
 import { getWeeklyOvertimeCapMinutes } from '@/lib/overtime-calculator';
 
 type AlertLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 type AlertType = 'WEEKLY_OVERTIME_EXCEEDED' | 'DAILY_OVERTIME_EXCEEDED' | 'CONSECUTIVE_LONG_DAYS' | 'NO_WEEKLY_REST' | 'REST_DAY_WORKED';
+
+// --- Case 2026-09-02 (Gabriela Alvarez) — umbral de materialidad ---
+// Un día solo cuenta como "día con horas extra" para la racha de
+// CONSECUTIVE_LONG_DAYS si el overtime de ESE día alcanza este mínimo.
+// Antes: ot > 0 (1 solo minuto ya contaba) → falsos positivos cuando el
+// empleado salía 5-15 min tarde (cierre de local, último cliente).
+// Esos minutos SE PAGAN como extra (fix #3 — tolerancia no se descuenta
+// del overtime devengado), pero 10 min/día NO constituyen una jornada
+// excesiva en el sentido de NOM-035 (riesgo psicosocial).
+// 30 min = media hora, unidad de referencia del art. 63 LFT (descanso
+// dentro de jornada). La nómina NO se ve afectada: el overtime devengado
+// sigue contándose minuto a minuto; esto solo filtra la alerta.
+const LONG_DAY_MIN_OT_MINUTES = 30;
 
 interface NOM035Alert {
   employeeId: string;
@@ -71,29 +88,43 @@ interface NOM035Alert {
   weekEnd?: string;
 }
 
-/** Devuelve la fecha del lunes (00:00) de la semana ISO que contiene `date`. */
+/**
+ * Devuelve el instante del LUNES 00:00 (America/Mexico_City) de la semana
+ * ISO (lun..dom) que contiene `date`.
+ *
+ * Caso Gabriela (2026-09-02): la versión anterior evaluaba el día de la
+ * semana en Mexico (getDayOfWeek) pero hacía la aritmética con setHours/
+ * setDate en la TZ DEL PROCESO (UTC en Vercel). Esa mezcla producía semanas
+ * desfasadas: un rango lun→dom se partía en [domingo→domingo] cortando o
+ * agrupando rachas de sobrecarga de forma incorrecta ("2 semanas" fantasma
+ * en la vista, alertas de racha con días de semanas distintas).
+ *
+ * Ahora todo el cálculo calendario se hace con luxon anclado a MEXICO_TZ:
+ * la semana calendario que el ADMIN ve en Mexico es la que se computa.
+ */
 function getMondayOfWeek(date: Date): Date {
-  const dow = getDayOfWeek(date); // 0=domingo..6=sábado
-  const daysFromMonday = (dow + 6) % 7; // lun=0, ..., dom=6
-  const monday = new Date(date);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(monday.getDate() - daysFromMonday);
-  return monday;
+  const dt = DateTime.fromJSDate(date, { zone: MEXICO_TZ }).startOf('day');
+  return dt.minus({ days: dt.weekday - 1 }).toJSDate(); // weekday: lunes=1..domingo=7
 }
 
-/** Divide un rango [start, end] en semanas ISO (lun..dom) y devuelve cada una. */
+/**
+ * Divide un rango [start, end] en semanas ISO (lun..dom) ANCLADAS A MEXICO.
+ * Cada semana va de lunes 00:00 a domingo 23:59:59.999 en America/Mexico_City
+ * (los instantes devueltos son UTC correctos para queries Prisma).
+ */
 function splitIntoWeeks(start: Date, end: Date): { monday: Date; sunday: Date }[] {
   const weeks: { monday: Date; sunday: Date }[] = [];
   const cursor = getMondayOfWeek(start);
-  const endLimit = new Date(end);
-  endLimit.setHours(23, 59, 59, 999);
+  const endLimit = DateTime.fromJSDate(end, { zone: MEXICO_TZ }).endOf('day').toJSDate();
 
-  while (cursor <= endLimit) {
-    const sunday = new Date(cursor);
+  let it = new Date(cursor);
+  while (it <= endLimit) {
+    const sunday = new Date(it);
     sunday.setDate(sunday.getDate() + 7);
-    sunday.setMilliseconds(-1); // fin del domingo
-    weeks.push({ monday: new Date(cursor), sunday });
-    cursor.setDate(cursor.getDate() + 7);
+    sunday.setMilliseconds(-1); // fin del domingo 23:59:59.999 (Mexico)
+    weeks.push({ monday: new Date(it), sunday });
+    it = new Date(it);
+    it.setDate(it.getDate() + 7);
   }
   return weeks;
 }
@@ -137,15 +168,26 @@ async function computeAlertsForWeek(
       0
     );
 
+    // Racha de "días largos": solo días con overtime >= LONG_DAY_MIN_OT_MINUTES
+    // cuentan (umbral de materialidad — ver nota en LONG_DAY_MIN_OT_MINUTES).
+    // streakMinutes acumula el overtime de la racha actual y maxStreakMinutes
+    // guarda el total de la racha más larga, para dar contexto en la alerta.
     let consecutiveLongDays = 0;
     let maxStreak = 0;
+    let streakMinutes = 0;
+    let maxStreakMinutes = 0;
     for (const r of empRecords) {
       const ot = (r.overtimeDoubleMinutes || 0) + (r.overtimeTripleMinutes || 0);
-      if (ot > 0) {
+      if (ot >= LONG_DAY_MIN_OT_MINUTES) {
         consecutiveLongDays++;
-        maxStreak = Math.max(maxStreak, consecutiveLongDays);
+        streakMinutes += ot;
+        if (consecutiveLongDays > maxStreak) {
+          maxStreak = consecutiveLongDays;
+          maxStreakMinutes = streakMinutes;
+        }
       } else {
         consecutiveLongDays = 0;
+        streakMinutes = 0;
       }
     }
     consecutiveLongDays = maxStreak;
@@ -168,6 +210,8 @@ async function computeAlertsForWeek(
       weeklyOvertimeCapMinutes: weeklyCap,
       maxDailyOvertimeMinutes,
       consecutiveLongDays,
+      longDayThresholdMinutes: LONG_DAY_MIN_OT_MINUTES,
+      streakTotalOvertimeMinutes: maxStreakMinutes,
     };
 
     if (weeklyOvertimeMinutes > weeklyCap) {
@@ -198,12 +242,13 @@ async function computeAlertsForWeek(
     }
 
     if (consecutiveLongDays >= 3) {
+      const streakH = (maxStreakMinutes / 60).toFixed(1);
       alerts.push({
         ...baseInfo,
         type: 'CONSECUTIVE_LONG_DAYS',
         level: consecutiveLongDays >= 5 ? 'HIGH' : 'MEDIUM',
         title: `Sobrecarga sostenida (${emp.user.name})`,
-        description: `${consecutiveLongDays} días consecutivos con horas extra esta semana. Patrón de sobrecarga que puede constituir factor de riesgo psicosocial.`,
+        description: `${consecutiveLongDays} días consecutivos con ≥${LONG_DAY_MIN_OT_MINUTES} min de horas extra (total ${maxStreakMinutes} min ≈ ${streakH}h en la racha). Patrón de sobrecarga que puede constituir factor de riesgo psicosocial.`,
         metric,
         recommendation: 'Revisar carga laboral y organizar turnos. Aplicar NOM-035 referencia identificación de riesgos.',
         legalReference: 'LFT arts. 66/68; identificación de sobrecarga sostenida',
@@ -261,9 +306,14 @@ export async function GET(req: NextRequest) {
     let isRangeMode = false;
 
     if (startDateParam && endDateParam) {
-      // Modo rango: usar las fechas dadas (YYYY-MM-DD)
-      rangeStart = new Date(startDateParam + 'T00:00:00');
-      rangeEnd = new Date(endDateParam + 'T23:59:59');
+      // Modo rango: interpretar las fechas (YYYY-MM-DD) como días calendario
+      // EN MEXICO (el admin mexicano elige "31/08" pensando en su día local,
+      // no en medianoche UTC, que en Mexico es 30/08 18:00 → semana desfasada).
+      // Caso Gabriela: este parseo UTC era parte del bug de "2 semanas fantasma".
+      rangeStart = DateTime.fromFormat(startDateParam, 'yyyy-MM-dd', { zone: MEXICO_TZ })
+        .startOf('day').toJSDate();
+      rangeEnd = DateTime.fromFormat(endDateParam, 'yyyy-MM-dd', { zone: MEXICO_TZ })
+        .endOf('day').toJSDate();
       isRangeMode = true;
     } else {
       // Modo semana (backward compat para NotificationBell)
@@ -312,16 +362,16 @@ export async function GET(req: NextRequest) {
     const levelOrder: Record<AlertLevel, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
     allAlerts.sort((a, b) => levelOrder[a.level] - levelOrder[b.level]);
 
-    // Para backward compat con NotificationBell: si es modo semana única,
-    // weekStart/weekEnd son los de esa semana. Si es modo rango, son el
-    // inicio/fin del rango completo.
+    // Summary — weekStart/weekEnd reflejan la PRIMERA y ÚLTIMA semana
+    // ISO (Mexico) realmente computadas (no el rango crudo ingresado),
+    // así la UI muestra "1 semana" y los bordes lun→dom correctos.
     const summary = {
       total: allAlerts.length,
       high: allAlerts.filter((a) => a.level === 'HIGH').length,
       medium: allAlerts.filter((a) => a.level === 'MEDIUM').length,
       low: allAlerts.filter((a) => a.level === 'LOW').length,
-      weekStart: toISODate(rangeStart),
-      weekEnd: toISODate(rangeEnd),
+      weekStart: toISODate(weeks[0].monday),
+      weekEnd: toISODate(weeks[weeks.length - 1].sunday),
       rangeStart: toISODate(rangeStart),
       rangeEnd: toISODate(rangeEnd),
       weeksCount: weeks.length,
