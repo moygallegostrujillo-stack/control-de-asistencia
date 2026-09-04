@@ -1018,4 +1018,70 @@ El cliente confirmó: «8 horas de trabajo – 30 minutos de comida o descanso, 
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 27 de agosto 2026 (auditoría constitucional LFT 2027 completada, fix iOS QR scanner deployado, incidentes de hash chain resueltos, manual de mapeo legal publicado). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+## 22. Cambios recientes (2-sep-2026) — Caso Gabriela + Manual de Notificaciones
+
+### 22.1 Caso Gabriela Alvarez — falso positivo "Sobrecarga sostenida" (2-sep-2026)
+
+**Contexto**: el cliente reportó que una empleada con apenas **minutos** de overtime (10–12 min/día) aparecía marcada como riesgo psicosocial (alerta `CONSECUTIVE_LONG_DAYS` — "Sobrecarga sostenida"). Investigación halló **dos bugs** corregidos en commit `fcc7d97`.
+
+#### BUG A — Umbral de materialidad de la racha (la causa directa del falso positivo)
+
+- **Antes**: la alerta `CONSECUTIVE_LONG_DAYS` contaba como "día con horas extra" **cualquier día con `ot > 0`**. Con 1 solo minuto ya contaba. Salidas de 5–15 min tarde (cierre de local, último cliente, tolerancia del sistema) acumulaban 3 días consecutivos y disparaban la alerta de riesgo psicosocial sin causa real.
+- **Ahora**: solo días con **overtime ≥ 30 min** cuentan para la racha. 30 min = media hora, unidad de referencia del art. 63 LFT (descanso dentro de jornada). La nómina **NO cambia**: el overtime devengado sigue contándose minuto a minuto (fix #3 previo sigue intacto — la tolerancia no se descuenta del overtime devengado). El umbral solo filtra la alerta.
+- **Constante**: `LONG_DAY_MIN_OT_MINUTES = 30` en `src/app/api/alerts/nom-035/route.ts`.
+- **Transparencia en la UI**: la descripción de la alerta ahora muestra el total de la racha en min + horas y el umbral aplicado. El `metric` agrega `longDayThresholdMinutes` y `streakTotalOvertimeMinutes`.
+
+#### BUG B — Semanas ISO desfasadas por zona horaria híbrida (afecta reportería)
+
+**Este es el fix que ayuda a la reportería / reportes (no "repostería" 😄).**
+
+- **Antes**: en el modo rango (`?startDate=&endDate=`) el cálculo calendario mezclaba dos zonas horarias. `getDayOfWeek()` evaluaba el día de la semana en `America/Mexico_City`, pero la aritmética (`setHours`, `setDate`) operaba en la **TZ del proceso** — en Vercel el proceso corre en **UTC**. Esa mezcla producía:
+  - Un rango seleccionado por el admin como `lun 31/08 → dom 06/09` se partía en **semanas desfasadas `[dom→dom]`** en vez de `[lun→dom]`.
+  - El summary devolvía "2 semanas fantasma" cuando el admin pedía visualmente 1 sola semana.
+  - Las rachas de sobrecarga se cortaban o agrupaban entre semanas distintas — una racha de 3 días que cruzaba de domingo a lunes se contaba como 2 rachas de 1–2 días y **no disparaba la alerta** (falso negativo), o por el contrario se sumaban días de semanas distintas en una sola racha (falso positivo).
+  - Los reportes XLSX y los conteos de alertas por semana quedaban desfasados respecto a lo que el admin mexicano ve en el calendario de su pantalla.
+- **Ahora**: todo el cálculo calendario se hace con **luxon anclado a `MEXICO_TZ`**:
+  - `getMondayOfWeek(date)` → `DateTime.fromJSDate(date, { zone: MEXICO_TZ }).startOf('day').minus({ days: dt.weekday - 1 })` — el lunes 00:00 Mexico correcto.
+  - `splitIntoWeeks(start, end)` → cada semana va de **lunes 00:00 a domingo 23:59:59.999 en `America/Mexico_City`** (los instantes devueltos son UTC correctos para los `where` de Prisma).
+  - El `startDate`/`endDate` del DateRangePicker se parsea como día calendario **Mexico** (no medianoche UTC), eliminando el desfase.
+  - El `summary.weekStart`/`weekEnd` refleja la primera y última semana ISO realmente computadas (no el rango crudo ingresado), así la UI muestra "1 semana" y los bordes `lun→dom` correctos.
+- **Beneficio en reportería**:
+  1. El conteo de alertas por semana ISO ahora coincide **exactamente** con las semanas calendario que el admin mexicano ve en pantalla.
+  2. Los reportes XLSX y los resúmenes de NOM-035 ya no muestran "2 semanas fantasma" ni fragmentan rachas que cruzan el límite `dom→lun`.
+  3. La trazabilidad de las alertas es consistente: una alerta de la semana 36 corresponde a los mismos 7 días en todos los reportes, sin importar dónde se ejecute el proceso (Vercel UTC, local Mexico, etc.).
+  4. Base sólida para futuras reportes mensuales/trimestrales: el agrupamiento por semana ISO será correcto y reproducible.
+
+#### Test E2E de regresión
+
+`scripts/test-nom035-streak-fix.ts` verifica 3 casos contra el API real:
+1. 3 días con 10/12/8 min extra (caso Gabriela) → **NO** genera alerta ✅
+2. 3 días con 45/50/40 min extra (racha real) → genera alerta MEDIUM con total `135 min ≈ 2.3h` en la descripción ✅
+3. 2 días grandes (45/50) + 1 día trivial (10) → **NO** genera alerta (racha rota < 3) ✅
+
+Uso: `bun run scripts/test-nom035-streak-fix.ts` (requiere dev server local + admin@control.com).
+
+#### Commits del fix
+
+- `fcc7d97` — fix(nom-035): umbral materialidad racha + semanas ISO ancladas a Mexico
+- `d45e64b` — chore: marcar test como ejecutable
+- Subidos a `origin/main` el 3-sep-2026; Vercel redeploya automáticamente.
+
+### 22.2 Manual de Notificaciones (PDF) — 1-sep-2026
+
+- **Sistema de notificaciones analizado exhaustivamente**: 2 tipos de bells (NOM-035 + Supervisor), 10 alertas en bells + 3 eventos de audit log al check-out.
+- **Generador**: `scripts/gen-notifications-pdf.py` (ReportLab, A4, 13 páginas).
+- **Salida**: `public/documentos/manual-de-notificaciones.pdf` (38,443 bytes).
+- **Endpoint público**: `GET /api/download/manual-notificaciones` — devuelve `application/pdf` con `Content-Disposition: attachment; filename="manual-de-notificaciones.pdf"`, `Cache-Control: no-cache`, `X-Content-Type-Options: nosniff`. Devuelve 404 JSON si el archivo falta. La ruta `/api/download/*` está en `PUBLIC_PATHS` de `src/middleware.ts` (no requiere auth).
+- **Botón en UI**: toolbar de la vista NOM-035 en `admin-layout.tsx`, junto a "Descargar XLSX" — ícono `BookOpen`, texto "Manual Notificaciones", abre en pestaña nueva con `download`.
+- **Commits**: incluidos en los 28 commits subidos a producción (sección 22.3).
+
+### 22.3 Deploy a producción con PAT (3-sep-2026)
+
+- 28 commits acumulados desde `cc9aff5` (fix iOS QR) fueron subidos a `origin/main` usando un PAT efímero proporcionado por el cliente. Deploy final: `debab14..d45e64b` (3 commits, segundo lote).
+- Producción confirmada: `https://control-asistencia-v22.vercel.app/api/download/manual-notificaciones` devuelve HTTP 200, `application/pdf`, 38,443 bytes, 13 páginas.
+- Botón "Manual Notificaciones" verificado visible en producción (VLM sobre screenshot).
+- **Seguridad**: el PAT quedó expuesto en el chat y debe ser revocado por el cliente en https://github.com/settings/tokens tras confirmar el deploy.
+
+---
+
+*Documento generado el 12 de agosto 2026. Última actualización: 3 de septiembre 2026 (caso Gabriela — fix NOM-035 umbral materialidad racha + semanas ISO ancladas a Mexico, manual de notificaciones PDF deployado, push a producción con PAT efímero). Mantener actualizado al finalizar cada sesión de cambios significativos.*
