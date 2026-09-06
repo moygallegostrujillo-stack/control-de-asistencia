@@ -1218,6 +1218,18 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                           ? `${formatTimeInMexico(r.mealStart || r.restStart)} - ${formatTimeInMexico(r.mealEnd || r.restEnd)}`
                           : '—';
                         const method = r.checkInMethod || r.checkOutMethod || '—';
+                        // --- Caso José/Lucía (3-sep-2026): método del descanso ---
+                        // mealStartMethod/mealEndMethod indican si el break se
+                        // inició/terminó por QR o MANUAL. Si ambos coinciden,
+                        // mostramos un solo badge; si difieren, dos.
+                        const mealStartM = r.mealStartMethod || r.restStartMethod || null;
+                        const mealEndM = r.mealEndMethod || r.restEndMethod || null;
+                        const breakMethodLabel =
+                          mealStartM && mealEndM && mealStartM === mealEndM
+                            ? mealStartM
+                            : mealStartM || mealEndM
+                              ? `${mealStartM || '—'}/${mealEndM || '—'}`
+                              : null;
                         const hasLocation = !!(r.checkInLat && r.checkInLong);
                         return (
                           <TableRow key={r.id} className="hover:bg-muted/40">
@@ -1243,6 +1255,25 @@ function DashboardView({ role, userSucursalId }: DashboardViewProps) {
                               <div className="flex items-center gap-1">
                                 {(r.mealStart || r.restStart) && <Coffee className="h-3 w-3 text-amber-500" />}
                                 <span>{mealStr}</span>
+                                {breakMethodLabel && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span
+                                        className={`inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium ${
+                                          breakMethodLabel === 'QR'
+                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                                        }`}
+                                        title={`Descanso iniciado/terminado por: ${breakMethodLabel}`}
+                                      >
+                                        {breakMethodLabel === 'QR' ? 'QR' : 'Manual'}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Método del descanso: {breakMethodLabel}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
                                 {(r.mealExceeded || r.restExceeded) && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>

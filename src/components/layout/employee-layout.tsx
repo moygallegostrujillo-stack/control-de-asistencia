@@ -8,7 +8,7 @@
 // Palette: zinc/emerald/amber/rose (no indigo).
 // ============================================================
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth-store';
 import { useAppStore, type EmployeeView } from '@/store/app-store';
@@ -489,6 +489,15 @@ function AttendanceView() {
     'check-in' | 'check-out' | 'meal-start' | 'meal-end'
   >('check-in');
 
+  // --- Caso José/Lucía (3-sep-2026) — anti-doble-escaneo ---
+  // Cooldown tras una acción exitosa: si un segundo escaneo llega dentro
+  // de esta ventana, se rechaza con un mensaje claro. Previene que el
+  // auto-advance del useEffect de abajo dispare meal-start justo después
+  // de un check-in (caso José) o meal-end justo después de meal-start
+  // (caso Lucía).
+  const ACTION_COOLDOWN_MS = 4000;
+  const lastActionAtRef = useRef<number>(0);
+
   const employeeId = user?.employeeId ?? null;
   const todayResponse = data as TodayResponse | undefined;
   const record = todayResponse?.record ?? null;
@@ -573,6 +582,7 @@ function AttendanceView() {
       toast.success('Entrada registrada', {
         description: `Registrada a las ${formatTimeInMexico(res.record.checkInTime)}`,
       });
+      lastActionAtRef.current = Date.now();
       setQrCode('');
       invalidate();
     } catch (e) {
@@ -620,6 +630,7 @@ function AttendanceView() {
       toast.success('Fin de jornada registrado', {
         description: `Salida: ${formatTimeInMexico(res.record.checkOutTime)} · Trabajadas: ${formatMinutes(res.workedMinutes)}`,
       });
+      lastActionAtRef.current = Date.now();
       setQrCode('');
       invalidate();
     } catch (e) {
@@ -635,16 +646,21 @@ function AttendanceView() {
     }
   };
 
-  const handleMealToggle = async () => {
+  const handleMealToggle = async (
+    opts?: { method?: 'QR' | 'MANUAL'; qrCode?: string },
+  ) => {
     if (!record) return;
+    const breakMethod: 'QR' | 'MANUAL' = opts?.method ?? 'MANUAL';
+    const breakQrCode = opts?.qrCode?.trim() || undefined;
     if (!record.mealStart) {
       setSubmitting('meal-start');
       try {
         const res = await apiSend<{ record: TodayRecord; message?: string }>(
           '/api/attendance/meal-start',
           'POST',
-          {},
+          { method: breakMethod, qrCode: breakMethod === 'QR' ? breakQrCode : undefined },
         );
+        lastActionAtRef.current = Date.now();
         toast.success('Descanso iniciado', {
           description: res.message || 'Recuerde terminar antes de 30 minutos.',
         });
@@ -664,7 +680,11 @@ function AttendanceView() {
           mealDurationMinutes: number;
           mealExceeded: boolean;
           message?: string;
-        }>('/api/attendance/meal-end', 'POST', {});
+        }>('/api/attendance/meal-end', 'POST', {
+          method: breakMethod,
+          qrCode: breakMethod === 'QR' ? breakQrCode : undefined,
+        });
+        lastActionAtRef.current = Date.now();
         if (res.mealExceeded) {
           toast.warning('Descanso terminado con exceso', {
             description: res.message || `Duración: ${res.mealDurationMinutes} min`,
@@ -713,12 +733,28 @@ function AttendanceView() {
     return actions;
   }, [isCheckedIn, isCheckedOut, record?.mealStart, record?.mealEnd]);
 
-  // Mantener pendingAction sincronizado con las acciones disponibles.
+  // --- Caso José/Lucía (3-sep-2026) — auto-advance defensivo ---
+  // ANTES: este useEffect saltaba silenciosamente pendingAction a
+  // availableActions[0] tras cada acción. Eso causaba:
+  //  - José: tras check-in, pendingAction saltaba a 'meal-start'; un segundo
+  //    escaneo (re-tap iOS, autoStop lento) disparaba meal-start → descanso
+  //    no deseado.
+  //  - Lucía: tras meal-start, pendingAction saltaba a 'meal-end'; un segundo
+  //    escaneo disparaba meal-end → descanso cerrado al instante.
+  // AHORA: solo avanzamos si la acción ACTUALMENTE seleccionada ya no es
+  // válida (ej. acabas de hacer check-in y pendingAction sigue en
+  // 'check-in'). Y mostramos un toast info para que el usuario sepa que el
+  // selector cambió — nada de saltos silenciosos.
   useEffect(() => {
     if (availableActions.length === 0) return;
     const stillValid = availableActions.some((a) => a.value === pendingAction);
     if (!stillValid) {
-      setPendingAction(availableActions[0].value);
+      const next = availableActions[0].value;
+      setPendingAction(next);
+      const nextLabel = availableActions[0].label;
+      toast.info('Acción actualizada', {
+        description: `La siguiente acción disponible es: ${nextLabel}.`,
+      });
     }
   }, [availableActions, pendingAction]);
 
@@ -736,6 +772,22 @@ function AttendanceView() {
   const handleScan = async (code: string) => {
     if (submitting !== null) return; // ya hay una acción en curso
     if (!code) return;
+
+    // --- Caso José/Lucía (3-sep-2026) — cooldown anti-doble-escaneo ---
+    // Si acabamos de completar una acción (check-in, meal-start, etc.) hace
+    // menos de ACTION_COOLDOWN_MS, rechazamos el escaneo con un mensaje
+    // claro. Esto previene el bug donde un segundo escaneo rápido disparaba
+    // la siguiente acción en cola (meal-start tras check-in, o meal-end
+    // tras meal-start) porque el auto-advance del useEffect ya había
+    // cambiado pendingAction silenciosamente.
+    const elapsed = Date.now() - lastActionAtRef.current;
+    if (lastActionAtRef.current > 0 && elapsed < ACTION_COOLDOWN_MS) {
+      const waitSec = Math.ceil((ACTION_COOLDOWN_MS - elapsed) / 1000);
+      toast.warning('Espera un momento', {
+        description: `Tu acción anterior ya fue registrada. Espera ${waitSec}s antes de escanear de nuevo para evitar registros dobles.`,
+      });
+      return;
+    }
 
     // Validación de formato en cliente (defense-in-depth; la API valida HMAC de nuevo).
     if (code.startsWith('EMP:')) {
@@ -757,6 +809,9 @@ function AttendanceView() {
     setQrCode(code);
 
     // Disparar la acción seleccionada.
+    // Los breaks pasan method='QR' + qrCode para que el backend los registre
+    // como QR (caso José: antes el descanso se guardaba sin método → aparecía
+    // como manual en el admin).
     switch (pendingAction) {
       case 'check-in':
         if (!isCheckedIn) await handleCheckIn(code);
@@ -767,12 +822,15 @@ function AttendanceView() {
         else toast.info('No puedes registrar salida en este momento.');
         break;
       case 'meal-start':
-        if (isCheckedIn && !isCheckedOut && !record?.mealStart) await handleMealToggle();
-        else toast.info('No puedes iniciar descanso en este momento.');
+        if (isCheckedIn && !isCheckedOut && !record?.mealStart) {
+          await handleMealToggle({ method: 'QR', qrCode: code });
+        } else {
+          toast.info('No puedes iniciar descanso en este momento.');
+        }
         break;
       case 'meal-end':
         if (isCheckedIn && !isCheckedOut && record?.mealStart && !record?.mealEnd) {
-          await handleMealToggle();
+          await handleMealToggle({ method: 'QR', qrCode: code });
         } else {
           toast.info('No puedes terminar descanso en este momento.');
         }
@@ -1076,7 +1134,7 @@ function AttendanceView() {
                           ? 'bg-amber-600 hover:bg-amber-700 text-white'
                           : 'border-amber-300 text-amber-700 hover:bg-amber-50'
                       }`}
-                      onClick={() => handleMealToggle()}
+                      onClick={() => handleMealToggle({ method: 'MANUAL' })}
                       disabled={submitting !== null}
                     >
                       {submitting === 'meal-start' || submitting === 'meal-end' ? (

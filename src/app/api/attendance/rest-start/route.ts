@@ -1,7 +1,7 @@
 // ============================================================
 // POST /api/attendance/rest-start
 // Inicia el descanso (15 min) — solo turnos >= 8h
-// Body: { employeeId? }
+// Body: { employeeId?, method?: 'QR'|'MANUAL', qrCode?: string }
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,6 +14,7 @@ import {
 } from '@/lib/auth';
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { getMexicoTodayDate, getDayOfWeek } from '@/lib/timezone';
+import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
 
 const MIN_SHIFT_MINUTES = 8 * 60;
 
@@ -23,7 +24,11 @@ export async function POST(req: NextRequest) {
     if (!user) return unauthorizedResponse();
 
     const body = await req.json().catch(() => ({}));
-    const { employeeId: bodyEmployeeId } = body as { employeeId?: string };
+    const { employeeId: bodyEmployeeId, method, qrCode } = body as {
+      employeeId?: string;
+      method?: 'QR' | 'MANUAL';
+      qrCode?: string;
+    };
 
     let employeeId: string | undefined;
     if (bodyEmployeeId) {
@@ -38,6 +43,21 @@ export async function POST(req: NextRequest) {
         { error: 'ID de empleado es requerido' },
         { status: 400 }
       );
+    }
+
+    // --- Método de registro (QR vs MANUAL) — caso José/Lucía ---
+    const breakMethod: 'QR' | 'MANUAL' = method === 'QR' ? 'QR' : 'MANUAL';
+    if (breakMethod === 'QR' && qrCode) {
+      const dyn = validateQRToken(qrCode);
+      if (!dyn.valid) {
+        const stat = validateStaticEmployeeQR(qrCode);
+        if (!stat.valid) {
+          return NextResponse.json(
+            { error: dyn.reason || 'Código QR inválido' },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const todayDate = getMexicoTodayDate();
@@ -115,7 +135,10 @@ export async function POST(req: NextRequest) {
 
     const updated = await db.attendanceRecord.update({
       where: { id: record.id },
-      data: { restStart: now },
+      data: {
+        restStart: now,
+        restStartMethod: breakMethod,
+      },
     });
 
     await auditLog({
@@ -130,6 +153,7 @@ export async function POST(req: NextRequest) {
         employeeId,
         employeeName: record.employee.user.name,
         restStart: now.toISOString(),
+        method: breakMethod,
         performedBy: user.email,
       },
     });

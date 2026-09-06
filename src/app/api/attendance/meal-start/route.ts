@@ -1,7 +1,11 @@
 // ============================================================
 // POST /api/attendance/meal-start
 // Inicia el periodo de comida (solo turnos >= 8h)
-// Body: { employeeId? }
+// Body: { employeeId?, method?: 'QR'|'MANUAL', qrCode?: string }
+//
+// Caso José/Lucía (3-sep-2026): antes los descansos no registraban cómo
+// se iniciaron. Ahora method+qrCode permiten distinguir QR de MANUAL en
+// la BD (mealStartMethod) y el admin ve el método en el registro.
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,6 +19,7 @@ import {
 import { auditLog, getIpAndUA } from '@/lib/audit';
 import { emitBreakStart } from '@/lib/realtime';
 import { getMexicoTodayDate, getDayOfWeek } from '@/lib/timezone';
+import { validateQRToken, validateStaticEmployeeQR } from '@/lib/qr';
 
 const MIN_SHIFT_MINUTES = 8 * 60; // 8 horas
 
@@ -24,7 +29,11 @@ export async function POST(req: NextRequest) {
     if (!user) return unauthorizedResponse();
 
     const body = await req.json().catch(() => ({}));
-    const { employeeId: bodyEmployeeId } = body as { employeeId?: string };
+    const { employeeId: bodyEmployeeId, method, qrCode } = body as {
+      employeeId?: string;
+      method?: 'QR' | 'MANUAL';
+      qrCode?: string;
+    };
 
     // Resolver employeeId
     let employeeId: string | undefined;
@@ -40,6 +49,24 @@ export async function POST(req: NextRequest) {
         { error: 'ID de empleado es requerido' },
         { status: 400 }
       );
+    }
+
+    // --- Método de registro (QR vs MANUAL) — caso José/Lucía ---
+    // Si method='QR' Y viene qrCode, validar el QR (defense-in-depth: el
+    // frontend ya validó el formato). Si la validación falla, rechazar.
+    // method se normaliza a 'QR' | 'MANUAL' (cualquier otra cosa → MANUAL).
+    const breakMethod: 'QR' | 'MANUAL' = method === 'QR' ? 'QR' : 'MANUAL';
+    if (breakMethod === 'QR' && qrCode) {
+      const dyn = validateQRToken(qrCode);
+      if (!dyn.valid) {
+        const stat = validateStaticEmployeeQR(qrCode);
+        if (!stat.valid) {
+          return NextResponse.json(
+            { error: dyn.reason || 'Código QR inválido' },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const todayDate = getMexicoTodayDate();
@@ -121,7 +148,10 @@ export async function POST(req: NextRequest) {
 
     const updated = await db.attendanceRecord.update({
       where: { id: record.id },
-      data: { mealStart: now },
+      data: {
+        mealStart: now,
+        mealStartMethod: breakMethod,
+      },
     });
 
     await auditLog({
@@ -136,6 +166,7 @@ export async function POST(req: NextRequest) {
         employeeId,
         employeeName: record.employee.user.name,
         mealStart: now.toISOString(),
+        method: breakMethod,
         performedBy: user.email,
       },
     });

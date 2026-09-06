@@ -323,10 +323,19 @@ model AttendanceRecord {
   mealEnd                   DateTime?
   mealDurationMinutes       Int?
   mealExceeded              Boolean   @default(false)
+  // --- Método de registro del descanso (QR vs MANUAL vs GPS) — caso José/Lucía 3-sep-2026 ---
+  // Antes los breaks no registraban cómo se iniciaron/cerraron. Un descanso
+  // iniciado por QR era indistinguible de uno manual en la BD. Ahora cada
+  // acción de break guarda su método para auditoría y para que el admin vea
+  // "QR" o "MANUAL" en el registro.
+  mealStartMethod           String? // 'QR' | 'MANUAL' | 'GPS'
+  mealEndMethod             String? // 'QR' | 'MANUAL' | 'GPS'
   restStart                 DateTime?
   restEnd                   DateTime?
   restDurationMinutes       Int?
   restExceeded              Boolean   @default(false)
+  restStartMethod           String? // 'QR' | 'MANUAL' | 'GPS'
+  restEndMethod             String? // 'QR' | 'MANUAL' | 'GPS'
   status                    String    @default("PRESENT") // PRESENT|ABSENT|LATE|EARLY_LEAVE
   workedMinutes             Int?
   overtimeMinutes           Int? // total de minutos extra (legacy/agregado)

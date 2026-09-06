@@ -1084,4 +1084,72 @@ Uso: `bun run scripts/test-nom035-streak-fix.ts` (requiere dev server local + ad
 
 ---
 
-*Documento generado el 12 de agosto 2026. Última actualización: 3 de septiembre 2026 (caso Gabriela — fix NOM-035 umbral materialidad racha + semanas ISO ancladas a Mexico, manual de notificaciones PDF deployado, push a producción con PAT efímero). Mantener actualizado al finalizar cada sesión de cambios significativos.*
+## 23. Bugs QR — José (descanso fantasma) + Lucía (descanso instantáneo) (3-sep-2026)
+
+### 23.1 Contexto
+
+El cliente reportó dos bugs distintos del registro de asistencia por QR:
+
+1. **José**: al checar su inicio de jornada por QR, el sistema también le iniciaba el descanso al mismo tiempo. Además, en el sistema aparecía como si lo hubiera hecho "de la otra forma" (no QR). Ocurrió jueves y viernes.
+2. **Lucía**: al iniciar su descanso con QR, el sistema inició Y cerró el descanso al mismo tiempo (duración ≈ 0).
+
+### 23.2 Causa raíz — ambas compartían el mismo origen
+
+`src/components/layout/employee-layout.tsx` líneas 717-723 (antes del fix): un `useEffect` que **auto-avanzaba silenciosamente** `pendingAction` a `availableActions[0]` tras cada acción exitosa. Como el selector de acción es el que determina qué hace el siguiente escaneo QR, y un segundo escaneo (re-tap iOS, autoStop lento en non-iOS, o confusión del usuario) llegaba justo después, el sistema disparaba la **siguiente** acción en cola sin que el usuario lo quisiera:
+
+| Acción completada | `pendingAction` saltaba a | Segundo escaneo disparaba | Bug |
+|---|---|---|---|
+| check-in | `meal-start` | meal-start → descanso no deseado | **José** |
+| meal-start | `meal-end` | meal-end → descanso cerrado al instante | **Lucía** |
+
+**El backend no combinaba acciones** — cada API route hace una sola cosa. El bug era 100% frontend.
+
+### 23.3 Causa secundaria — Bug José "aparece como la otra forma"
+
+- `handleMealToggle` enviaba body vacío `{}` a `/api/attendance/meal-start` — **sin `method`, sin `qrCode`**.
+- El schema **no tenía** campos `mealStartMethod`/`mealEndMethod`/`restStartMethod`/`restEndMethod`.
+- Por tanto, los descansos iniciados por QR eran **indistinguibles en la BD** de los manuales → el admin los veía sin método → el cliente lo leía como "la otra forma".
+
+### 23.4 Fix aplicado (3 capas)
+
+#### Capa 1 — Frontend: eliminar auto-advance silencioso + cooldown anti-doble-escaneo
+- **`employee-layout.tsx`**: el `useEffect` auto-advance ahora solo avanza `pendingAction` si la acción actual se volvió inválida (ej. acabas de hacer check-in y el selector seguía en 'check-in'), Y muestra un `toast.info` avisando al usuario que el selector cambió — nada de saltos silenciosos.
+- **Cooldown de 4s** (`ACTION_COOLDOWN_MS = 4000`): un `useRef` (`lastActionAtRef`) registra cuándo se completó la última acción. Si un segundo escaneo llega dentro de la ventana, se rechaza con `toast.warning('Espera un momento...')` y no se ejecuta. Esto previene el doble escaneo en su origen.
+- `handleMealToggle` ahora acepta `{ method, qrCode }` y los envía al backend.
+- `handleScan` pasa `method: 'QR'` + `qrCode: code` a `handleMealToggle` para los breaks.
+- El botón manual "Iniciar/Terminar Descanso" pasa `method: 'MANUAL'` explícitamente.
+
+#### Capa 2 — Backend: guardar método + guard anti-doble-escaneo
+- **Schema** (`prisma/schema.prisma`): +4 columnas nullable — `mealStartMethod`, `mealEndMethod`, `restStartMethod`, `restEndMethod` (`String?`, valores `'QR' | 'MANUAL' | 'GPS'`). No rompe datos existentes.
+- **`meal-start/route.ts`**: acepta `method` + `qrCode`, valida QR si `method='QR'`, guarda `mealStartMethod`.
+- **`meal-end/route.ts`**: acepta `method` + `qrCode`, guarda `mealEndMethod`, **+ guard de mínima duración** — rechaza con HTTP 400 cerrar un descanso de < 1 minuto (`MIN_MEAL_MINUTES = 1`), con mensaje claro: *"Posiblemente fue un doble escaneo. Si quieres terminarlo, espera al menos 1 minuto; si quieres cancelarlo, usa Cancelar Descanso."*
+- **`rest-start/route.ts`** y **`rest-end/route.ts`**: mismo patrón por consistencia.
+
+#### Capa 3 — Admin UI: mostrar método del descanso
+- **`admin-layout.tsx`**: la columna "Descanso" de la tabla de asistencia ahora muestra un badge pequeño (QR en verde eserald, Manual en zinc) indicando cómo se inició/terminó el descanso. Tooltip con el detalle. Si `mealStartMethod` y `mealEndMethod` difieren, muestra ambos (`QR/MANUAL`).
+
+### 23.5 Verificación E2E
+
+Test directo contra la DB local + API real (`/tmp/test-guard.ts` y `/tmp/test-method-saved.ts`):
+
+| Test | Resultado |
+|---|---|
+| Meal-start con `method=QR` → ¿guarda `mealStartMethod='QR'` en la BD? | ✅ `mealStartMethod: QR` confirmado en DB |
+| Meal-end inmediato (< 1 min después de meal-start) → ¿rechaza con 400? | ✅ HTTP 400 + mensaje "doble escaneo" confirmado |
+| Lint (ESLint) | ✅ Sin errores |
+| Dev server arranca | ✅ HTTP 200 |
+| Login admin + aviso privacidad + dashboard | ✅ Panel carga con todos los botones, sin errores de consola |
+
+### 23.6 Commits del fix
+
+- (commits pendientes de hacer en esta sesión)
+- Schema: +4 columnas nullable `*Method` — requiere `bun run db:push` en producción (Supabase) tras el deploy.
+
+### 23.7 ⚠️ Acción requerida en producción tras el deploy
+
+1. **`bun run db:push`** en el entorno de producción (o migración SQL equivalente en Supabase) para añadir las 4 columnas nuevas a la tabla `AttendanceRecord`. Es no-destructivo (columnas nullable).
+2. Sin este paso, los endpoints `meal-start`/`meal-end`/`rest-start`/`rest-end` fallarían al intentar escribir `mealStartMethod`/etc. (columna inexistente en Postgres de prod).
+
+---
+
+*Documento generado el 12 de agosto 2026. Última actualización: 3 de septiembre 2026 (bugs QR José + Lucía — fix auto-advance + cooldown + método de descanso en schema/backend/UI; caso Gabriela resuelto previamente). Mantener actualizado al finalizar cada sesión de cambios significativos.*
