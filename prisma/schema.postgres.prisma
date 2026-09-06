@@ -321,10 +321,15 @@ model AttendanceRecord {
   mealEnd                   DateTime?
   mealDurationMinutes       Int?
   mealExceeded              Boolean   @default(false)
+  // --- Método de registro del descanso (QR vs MANUAL vs GPS) — caso José/Lucía 3-sep-2026 ---
+  mealStartMethod           String?
+  mealEndMethod             String?
   restStart                 DateTime?
   restEnd                   DateTime?
   restDurationMinutes       Int?
   restExceeded              Boolean   @default(false)
+  restStartMethod           String?
+  restEndMethod             String?
   status                    String    @default("PRESENT") // PRESENT|ABSENT|LATE|EARLY_LEAVE
   workedMinutes             Int?
   overtimeMinutes           Int? // total de minutos extra (legacy/agregado)
