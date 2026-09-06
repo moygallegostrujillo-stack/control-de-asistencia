@@ -1142,8 +1142,9 @@ Test directo contra la DB local + API real (`/tmp/test-guard.ts` y `/tmp/test-me
 
 ### 23.6 Commits del fix
 
-- (commits pendientes de hacer en esta sesión)
-- Schema: +4 columnas nullable `*Method` — requiere `bun run db:push` en producción (Supabase) tras el deploy.
+- `b12977a` — fix(qr): bugs José + Lucía — anti-doble-escaneo + método de descanso (8 archivos, +334/-21 líneas)
+- Subido a `origin/main` el 3-sep-2026. Vercel redeploya automáticamente.
+- Incluye: schema (+4 columnas nullable `*Method`), 4 API routes (meal-start/meal-end/rest-start/rest-end), 2 componentes frontend (employee-layout.tsx, admin-layout.tsx).
 
 ### 23.7 ⚠️ Acción requerida en producción tras el deploy
 
