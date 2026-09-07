@@ -322,12 +322,16 @@ model AttendanceRecord {
   mealDurationMinutes       Int?
   mealExceeded              Boolean   @default(false)
   // --- Método de registro del descanso (QR vs MANUAL vs GPS) — caso José/Lucía 3-sep-2026 ---
+  // mealStartMethod/mealEndMethod: cómo se inició/terminó la comida ('QR' | 'MANUAL' | 'GPS').
+  // Nullable para no romper registros históricos (anteriores al fix).
+  // El admin ve este valor como badge en la columna "Descanso" del Historial.
   mealStartMethod           String?
   mealEndMethod             String?
   restStart                 DateTime?
   restEnd                   DateTime?
   restDurationMinutes       Int?
   restExceeded              Boolean   @default(false)
+  // restStartMethod/restEndMethod: igual que meal*Method pero para descansos de 15 min.
   restStartMethod           String?
   restEndMethod             String?
   status                    String    @default("PRESENT") // PRESENT|ABSENT|LATE|EARLY_LEAVE
