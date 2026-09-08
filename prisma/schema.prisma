@@ -488,6 +488,17 @@ model AuditLog {
   // --- RT-P0.7: Hash chaining (tamper-evident audit log) ---
   previousHash String? // hash del registro anterior en la cadena (null para el primero o pre-chain)
   recordHash   String? // sha256(previousHash + campos de este registro)
+  // --- Fix race condition (8-sep-2026): secuencia atómica determinista ---
+  // Antes el ordenamiento usaba createdAt (DateTime), que NO es determinista
+  // cuando dos registros se insertan en el mismo segundo. Eso causaba que dos
+  // auditLog() concurrentes leyeran el mismo previousHash, calcularan su hash
+  // con ese mismo valor, y al insertarse el segundo, la cadena se rompía
+  // ("alteración detectada" — falso positivo). sequenceNumber es un entero
+  // único y monotónico: se asigna dentro de transacción con
+  // COALESCE(MAX(sequenceNumber), 0) + 1, garantizando orden determinista y
+  // sin huecos. El verificador (/api/audit/verify) ahora ordena por
+  // sequenceNumber ASC en vez de createdAt, eliminando la ambigüedad.
+  sequenceNumber Int    @unique
   createdAt    DateTime @default(now())
   user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -495,6 +506,7 @@ model AuditLog {
   @@index([createdAt])
   @@index([action])
   @@index([recordHash])
+  @@index([sequenceNumber])
 }
 
 // ============================================================

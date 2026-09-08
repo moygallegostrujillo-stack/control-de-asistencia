@@ -71,17 +71,21 @@ export async function GET(req: NextRequest) {
     }
 
     // ----------------------------------------------------------------
-    // Fetch de los registros: tomamos los `limit` más recientes en
-    // orden DESC y luego invertimos para procesar ASC.
+    // Fetch de los registros: ordenamos por sequenceNumber (determinista)
+    // en vez de createdAt (que no es determinista cuando dos registros
+    // se insertan en el mismo segundo — bug de la race condition).
+    // Tomamos los `limit` con MAYOR sequenceNumber (más recientes) y
+    // luego invertimos para procesar ASC.
     // Seleccionamos todos los campos que entran en el hash input.
     // ----------------------------------------------------------------
     const recordsRaw = await db.auditLog.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { sequenceNumber: 'desc' },
       take: limit,
       select: {
         id: true,
         createdAt: true,
+        sequenceNumber: true,
         userId: true,
         action: true,
         entityType: true,

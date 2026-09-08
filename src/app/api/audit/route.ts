@@ -91,7 +91,10 @@ export async function GET(req: NextRequest) {
         include: {
           user: { select: { id: true, name: true, email: true, role: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        // Ordenar por sequenceNumber (determinista) en vez de createdAt.
+        // sequenceNumber es monotónico y único, garantiza orden cronológico
+        // estable incluso cuando dos registros coinciden en el mismo segundo.
+        orderBy: { sequenceNumber: 'desc' },
         skip,
         take,
       }),

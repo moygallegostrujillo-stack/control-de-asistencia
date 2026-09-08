@@ -120,44 +120,86 @@ export async function auditLog(params: AuditParams): Promise<void> {
     const details = params.details ? JSON.stringify(params.details) : null;
 
     // ----------------------------------------------------------------
-    // RT-P0.7: Obtener el recordHash del registro más reciente para
-    // usarlo como previousHash. Si no existe registro previo, o si el
-    // registro previo era pre-chain (recordHash IS NULL), previousHash
-    // queda en null y el primer campo del hash será el literal 'null'.
+    // RT-P0.7 + Fix race condition (8-sep-2026): Obtener el siguiente
+    // sequenceNumber disponible Y el recordHash del registro anterior,
+    // ambos dentro de UNA transacción, para garantizar:
+    //   1) Orden determinista: sequenceNumber es único y monotónico.
+    //   2) Atomicidad: dos auditLog() concurrentes no pueden leer el
+    //      mismo previousHash — la transacción serializa la lectura.
+    //
+    // ANTES (bug): findFirst(createdAt desc) + create fuera de
+    // transacción. Dos requests concurrentes leían el mismo
+    // previousHash, calculaban su hash con ese mismo valor, y al
+    // insertarse el segundo, la cadena se rompía → "alteración
+    // detectada" (falso positivo).
+    //
+    // AHORA: db.$transaction con isolation level serializable (default
+    // en Postgres). Lee MAX(sequenceNumber) y el recordHash del
+    // registro con ese sequenceNumber, calcula el nuevo hash, e
+    // inserta con sequenceNumber = MAX + 1. Si dos transacciones
+    // compiten, una commita primero y la otra recibe el unique
+    // constraint violation; la retry captura el error y reintenta.
     // ----------------------------------------------------------------
-    const lastLog = await db.auditLog.findFirst({
-      orderBy: { createdAt: 'desc' },
-      select: { recordHash: true },
-    });
-    const previousHash = lastLog?.recordHash ?? null;
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+    while (true) {
+      attempt++;
+      try {
+        await db.$transaction(async (tx) => {
+          // Leer el registro con el MAYOR sequenceNumber (último en la cadena).
+          // Si la tabla está vacía o todos los registros son pre-chain
+          // (recordHash IS NULL), previousHash queda en null.
+          const lastLog = await tx.auditLog.findFirst({
+            orderBy: { sequenceNumber: 'desc' },
+            select: { sequenceNumber: true, recordHash: true },
+          });
+          const previousHash = lastLog?.recordHash ?? null;
+          const nextSeq = (lastLog?.sequenceNumber ?? 0) + 1;
 
-    // Calcular el recordHash determinista para ESTE registro.
-    const recordHash = computeAuditRecordHash({
-      previousHash,
-      userId,
-      action,
-      entityType,
-      entityId,
-      sucursalId,
-      ipAddress,
-      userAgent,
-      details,
-    });
+          // Calcular el recordHash determinista para ESTE registro.
+          const recordHash = computeAuditRecordHash({
+            previousHash,
+            userId,
+            action,
+            entityType,
+            entityId,
+            sucursalId,
+            ipAddress,
+            userAgent,
+            details,
+          });
 
-    await db.auditLog.create({
-      data: {
-        userId,
-        action,
-        entityType,
-        entityId,
-        sucursalId,
-        ipAddress,
-        userAgent,
-        details,
-        previousHash,
-        recordHash,
-      },
-    });
+          // Insertar con sequenceNumber atómico. Si otra transacción
+          // compitió y ya tomó este número, el unique constraint lanza
+          // P2002 que capturamos fuera para retry.
+          await tx.auditLog.create({
+            data: {
+              userId,
+              action,
+              entityType,
+              entityId,
+              sucursalId,
+              ipAddress,
+              userAgent,
+              details,
+              previousHash,
+              recordHash,
+              sequenceNumber: nextSeq,
+            },
+          });
+        });
+        // Si llegamos aquí, la transacción commiteó → done.
+        return;
+      } catch (e: any) {
+        // P2002 = unique constraint violation en sequenceNumber.
+        // Otro request concurrente tomó el mismo número. Reintentar.
+        if (e?.code === 'P2002' && attempt < MAX_RETRIES) {
+          continue;
+        }
+        // Otro error o agotados los retries: propagar al catch externo.
+        throw e;
+      }
+    }
   } catch (e) {
     // El logging de auditoría NUNCA debe romper la operación principal.
     console.error('auditLog error:', e);
